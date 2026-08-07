@@ -116,16 +116,39 @@ and against the working `iqm_markers.script` in
   stopping at the first/nearest-in-world hit — since the ranking needed is
   screen distance to the crosshair, not world distance to the actor, the
   full candidate set has to be walked rather than relying on the pre-sort.
-- **Line of sight**: each target-assist candidate is additionally checked
-  with `level.ray_pick(eye_pos, dir, dist, level.rq_target.rqtStatic,
-  level.rq_result(), nil)` (signature and the `level.rq_result()`
-  constructor confirmed at `src/xrGame/level_script.cpp:2080-2094,2654-2673`)
-  from the camera eye (`device().cam_pos`) toward roughly chest height on the
-  candidate; if a static hit lands closer than the candidate itself, they're
-  behind something and get skipped even if they're the closest screen-space
-  match. Toggleable (`require_los`); the raw raycast hits (weapon/camera
-  trace) don't need this check since a ray physically can't pass through
-  static geometry to begin with.
+  **Every candidate from every method — both direct raycasts and the FOV
+  fallback — is LOS-checked** (see below); a direct hit is not on its own
+  proof of visibility, so a blocked one is discarded and the next method is
+  tried instead of being trusted outright.
+- **Line of sight**: `has_los(target_obj)` calls `db.actor:see(target_obj)`
+  — `obj:see(other)` is bound at `src/xrGame/script_game_object_script2.cpp:138`
+  to `CScriptGameObject::CheckObjectVisibility`
+  (`src/xrGame/script_game_object.cpp:311`), which for the actor specifically
+  dispatches to `CActor::memory().visual().visible_now(...)`
+  (`script_game_object.cpp:320-333`, `CActorMemory` in
+  `src/xrGame/actor_memory.cpp`) — a real camera-driven (position/direction/FOV
+  straight from the active player camera) per-triangle occlusion raycast
+  against `rqtStatic|rqtObject|rqtObstacle` geometry, self-ignoring the
+  actor's own body, refreshed automatically roughly every 100ms
+  (`src/xrGame/vision_client.cpp`). This is the same primitive the engine's
+  own autoaim target-lock (`cameralook.cpp:180`) and PDA/map marker
+  visibility gating (`map_location.cpp:822`) already use for essentially
+  this purpose, so it's a well-exercised path rather than a one-off. This
+  took four hand-rolled raycast attempts (see Caveats) to arrive at —
+  raw `ray_pick`/`CRayPick`, correctly shaped per this engine's own
+  `Feel::Vision::o_trace` recipe (`rqtBoth`, normalized direction,
+  distance-compare against the hit, ignore-object set), still didn't
+  reliably block anything from Lua for reasons that stayed elusive without a
+  live install to test against, so this switches to the engine's existing,
+  proven-in-production visibility primitive instead of a fifth raycast
+  variant. One tradeoff: it's a smoothed/cached read (a short grace window
+  keeps a just-occluded target flagged visible a little longer, and
+  distance/lighting factor into the underlying accumulation — the same
+  model the AI's own "can I see the player" logic uses) rather than an
+  instantaneous geometric ray; fine for a deliberate keypress action, and
+  arguably a better match for "can I actually perceive this target" than a
+  bare ray anyway. Toggleable (`require_los`), applied uniformly to every
+  candidate from every selection method (see the Target bullet above).
 - **Faction**: `obj:character_community()` — a string id ("stalker",
   "bandit", "dolg", ...).
 - **Name**: `obj:character_name()`, falling back to a faction display name
@@ -192,17 +215,34 @@ sanity check on first run:
   push `max_dist` up toward its 500m ceiling in a busy area, expect the odd
   frame hitch on the identify keypress itself (not sustained, since it's not
   a per-frame cost).
-- **The line-of-sight ray_pick out-parameter pattern is the one piece of API
-  usage here I'm least certain of.** `level.ray_pick(start, dir, range, tgt,
-  result, ignore)` takes `result` as a non-const C++ reference the function
-  writes into; I construct it once via the confirmed `level.rq_result()`
-  constructor and reuse it, which is the standard luabind calling
-  convention for a plain reference parameter with no default constructor
-  hidden behind it. It's `pcall`-wrapped and fails open (treats an error as
-  "visible") specifically because I couldn't test this against a live
-  engine — if targets past walls are still getting picked, or valid targets
-  in the open are getting skipped, this is the first place to check; toggle
-  `require_los` off in MCM as an immediate workaround either way.
+- **Line-of-sight has gone through five revisions; still worth confirming it
+  actually blocks now, since I have no live install to verify against.**
+  v1 called the free function `level.ray_pick(start, dir, range, tgt,
+  result, ignore)` with `result` as a non-const C++ reference out-parameter
+  — never blocked anything, consistent with that call erroring every time
+  and the fail-open fallback treating every candidate as visible. v2
+  switched to the class-based `ray_pick(...)`/`:query()`/`:get_distance()`
+  API to remove that ambiguity, but used `rqtStatic` and didn't pass the
+  target as the ignore-object — still didn't block. v3 switched to
+  `rqtBoth` and added the ignore-object — still didn't fully fix it, because
+  the check was only ever wired into the FOV-fallback path, not applied to
+  direct raycast hits. v4 applied the same raycast check uniformly to every
+  candidate from every selection method — confirmed via
+  `src/xrGame/HUDManager.cpp`'s `pick_trace_callback` that direct hits
+  genuinely needed this too (the engine's own crosshair pick keeps tracing
+  past semi-transparent materials like fences/glass/foliage rather than
+  stopping at the first surface) — but per your report, *still* didn't
+  block. At that point I stopped trusting my own raycast shape and had an
+  agent search this repo specifically for how the engine's own AI/perception
+  code does occlusion checks, rather than continue guessing at flags. v5
+  (current) replaced the hand-rolled raycast entirely with
+  `db.actor:see(target_obj)` (see the Line of sight bullet above) — the
+  engine's own first-class, already-proven-in-production visibility
+  primitive (used for autoaim and PDA marker gating), rather than a sixth
+  raycast variant. `has_los()` is still `pcall`-wrapped and fails open on
+  error, so if targets past walls are *still* getting picked after this,
+  toggle `require_los` off in MCM as an immediate workaround while that gets
+  chased down further.
 - **Faction patch textures are not bundled.** They're loaded by id
   (`"<community_id>_icon"`, e.g. `"stalker_icon"`, `"dolg_icon"`) from
   whatever's already registered in your Anomaly/GAMMA install's own texture

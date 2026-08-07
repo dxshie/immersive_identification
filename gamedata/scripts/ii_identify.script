@@ -210,34 +210,40 @@ local function screen_dist_to_center(pos)
 	return math.sqrt(dx * dx + dy * dy)
 end
 
--- Line-of-sight check for the FOV fallback: screen-space proximity alone
--- doesn't account for occlusion (an NPC behind a building can still project
--- close to the crosshair), so this casts a ray from the camera eye toward
--- roughly chest height on the candidate and checks whether anything static
--- (walls, buildings) blocks it before reaching them.
-local _los_rq = nil   -- lazily-created level.rq_result(), reused across calls
-
-local function eye_pos()
-	local dev = device and device()
-	if dev and dev.cam_pos then return dev.cam_pos end
-	return db.actor and db.actor:position()
-end
-
-local function has_los(from_pos, target_obj)
-	if not (level.ray_pick and level.rq_result and level.rq_target) then return true end
-	local to_pos = target_obj:position()
-	to_pos.y = to_pos.y + 1.0   -- rough chest height, not the feet/pivot point
-
-	local dir = vector():sub(to_pos, from_pos)
-	local dist = dir:magnitude()
-	if dist < 0.1 then return true end
-	dir:normalize()
-
-	_los_rq = _los_rq or level.rq_result()
-	local ok, hit = pcall(level.ray_pick, from_pos, dir, dist, level.rq_target.rqtStatic, _los_rq, nil)
+-- Line-of-sight check: screen-space proximity alone doesn't account for
+-- occlusion (an NPC behind a building can still project close to the
+-- crosshair), and it turns out a direct raycast hit isn't proof of
+-- visibility either (see get_target_obj() below) -- so every candidate,
+-- from every selection method, is gated through this.
+--
+-- This went through four hand-rolled raycast revisions (level.ray_pick's
+-- out-parameter, then the CRayPick class with rqtStatic, then rqtBoth, then
+-- applying it uniformly) before any of them reliably blocked anything.
+-- Rather than debug a fifth raycast variant blind, this uses the engine's
+-- own first-class visibility primitive instead: `obj:see(other)`, bound at
+-- src/xrGame/script_game_object_script2.cpp:138 to
+-- CScriptGameObject::CheckObjectVisibility (src/xrGame/script_game_object.cpp:311).
+-- For the actor specifically, that dispatches to
+-- CActor::memory().visual().visible_now(...) (src/xrGame/script_game_object.cpp:320-333,
+-- CActorMemory in src/xrGame/actor_memory.cpp) -- a real camera-driven
+-- (position/direction/FOV straight from the active player camera) per-triangle
+-- occlusion raycast against rqtStatic|rqtObject|rqtObstacle geometry,
+-- self-ignoring the actor's own body, refreshed automatically every ~100ms
+-- (src/xrGame/vision_client.cpp). This exact `Actor()->memory().visual().visible_now()`
+-- path is what the engine's own autoaim target-lock (cameralook.cpp:180) and
+-- PDA/map marker visibility gating (map_location.cpp:822) already use for
+-- essentially this same purpose, so it's a well-exercised primitive rather
+-- than a one-off. One tradeoff: it's a smoothed/cached read (a short grace
+-- window keeps a just-occluded target flagged visible a little longer, and
+-- distance/lighting factor into the underlying accumulation, same as the
+-- AI's own "can I see the player" logic) rather than an instantaneous
+-- geometric ray -- fine for a deliberate keypress action, and arguably a
+-- better match for "can I actually perceive this target" than a bare ray.
+local function has_los(target_obj)
+	if not db.actor then return true end
+	local ok, visible = pcall(db.actor.see, db.actor, target_obj)
 	if not ok then return true end   -- fail open: don't block selection if the check itself errors
-	if not hit then return true end  -- nothing static in the way
-	return _los_rq.range >= dist - 0.2   -- the "hit" is at/beyond the target, i.e. not actually blocking
+	return visible and true or false
 end
 
 -- Fallback target search: the nearest identifiable, visible NPC/creature to
@@ -248,7 +254,6 @@ local function find_nearest_in_fov()
 	if not db.actor or not level.iterate_nearest then return nil end
 	local apos = db.actor:position()
 	local actor_id = db.actor:id()
-	local eye = eye_pos()
 	local best_obj, best_d = nil, C.fov_radius
 
 	pcall(level.iterate_nearest, apos, C.max_dist, function(obj)
@@ -258,7 +263,7 @@ local function find_nearest_in_fov()
 				local ok_comm, comm = pcall(obj.character_community, obj)
 				if ok_comm and comm and comm ~= "" then
 					local d = screen_dist_to_center(obj:position())
-					if d and d < best_d and (not C.require_los or not eye or has_los(eye, obj)) then
+					if d and d < best_d and (not C.require_los or has_los(obj)) then
 						best_d, best_obj = d, obj
 					end
 				end
@@ -278,13 +283,34 @@ end
 -- the engine uses for firing, not the camera centre), falls back to the
 -- camera trace, and if neither hit anything, falls back to the nearest
 -- identifiable target within the on-screen FOV circle.
+--
+-- Both direct-raycast results are also LOS-checked, not just the FOV
+-- fallback: the engine's own crosshair pick (src/xrGame/HUDManager.cpp,
+-- pick_trace_callback) doesn't stop at the first static-geometry hit --
+-- for each static hit it multiplies a running "power" by that triangle's
+-- material fVisTransparencyFactor, and if the *cumulative* result is still
+-- above 0.34 it keeps tracing past it, only stopping for good once it hits
+-- an actual object or a material opaque enough to drop under that
+-- threshold. Fences, glass, foliage and similar semi-transparent materials
+-- routinely have a high enough fVisTransparencyFactor for this to return an
+-- object behind them directly, bypassing find_nearest_in_fov() (and its LOS
+-- check) entirely -- so a direct hit is not on its own proof of visibility
+-- and needs the same has_los() gate applied to it.
 local function get_target_obj()
+	local function accept(obj)
+		if not obj then return nil end
+		if C.require_los and not has_los(obj) then return nil end
+		return obj
+	end
+
 	if level.ETraceTarget then
 		local ok, obj = pcall(level.get_target_obj, level.ETraceTarget.Weapon)
-		if ok and obj then return obj end
+		local a = ok and accept(obj)
+		if a then return a end
 	end
 	local ok2, obj2 = pcall(level.get_target_obj)
-	if ok2 and obj2 then return obj2 end
+	local a2 = ok2 and accept(obj2)
+	if a2 then return a2 end
 	return find_nearest_in_fov()
 end
 
@@ -343,7 +369,7 @@ end
 -- --------------------------------------------------------------------------
 -- The tag dialog: a fixed pool of tag widget-sets, positioned per frame.
 -- --------------------------------------------------------------------------
-local DOT_D, ICON_D, ROW_GAP = 8, 20, 6
+local DOT_D, ICON_D, ROW_GAP = 5, 20, 6
 
 class "IiTags" (CUIScriptWnd)
 
@@ -404,11 +430,13 @@ function IiTags:draw_slot(i, hx, hy, label, alpha, col, icon_id, scanning, tg)
 	local r, g, b = col[1], col[2], col[3]
 
 	if alpha <= 1 then
-		-- scanning only: a rotating spinner on the body, nothing revealed yet
+		-- scanning only: a rotating spinner on the body, nothing revealed yet.
+		-- Always plain white -- relation isn't known/shown as a colour cue
+		-- until the tag actually reveals.
 		local spin_angle = (tg % SPIN_PERIOD_MS) / SPIN_PERIOD_MS * (2 * math.pi)
 		s.spinner:SetWndSize(S(SPIN_D, SPIN_D))
 		s.spinner:SetWndPos(P(hx - SPIN_D / 2, hy - SPIN_D / 2))
-		s.spinner:SetTextureColor(GetARGB(230, r, g, b))
+		s.spinner:SetTextureColor(GetARGB(230, 255, 255, 255))
 		s.spinner:SetHeading(spin_angle)
 		s.spinner:Show(true)
 
