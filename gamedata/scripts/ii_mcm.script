@@ -73,6 +73,30 @@ function on_mcm_load()
 
 				{ id = "require_los", type = "check", val = 1, def = d.require_los,
 					text = "ui_mcm_ii_require_los", hint = "ii_require_los_desc" },
+
+				{ id = "binocular_mode", type = "check", val = 1, def = d.binocular_mode,
+					text = "ui_mcm_ii_binocular_mode", hint = "ii_binocular_mode_desc" },
+
+				{ id = "steady_time", type = "track", val = 2, min = 0.2, max = 3, step = 0.1, prec = 1, def = d.steady_time,
+					text = "ui_mcm_ii_steady_time", hint = "ii_steady_time_desc" },
+
+				{ id = "binoc_boost", type = "check", val = 1, def = d.binoc_boost,
+					text = "ui_mcm_ii_binoc_boost", hint = "ii_binoc_boost_desc" },
+
+				{ id = "binoc_scan_mult", type = "track", val = 2, min = 0.1, max = 1, step = 0.05, prec = 2, def = d.binoc_scan_mult,
+					text = "ui_mcm_ii_binoc_scan_mult", hint = "ii_binoc_scan_mult_desc" },
+
+				{ id = "binoc_range_mult", type = "track", val = 2, min = 1, max = 5, step = 0.1, prec = 1, def = d.binoc_range_mult,
+					text = "ui_mcm_ii_binoc_range_mult", hint = "ii_binoc_range_mult_desc" },
+
+				{ id = "distance_scaling", type = "check", val = 1, def = d.distance_scaling,
+					text = "ui_mcm_ii_distance_scaling", hint = "ii_distance_scaling_desc" },
+
+				{ id = "scale_min", type = "track", val = 2, min = 0.05, max = 1, step = 0.05, prec = 2, def = d.scale_min,
+					text = "ui_mcm_ii_scale_min", hint = "ii_scale_min_desc" },
+
+				{ id = "scale_max", type = "track", val = 2, min = 1, max = 3, step = 0.1, prec = 1, def = d.scale_max,
+					text = "ui_mcm_ii_scale_max", hint = "ii_scale_max_desc" },
 			}},
 		}
 	}

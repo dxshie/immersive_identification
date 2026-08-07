@@ -11,14 +11,14 @@
 	</tag_dot>
 
 	<!-- "Scanning" spinner shown on the body before the tag reveals, rotated
-	     continuously via SetHeading -- replaces a plain pulsing dot. -->
+	     continuously via SetHeading; replaces a plain pulsing dot. -->
 	<tag_spinner width="20" height="20" stretch="1">
 		<texture r="255" g="255" b="255" a="230">ii_spinner</texture>
 	</tag_spinner>
 
 	<!-- Faction patch. Texture is swapped at runtime to "<community_id>_icon"
-	     via InitTexture -- the same convention the game's own character/
-	     relations UI uses for faction emblems -- so this placeholder texture
+	     via InitTexture; the same convention the game's own character/
+	     relations UI uses for faction emblems, so this placeholder texture
 	     is never actually shown; shown at native colour (no tint). -->
 	<tag_icon width="20" height="20" stretch="1">
 		<texture r="255" g="255" b="255" a="255">ii_white</texture>

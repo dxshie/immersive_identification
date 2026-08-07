@@ -22,7 +22,23 @@ DEFAULTS = {
 	fade_dist         = 40,    -- metres: tag starts fading with distance beyond this
 	fov_radius        = 140,   -- virtual-space px (1024-wide): invisible target-assist radius
 	require_los       = true,  -- target-assist fallback only picks targets with clear line of sight
+	binocular_mode    = false, -- gate identify behind binoculars being actively raised, and
+	                           -- auto-trigger it on a steady aim instead of needing the key
+	steady_time       = 0.6,   -- seconds: how long the aim must hold still (binocular mode) before auto-identifying
+	distance_scaling  = true,  -- shrink/grow the dot, glow, patch and spinner with distance
+	scale_min         = 0.2,   -- smallest they shrink to at extreme range
+	scale_max         = 1.6,   -- largest they grow to close up
+	binoc_boost       = true,  -- binoculars speed up + extend identify range, independent of binocular_mode
+	binoc_scan_mult   = 0.4,   -- scan_time multiplier while binoculars are raised (lower = faster reveal)
+	binoc_range_mult  = 2.5,   -- max_dist/fade_dist multiplier while binoculars are raised
 }
+
+-- Section name of the stock binoculars item (confirmed from this engine's
+-- own bundled gamedata/scripts/axr_main.script:355:
+-- `binoc_is_zoomed = wpn and (wpn:section() == "wpn_binoc_inv")`). Matched
+-- as a substring too, not just exact-equal, in case a modpack ships a
+-- differently-sectioned binoculars variant that still follows this naming.
+local BINOC_SECTION = "wpn_binoc_inv"
 
 -- Fallback key when key_dik hasn't been captured yet (fresh install, or MCM
 -- absent). Resolved lazily via DIK_keys (not ready when this file is
@@ -250,13 +266,13 @@ end
 -- the crosshair on screen (not the nearest to the actor in world space)
 -- within fov_radius, so an approximate aim still finds someone -- you don't
 -- have to land a pixel-perfect hit on them.
-local function find_nearest_in_fov()
+local function find_nearest_in_fov(max_dist)
 	if not db.actor or not level.iterate_nearest then return nil end
 	local apos = db.actor:position()
 	local actor_id = db.actor:id()
 	local best_obj, best_d = nil, C.fov_radius
 
-	pcall(level.iterate_nearest, apos, C.max_dist, function(obj)
+	pcall(level.iterate_nearest, apos, max_dist, function(obj)
 		if obj and obj:id() ~= actor_id then
 			local ok_alive, alive = pcall(obj.alive, obj)
 			if ok_alive and alive then
@@ -296,7 +312,7 @@ end
 -- object behind them directly, bypassing find_nearest_in_fov() (and its LOS
 -- check) entirely -- so a direct hit is not on its own proof of visibility
 -- and needs the same has_los() gate applied to it.
-local function get_target_obj()
+local function get_target_obj(max_dist)
 	local function accept(obj)
 		if not obj then return nil end
 		if C.require_los and not has_los(obj) then return nil end
@@ -311,12 +327,36 @@ local function get_target_obj()
 	local ok2, obj2 = pcall(level.get_target_obj)
 	local a2 = ok2 and accept(obj2)
 	if a2 then return a2 end
-	return find_nearest_in_fov()
+	return find_nearest_in_fov(max_dist)
+end
+
+-- Is the actor currently holding up binoculars? `active_item()`/`section()`
+-- confirmed via src/xrGame/script_game_object_script2.cpp:99,102,156 and the
+-- section name via this repo's own axr_main.script:355.
+local function is_binoc_active()
+	if not db.actor then return false end
+	local ok, item = pcall(db.actor.active_item, db.actor)
+	if not ok or not item then return false end
+	local ok2, sec = pcall(item.section, item)
+	if not ok2 or not sec then return false end
+	return sec == BINOC_SECTION or sec:find("binoc") ~= nil
 end
 
 local function try_identify()
 	if not C.enabled or not db.actor then return end
-	local obj = get_target_obj()
+	if C.binocular_mode and not is_binoc_active() then return end
+
+	-- Binoculars boost identification regardless of binocular_mode: faster
+	-- reveal and a longer effective range. Captured once here (not read live
+	-- in render()) so a tag identified at boosted range doesn't immediately
+	-- fail the (unboosted) fade/grace distance checks the instant the player
+	-- lowers the binoculars mid-reveal.
+	local boosted = C.binoc_boost and is_binoc_active()
+	local eff_max_dist = boosted and (C.max_dist * C.binoc_range_mult) or C.max_dist
+	local eff_fade_dist = boosted and (C.fade_dist * C.binoc_range_mult) or C.fade_dist
+	local eff_scan_ms = boosted and math.floor(SCAN_MS * C.binoc_scan_mult) or SCAN_MS
+
+	local obj = get_target_obj(eff_max_dist)
 	if not obj then return end
 	if obj:id() == db.actor:id() then return end
 
@@ -327,7 +367,7 @@ local function try_identify()
 	if not ok_comm or not comm or comm == "" then return end
 
 	local ok_dist, dist = pcall(function() return obj:position():distance_to(db.actor:position()) end)
-	if not ok_dist or dist > C.max_dist then return end
+	if not ok_dist or dist > eff_max_dist then return end
 
 	local id = obj:id()
 	local tg = time_global()
@@ -346,7 +386,62 @@ local function try_identify()
 	tracked[id] = {
 		id = id, t0 = tg, col = relation_color(obj),
 		name = display_name(obj, comm), icon = faction_icon_id(comm),
+		scan_ms = eff_scan_ms, max_dist = eff_max_dist, fade_dist = eff_fade_dist,
 	}
+end
+
+-- --------------------------------------------------------------------------
+-- Binocular mode: auto-identify on a steady aim, no key needed.
+-- --------------------------------------------------------------------------
+-- "Steady" is tracked against an anchor direction (the camera direction when
+-- steadiness tracking last (re)started) rather than frame-to-frame deltas,
+-- so slow deliberate panning correctly resets it while ordinary hand-shake/
+-- micro-jitter within the tolerance doesn't -- comparing only to the
+-- previous frame would let a slow continuous pan stay "steady" forever.
+local STEADY_MAX_D2 = 0.002   -- squared-distance tolerance between unit vectors, ~2.6 degrees
+
+local steady_anchor = nil   -- vector(), the camera direction steadiness is measured against
+local steady_start_tg = nil
+local steady_triggered = false
+
+local function reset_steady()
+	steady_anchor = nil
+	steady_start_tg = nil
+	steady_triggered = false
+end
+
+local function update_binocular_scan(tg)
+	if not C.binocular_mode or not is_binoc_active() then
+		reset_steady()
+		return
+	end
+
+	local dev = device and device()
+	local dir = dev and dev.cam_dir
+	if not dir then
+		reset_steady()
+		return
+	end
+
+	if not steady_anchor then
+		steady_anchor = vector():set(dir)
+		steady_start_tg = tg
+		steady_triggered = false
+		return
+	end
+
+	local dx, dy, dz = dir.x - steady_anchor.x, dir.y - steady_anchor.y, dir.z - steady_anchor.z
+	if (dx * dx + dy * dy + dz * dz) > STEADY_MAX_D2 then
+		steady_anchor:set(dir)
+		steady_start_tg = tg
+		steady_triggered = false
+		return
+	end
+
+	if not steady_triggered and (tg - steady_start_tg) >= C.steady_time * 1000 then
+		try_identify()
+		steady_triggered = true
+	end
 end
 
 local function install_key_hook()
@@ -414,28 +509,34 @@ function IiTags:hide_slot(i)
 	s.name:Show(false)
 end
 
-local SPIN_D = 20            -- spinner diameter, px
+local SPIN_D = 20            -- spinner diameter, px, at scale 1
 local SPIN_PERIOD_MS = 900   -- one full rotation
 
 -- hx, hy: anchor screen position (1024x768 virtual space) -- the identify
 -- point on the NPC's body. alpha: 0..255. scanning: true while the
 -- pre-reveal spinner is running; tg: time_global(), drives its rotation.
+-- scale: distance_scale() result (1 = reference size; see render()) applied
+-- to the dot/glow/patch/spinner -- the name text is font-rendered at a fixed
+-- size (this UI system has no continuous runtime text-scaling API, only
+-- discrete font choices), so it does not grow/shrink with distance.
 -- Layout once revealed: a row of [relation dot][faction patch][name],
 -- horizontally centred above hx,hy. No background plate by design.
-function IiTags:draw_slot(i, hx, hy, label, alpha, col, icon_id, scanning, tg)
+function IiTags:draw_slot(i, hx, hy, label, alpha, col, icon_id, scanning, tg, scale)
 	local s = self.slots[i]
 	if not s then return end
 	s.hidden = false
 
 	local r, g, b = col[1], col[2], col[3]
+	scale = scale or 1
 
 	if alpha <= 1 then
 		-- scanning only: a rotating spinner on the body, nothing revealed yet.
 		-- Always plain white -- relation isn't known/shown as a colour cue
 		-- until the tag actually reveals.
+		local spin_d = SPIN_D * scale
 		local spin_angle = (tg % SPIN_PERIOD_MS) / SPIN_PERIOD_MS * (2 * math.pi)
-		s.spinner:SetWndSize(S(SPIN_D, SPIN_D))
-		s.spinner:SetWndPos(P(hx - SPIN_D / 2, hy - SPIN_D / 2))
+		s.spinner:SetWndSize(S(spin_d, spin_d))
+		s.spinner:SetWndPos(P(hx - spin_d / 2, hy - spin_d / 2))
 		s.spinner:SetTextureColor(GetARGB(230, 255, 255, 255))
 		s.spinner:SetHeading(spin_angle)
 		s.spinner:Show(true)
@@ -459,30 +560,34 @@ function IiTags:draw_slot(i, hx, hy, label, alpha, col, icon_id, scanning, tg)
 	s.name:AdjustWidthToText()
 	local tw = s.name:GetWidth()
 
-	local row_w = DOT_D + ROW_GAP + ICON_D + ROW_GAP + tw
+	local dot_d = DOT_D * scale
+	local icon_d = ICON_D * scale
+	local gap = ROW_GAP * scale
+
+	local row_w = dot_d + gap + icon_d + gap + tw
 	local row_x = math.floor(hx - row_w / 2)
-	local row_cy = math.floor(hy - 46)   -- row's vertical centre, above the anchor point
+	local row_cy = math.floor(hy - 46 * scale)   -- row's vertical centre, above the anchor point
 
 	local dot_x = row_x
-	s.dot:SetWndSize(S(DOT_D, DOT_D))
-	s.dot:SetWndPos(P(dot_x, row_cy - DOT_D / 2))
+	s.dot:SetWndSize(S(dot_d, dot_d))
+	s.dot:SetWndPos(P(dot_x, row_cy - dot_d / 2))
 	s.dot:SetTextureColor(GetARGB(alpha, r, g, b))
 	s.dot:Show(true)
 
-	local gsize = DOT_D * 3.2
+	local gsize = dot_d * 3.2
 	s.glow:SetWndSize(S(gsize, gsize))
-	s.glow:SetWndPos(P(dot_x + DOT_D / 2 - gsize / 2, row_cy - gsize / 2))
+	s.glow:SetWndPos(P(dot_x + dot_d / 2 - gsize / 2, row_cy - gsize / 2))
 	s.glow:SetTextureColor(GetARGB(math.floor(alpha * 0.55), r, g, b))
 	s.glow:Show(true)
 
-	local icon_x = dot_x + DOT_D + ROW_GAP
-	s.icon:SetWndSize(S(ICON_D, ICON_D))
-	s.icon:SetWndPos(P(icon_x, row_cy - ICON_D / 2))
+	local icon_x = dot_x + dot_d + gap
+	s.icon:SetWndSize(S(icon_d, icon_d))
+	s.icon:SetWndPos(P(icon_x, row_cy - icon_d / 2))
 	s.icon:SetTextureColor(GetARGB(alpha, 255, 255, 255))
 	s.icon:Show(true)
 
-	local name_x = icon_x + ICON_D + ROW_GAP
-	local name_y = row_cy - 9   -- text box height 18, centred on the row
+	local name_x = icon_x + icon_d + gap
+	local name_y = row_cy - 9   -- text box height 18, centred on the row -- fixed, text doesn't scale
 	s.name_sh:SetWndPos(P(name_x + 1, name_y + 1))
 	s.name_sh:SetTextColor(GetARGB(math.floor(180 * alpha / 255), 0, 0, 0))
 	s.name_sh:Show(true)
@@ -504,12 +609,40 @@ local function ensure_tags()
 	return true
 end
 
+-- Inverse-distance scaling (scale ~ 1/dist), the same relationship a
+-- perspective projection uses for apparent size -- matches how the
+-- character's own on-screen size actually shrinks with distance, so the tag
+-- (and the fixed-px "float above the head" offset in draw_slot, which is
+-- multiplied by this same scale) stays visually anchored to them instead of
+-- flattening out at scale_min partway through the identify range and
+-- looking comically oversized/disconnected next to a barely-visible distant
+-- target. SCALE_REF_DIST is the distance at which scale = 1 (fixed, not
+-- exposed in MCM to keep it simple).
+local SCALE_REF_DIST = 8
+
+local function distance_scale(dist)
+	if not C.distance_scaling then return 1 end
+	local s = SCALE_REF_DIST / math.max(dist, 0.5)
+	if s < C.scale_min then s = C.scale_min end
+	if s > C.scale_max then s = C.scale_max end
+	return s
+end
+
 local function render(tg)
 	local apos = db.actor and db.actor:position()
-	local total = SCAN_MS + FADE_MS + HOLD_MS + FADE_MS
 	local slot_i = 0
 
 	for id, e in pairs(tracked) do
+		-- Per-instance range/speed, captured at identify time in try_identify()
+		-- (see the binocular-boost comment there) rather than read live from
+		-- C here, so a tag identified at boosted range/speed keeps using
+		-- that boost for its whole reveal even if the player lowers the
+		-- binoculars partway through.
+		local scan_ms = e.scan_ms or SCAN_MS
+		local max_dist = e.max_dist or C.max_dist
+		local fade_dist = e.fade_dist or C.fade_dist
+		local total = scan_ms + FADE_MS + HOLD_MS + FADE_MS
+
 		local obj = level.object_by_id(id)
 		local remove = (obj == nil)
 		if not remove then
@@ -524,32 +657,33 @@ local function render(tg)
 			tracked[id] = nil
 		else
 			local phase_alpha, scanning = 0, false
-			if elapsed < SCAN_MS then
+			if elapsed < scan_ms then
 				scanning = true
-			elseif elapsed < SCAN_MS + FADE_MS then
-				phase_alpha = (elapsed - SCAN_MS) / FADE_MS
-			elseif elapsed < SCAN_MS + FADE_MS + HOLD_MS then
+			elseif elapsed < scan_ms + FADE_MS then
+				phase_alpha = (elapsed - scan_ms) / FADE_MS
+			elseif elapsed < scan_ms + FADE_MS + HOLD_MS then
 				phase_alpha = 1
 			else
-				phase_alpha = 1 - (elapsed - (SCAN_MS + FADE_MS + HOLD_MS)) / FADE_MS
+				phase_alpha = 1 - (elapsed - (scan_ms + FADE_MS + HOLD_MS)) / FADE_MS
 				if phase_alpha < 0 then phase_alpha = 0 end
 			end
 
 			local pos = anchor_pos(obj)
 			local dist = apos and pos:distance_to(apos) or 0
 			local dist_fade = 1
-			if dist > C.fade_dist then
-				local span = math.max(1, C.max_dist - C.fade_dist)
-				dist_fade = 1 - (dist - C.fade_dist) / span
+			if dist > fade_dist then
+				local span = math.max(1, max_dist - fade_dist)
+				dist_fade = 1 - (dist - fade_dist) / span
 				if dist_fade < 0 then dist_fade = 0 end
 			end
 
 			local sx, sy = project_world(pos)
-			if sx and dist <= C.max_dist * 1.15 then
+			if sx and dist <= max_dist * 1.15 then
 				slot_i = slot_i + 1
 				if slot_i <= MAX_TAGS then
 					local a = math.floor(255 * phase_alpha * dist_fade + 0.5)
-					TAGS:draw_slot(slot_i, sx, sy, e.name, a, e.col, e.icon, scanning, tg)
+					local scale = distance_scale(dist)
+					TAGS:draw_slot(slot_i, sx, sy, e.name, a, e.col, e.icon, scanning, tg, scale)
 				end
 			end
 		end
@@ -563,10 +697,13 @@ end
 local function actor_on_update()
 	if not C.enabled then
 		if TAGS then for i = 1, MAX_TAGS do TAGS:hide_slot(i) end end
+		reset_steady()
 		return
 	end
 	if not ensure_tags() then return end
-	render(time_global())
+	local tg = time_global()
+	update_binocular_scan(tg)
+	render(tg)
 end
 
 -- --------------------------------------------------------------------------

@@ -62,6 +62,25 @@ Configuration Menu) is optional but recommended for configuring the key/timing.
 4. Re-pressing the key on an already-identified target restarts the reveal.
    Up to 5 identifications can be active at once (oldest is dropped first).
 
+The dot, faction patch, and spinner scale with distance — bigger up close,
+smaller far away (name text stays a fixed size); toggle this and its min/max
+scale in MCM.
+
 Everything is configurable in MCM: enable/disable, the key + modifier,
-relation colouring, scan/fade/hold durations, max/fade-out range, and the
-target-assist radius (pixels, plus a line-of-sight toggle).
+relation colouring, scan/fade/hold durations, max/fade-out range, the
+target-assist radius (pixels, plus a line-of-sight toggle), distance
+scaling, and binocular mode.
+
+Raising binoculars always makes identification faster and extends its range
+(default: ~2.5x range, reveals in ~40% of the normal time) — this applies
+with the regular key too, independent of Binocular mode below. Toggle it and
+tune both multipliers in MCM.
+
+### Binocular mode
+
+Turn this on in MCM and identification changes from "press a key" to "raise
+the binoculars and hold still": the key stops working unless binoculars are
+actively raised, and while they are, aiming near a target and holding the
+aim steady for a moment (configurable, default 0.6s) identifies them
+automatically — no key press needed. Move the aim off them (or past the
+steady tolerance) to reset; holding steady on them again re-triggers it.

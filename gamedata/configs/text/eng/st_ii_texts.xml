@@ -1,40 +1,70 @@
 <?xml version="1.0" encoding="windows-1251"?>
 <string_table>
 
+	<!-- MCM sidebar/mod-list display name: a different string id than the
+	     in-page title slide below ("ui_mcm_menu_" + module id, confirmed by
+	     the reference mod's identical "ui_mcm_menu_iqm" for module id "iqm";
+	     without this, MCM shows the raw id "ui_mcm_menu_ii" in the list). -->
+	<string id="ui_mcm_menu_ii"><text>Immersive Identification</text></string>
+
 	<string id="ui_mcm_ii_title"><text>Immersive Identification</text></string>
 
 	<string id="ui_mcm_ii_enabled"><text>Enable identification</text></string>
-	<string id="ui_mcm_ii_enabled_desc"><text>Master on/off switch for the identify key and the floating faction tag.</text></string>
+	<string id="ui_mcm_ii_enabled_desc"><text>Master on/off switch.</text></string>
 
 	<string id="ui_mcm_ii_key"><text>Identify key</text></string>
-	<string id="ui_mcm_ii_key_desc"><text>Click the box, then press a keyboard or mouse button to bind it as the identify key.</text></string>
+	<string id="ui_mcm_ii_key_desc"><text>Click, then press a key to bind it.</text></string>
 
 	<string id="ui_mcm_ii_modifier"><text>Modifier</text></string>
-	<string id="ui_mcm_ii_modifier_desc"><text>Require this key held down alongside the identify key. "None" means the identify key triggers on its own.</text></string>
+	<string id="ui_mcm_ii_modifier_desc"><text>Optional modifier held with the identify key.</text></string>
 
 	<string id="ui_mcm_ii_color_by_relation"><text>Colour by relation</text></string>
-	<string id="ui_mcm_ii_color_by_relation_desc"><text>Tint the tag red/green/tan by your relation to the target (enemy/friend/neutral) instead of a single flat colour.</text></string>
+	<string id="ui_mcm_ii_color_by_relation_desc"><text>Red enemy, green friend, tan neutral.</text></string>
 
 	<string id="ui_mcm_ii_scan_time"><text>Scan delay (s)</text></string>
-	<string id="ui_mcm_ii_scan_time_desc"><text>How long the pulsing dot "scans" the target before the faction tag reveals.</text></string>
+	<string id="ui_mcm_ii_scan_time_desc"><text>How long the scan pulses before the tag reveals.</text></string>
 
 	<string id="ui_mcm_ii_fade_time"><text>Fade time (s)</text></string>
-	<string id="ui_mcm_ii_fade_time_desc"><text>How long the tag takes to fade in after the scan, and to fade out at the end.</text></string>
+	<string id="ui_mcm_ii_fade_time_desc"><text>Fade in/out duration.</text></string>
 
 	<string id="ui_mcm_ii_hold_time"><text>Hold time (s)</text></string>
-	<string id="ui_mcm_ii_hold_time_desc"><text>How long the tag stays fully visible before it starts fading out.</text></string>
+	<string id="ui_mcm_ii_hold_time_desc"><text>How long the tag stays fully visible.</text></string>
 
 	<string id="ui_mcm_ii_max_dist"><text>Max range (m)</text></string>
-	<string id="ui_mcm_ii_max_dist_desc"><text>Identification only works on targets within this range, and a tag is dropped if the target moves further away than this while active.</text></string>
+	<string id="ui_mcm_ii_max_dist_desc"><text>Max range identification works at.</text></string>
 
 	<string id="ui_mcm_ii_fade_dist"><text>Fade start range (m)</text></string>
-	<string id="ui_mcm_ii_fade_dist_desc"><text>The tag starts fading with distance once the target is further than this; fully gone by max range.</text></string>
+	<string id="ui_mcm_ii_fade_dist_desc"><text>Range at which the tag starts fading out.</text></string>
 
 	<string id="ui_mcm_ii_fov_radius"><text>Target-assist radius (px)</text></string>
-	<string id="ui_mcm_ii_fov_radius_desc"><text>How far off-centre a target can be and still get picked when you press the identify key and don't land a direct hit. Not shown on screen.</text></string>
+	<string id="ui_mcm_ii_fov_radius_desc"><text>Aim tolerance for picking a target without a direct hit.</text></string>
 
 	<string id="ui_mcm_ii_require_los"><text>Require line of sight</text></string>
-	<string id="ui_mcm_ii_require_los_desc"><text>The target-assist radius only picks targets you can actually see; targets behind walls or buildings are skipped even if they're close to the crosshair on screen.</text></string>
+	<string id="ui_mcm_ii_require_los_desc"><text>Only pick targets you can actually see.</text></string>
+
+	<string id="ui_mcm_ii_binocular_mode"><text>Binocular mode</text></string>
+	<string id="ui_mcm_ii_binocular_mode_desc"><text>Identify only with binoculars raised; steady aim auto-identifies.</text></string>
+
+	<string id="ui_mcm_ii_steady_time"><text>Steady-aim time (s)</text></string>
+	<string id="ui_mcm_ii_steady_time_desc"><text>How long to hold aim steady before auto-identifying.</text></string>
+
+	<string id="ui_mcm_ii_binoc_boost"><text>Binoculars boost identification</text></string>
+	<string id="ui_mcm_ii_binoc_boost_desc"><text>Faster reveal and longer range with binoculars raised, any mode.</text></string>
+
+	<string id="ui_mcm_ii_binoc_scan_mult"><text>Binoculars scan speed multiplier</text></string>
+	<string id="ui_mcm_ii_binoc_scan_mult_desc"><text>Scan speed multiplier while binoculars are raised.</text></string>
+
+	<string id="ui_mcm_ii_binoc_range_mult"><text>Binoculars range multiplier</text></string>
+	<string id="ui_mcm_ii_binoc_range_mult_desc"><text>Range multiplier while binoculars are raised.</text></string>
+
+	<string id="ui_mcm_ii_distance_scaling"><text>Scale tag with distance</text></string>
+	<string id="ui_mcm_ii_distance_scaling_desc"><text>Shrink/grow the tag with distance.</text></string>
+
+	<string id="ui_mcm_ii_scale_min"><text>Min scale (far away)</text></string>
+	<string id="ui_mcm_ii_scale_min_desc"><text>Smallest size at extreme range.</text></string>
+
+	<string id="ui_mcm_ii_scale_max"><text>Max scale (up close)</text></string>
+	<string id="ui_mcm_ii_scale_max_desc"><text>Largest size up close.</text></string>
 
 	<!-- List-content ids: MCM resolves each modifier_index dropdown entry as
 	     "<page>_<option>_lst_" + the bare label from ii_identify.MODIFIER_LIST,
