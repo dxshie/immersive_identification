@@ -11,8 +11,7 @@ target while active.
 
 Built for the engine exposed by this repo (`xray-monolith`) and modelled on
 the projection/render technique used by
-[Immersive Quest Markers](https://github.com/themrdemonized) — see
-"Implementation notes" below for exactly which engine APIs this relies on.
+Immersive Quest Markers
 
 ## Install
 
