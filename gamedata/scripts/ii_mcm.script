@@ -1,0 +1,79 @@
+-- ======================================================================
+--  Immersive Identification: MCM menu
+-- ======================================================================
+--  MCM only discovers on_mcm_load in scripts whose filename ends in
+--  "mcm.script", so the menu lives here. The logic lives in
+--  ii_identify.script; defaults/modifier list come from ii_identify.DEFAULTS
+--  / ii_identify.MODIFIER_LIST so there is a single source of truth.
+-- ======================================================================
+
+function on_mcm_load()
+	local d = ii_identify and ii_identify.DEFAULTS or {}
+
+	local modifier_content = {}
+	if ii_identify and ii_identify.MODIFIER_LIST then
+		for idx, e in ipairs(ii_identify.MODIFIER_LIST) do
+			modifier_content[#modifier_content + 1] = { idx, e.label }
+		end
+	end
+
+	-- Default DIK for the key-capture widget below: resolved here (not in
+	-- DEFAULTS, since DIK_keys isn't ready when ii_identify.script is first
+	-- parsed) from ii_identify.DEFAULT_KEY_NAME, the single source of truth.
+	local default_key_name = (ii_identify and ii_identify.DEFAULT_KEY_NAME) or "DIK_X"
+	local default_key_dik = (DIK_keys and DIK_keys[default_key_name]) or 0
+
+	-- The top-level node must NOT carry sh (sh marks a leaf PAGE whose gr holds
+	-- actual options; a folder of pages is a plain node whose children carry
+	-- sh). One page ("main") is enough here, but the wrapper is still required
+	-- or MCM's option-tree walker recurses into these entries looking for a
+	-- gr of their own and crashes on the first real option (nil "gr").
+	--
+	-- `text` is used literally as the string-table id. `hint` (the caption
+	-- shown next to each control) gets "ui_mcm_" auto-prepended by MCM, so it
+	-- must be passed bare (e.g. "ii_enabled_desc", resolving to the real id
+	-- "ui_mcm_ii_enabled_desc" in st_ii_texts.xml) — passing the full id here
+	-- double-prefixes it and shows the raw unresolved id in-game instead.
+	return {
+		id = "ii", gr = {
+			{ id = "main", sh = true, gr = {
+				{ id = "title", type = "slide", text = "ui_mcm_ii_title", size = { 512, 50 }, spacing = 20 },
+
+				{ id = "enabled", type = "check", val = 1, def = d.enabled,
+					text = "ui_mcm_ii_enabled", hint = "ii_enabled_desc" },
+
+				-- Click into the box, then press a keyboard/mouse key to bind it.
+				-- type = "key_bind", val = 2 -- confirmed schema.
+				{ id = "key_dik", type = "key_bind", val = 2, def = default_key_dik,
+					text = "ui_mcm_ii_key", hint = "ii_key_desc" },
+
+				{ id = "modifier_index", type = "list", val = 2, def = d.modifier_index, content = modifier_content,
+					text = "ui_mcm_ii_modifier", hint = "ii_modifier_desc" },
+
+				{ id = "color_by_relation", type = "check", val = 1, def = d.color_by_relation,
+					text = "ui_mcm_ii_color_by_relation", hint = "ii_color_by_relation_desc" },
+
+				{ id = "scan_time", type = "track", val = 2, min = 0, max = 2, step = 0.05, prec = 2, def = d.scan_time,
+					text = "ui_mcm_ii_scan_time", hint = "ii_scan_time_desc" },
+
+				{ id = "fade_time", type = "track", val = 2, min = 0.1, max = 2, step = 0.05, prec = 2, def = d.fade_time,
+					text = "ui_mcm_ii_fade_time", hint = "ii_fade_time_desc" },
+
+				{ id = "hold_time", type = "track", val = 2, min = 1, max = 15, step = 0.5, prec = 1, def = d.hold_time,
+					text = "ui_mcm_ii_hold_time", hint = "ii_hold_time_desc" },
+
+				{ id = "max_dist", type = "track", val = 2, min = 10, max = 500, step = 10, def = d.max_dist,
+					text = "ui_mcm_ii_max_dist", hint = "ii_max_dist_desc" },
+
+				{ id = "fade_dist", type = "track", val = 2, min = 5, max = 500, step = 10, def = d.fade_dist,
+					text = "ui_mcm_ii_fade_dist", hint = "ii_fade_dist_desc" },
+
+				{ id = "fov_radius", type = "track", val = 2, min = 20, max = 400, step = 10, def = d.fov_radius,
+					text = "ui_mcm_ii_fov_radius", hint = "ii_fov_radius_desc" },
+
+				{ id = "require_los", type = "check", val = 1, def = d.require_los,
+					text = "ui_mcm_ii_require_los", hint = "ii_require_los_desc" },
+			}},
+		}
+	}
+end

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<string_table>
+
+	<string id="ui_mcm_ii_title"><text>Immersive Identification</text></string>
+
+	<string id="ui_mcm_ii_enabled"><text>Enable identification</text></string>
+	<string id="ui_mcm_ii_enabled_desc"><text>Master on/off switch for the identify key and the floating faction tag.</text></string>
+
+	<string id="ui_mcm_ii_key"><text>Identify key</text></string>
+	<string id="ui_mcm_ii_key_desc"><text>Click the box, then press a keyboard or mouse button to bind it as the identify key.</text></string>
+
+	<string id="ui_mcm_ii_modifier"><text>Modifier</text></string>
+	<string id="ui_mcm_ii_modifier_desc"><text>Require this key held down alongside the identify key. "None" means the identify key triggers on its own.</text></string>
+
+	<string id="ui_mcm_ii_color_by_relation"><text>Colour by relation</text></string>
+	<string id="ui_mcm_ii_color_by_relation_desc"><text>Tint the tag red/green/tan by your relation to the target (enemy/friend/neutral) instead of a single flat colour.</text></string>
+
+	<string id="ui_mcm_ii_scan_time"><text>Scan delay (s)</text></string>
+	<string id="ui_mcm_ii_scan_time_desc"><text>How long the pulsing dot "scans" the target before the faction tag reveals.</text></string>
+
+	<string id="ui_mcm_ii_fade_time"><text>Fade time (s)</text></string>
+	<string id="ui_mcm_ii_fade_time_desc"><text>How long the tag takes to fade in after the scan, and to fade out at the end.</text></string>
+
+	<string id="ui_mcm_ii_hold_time"><text>Hold time (s)</text></string>
+	<string id="ui_mcm_ii_hold_time_desc"><text>How long the tag stays fully visible before it starts fading out.</text></string>
+
+	<string id="ui_mcm_ii_max_dist"><text>Max range (m)</text></string>
+	<string id="ui_mcm_ii_max_dist_desc"><text>Identification only works on targets within this range, and a tag is dropped if the target moves further away than this while active.</text></string>
+
+	<string id="ui_mcm_ii_fade_dist"><text>Fade start range (m)</text></string>
+	<string id="ui_mcm_ii_fade_dist_desc"><text>The tag starts fading with distance once the target is further than this; fully gone by max range.</text></string>
+
+	<string id="ui_mcm_ii_fov_radius"><text>Target-assist radius (px)</text></string>
+	<string id="ui_mcm_ii_fov_radius_desc"><text>How far off-centre a target can be and still get picked when you press the identify key and don't land a direct hit. Not shown on screen.</text></string>
+
+	<string id="ui_mcm_ii_require_los"><text>Require line of sight</text></string>
+	<string id="ui_mcm_ii_require_los_desc"><text>The target-assist radius only picks targets you can actually see; targets behind walls or buildings are skipped even if they're close to the crosshair on screen.</text></string>
+
+	<!-- List-content ids: MCM resolves each modifier_index dropdown entry as
+	     "<page>_<option>_lst_" + the bare label from ii_identify.MODIFIER_LIST,
+	     i.e. "ii_main_modifier_index_lst_none" for the "none" entry. -->
+	<string id="ii_main_modifier_index_lst_none"><text>None</text></string>
+	<string id="ii_main_modifier_index_lst_ctrl"><text>Ctrl</text></string>
+	<string id="ii_main_modifier_index_lst_shift"><text>Shift</text></string>
+	<string id="ii_main_modifier_index_lst_alt"><text>Alt</text></string>
+
+	<!-- Faction display names shown on the floating tag itself. -->
+	<string id="st_ii_faction_stalker"><text>Loner</text></string>
+	<string id="st_ii_faction_bandit"><text>Bandits</text></string>
+	<string id="st_ii_faction_dolg"><text>Duty</text></string>
+	<string id="st_ii_faction_freedom"><text>Freedom</text></string>
+	<string id="st_ii_faction_csky"><text>Clear Sky</text></string>
+	<string id="st_ii_faction_ecolog"><text>Ecologists</text></string>
+	<string id="st_ii_faction_killer"><text>Mercenaries</text></string>
+	<string id="st_ii_faction_military"><text>Military</text></string>
+	<string id="st_ii_faction_monolith"><text>Monolith</text></string>
+	<string id="st_ii_faction_renegade"><text>Renegades</text></string>
+	<string id="st_ii_faction_zombied"><text>Zombified</text></string>
+	<string id="st_ii_faction_greh"><text>Sin</text></string>
+	<string id="st_ii_faction_trader"><text>Trader</text></string>
+	<string id="st_ii_faction_monster"><text>Mutant</text></string>
+	<string id="st_ii_faction_isg"><text>UNISG</text></string>
+	<string id="st_ii_faction_arena"><text>Arena</text></string>
+
+</string_table>

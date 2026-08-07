@@ -1,0 +1,23 @@
+<w>
+	<!-- Immersive Identification ships its own tiny textures so the floating tag
+	     draws correctly with no dependency on any other mod. Both are plain white
+	     (RGB=255) with the shape carried entirely in alpha, so every element is
+	     tinted at runtime via SetTextureColor (relation colour). -->
+
+	<!-- Solid opaque square: plate background / accent bar / any rectangular chip. -->
+	<file name="ui\ii_white">
+		<texture id="ii_white" x="0" y="0" width="32" height="32" />
+	</file>
+
+	<!-- Soft anti-aliased circle: the identify pulse-dot and its glow halo
+	     (same texture, drawn at two sizes/alphas). -->
+	<file name="ui\ii_dot">
+		<texture id="ii_dot" x="0" y="0" width="64" height="64" />
+	</file>
+
+	<!-- Comet-tail ring, rotated at runtime via SetHeading: the identify
+	     "scanning" spinner (replaces a plain pulsing dot). -->
+	<file name="ui\ii_spinner">
+		<texture id="ii_spinner" x="0" y="0" width="128" height="128" />
+	</file>
+</w>

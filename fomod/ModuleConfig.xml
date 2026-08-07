@@ -1,0 +1,9 @@
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://qconsulting.ca/fo3/ModConfig5.0.xsd">
+	<moduleName>Immersive Identification</moduleName>
+
+	<!-- No user-facing choices: this mod is a single self-contained gamedata
+	     drop-in, so it installs directly with no wizard steps. -->
+	<requiredInstallFiles>
+		<folder source="gamedata" destination="gamedata" />
+	</requiredInstallFiles>
+</config>

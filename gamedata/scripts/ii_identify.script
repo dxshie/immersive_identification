@@ -1,0 +1,556 @@
+-- ======================================================================
+--  Immersive Identification
+--  Aim at an NPC, press the identify key: after a brief "scan" pulse, a
+--  floating tag naming their faction appears anchored to their body in
+--  world space (not a HUD element), fades to full, holds, then fades out.
+-- ======================================================================
+
+local MAX_TAGS = 5   -- most identifications tracked/drawn at once
+
+-- Defaults, also the fallback when MCM is absent. Keys match the MCM option
+-- ids under the "ii" menu (see ii_mcm.script). Declared non-local so the menu
+-- file can read it as ii_identify.DEFAULTS (single source of truth).
+DEFAULTS = {
+	enabled           = true,
+	key_dik           = 0,     -- captured DIK code; 0/nil means "unset, use DEFAULT_KEY_NAME"
+	modifier_index    = 1,     -- index into MODIFIER_LIST (1 = none)
+	color_by_relation = true,  -- tint the tag by relation to the actor instead of a flat colour
+	scan_time         = 0.35,  -- seconds: "scanning" pulse before the tag reveals
+	fade_time         = 0.45,  -- seconds: fade in / fade out
+	hold_time         = 4.0,   -- seconds: tag stays fully visible
+	max_dist          = 60,    -- metres: identify only works within this range
+	fade_dist         = 40,    -- metres: tag starts fading with distance beyond this
+	fov_radius        = 140,   -- virtual-space px (1024-wide): invisible target-assist radius
+	require_los       = true,  -- target-assist fallback only picks targets with clear line of sight
+}
+
+-- Fallback key when key_dik hasn't been captured yet (fresh install, or MCM
+-- absent). Resolved lazily via DIK_keys (not ready when this file is
+-- parsed). Declared non-local so ii_mcm.script can read it as
+-- ii_identify.DEFAULT_KEY_NAME to seed the key-capture widget's default.
+DEFAULT_KEY_NAME = "DIK_X"
+
+-- Single-select modifier for the identify key (replaces three independent
+-- Ctrl/Shift/Alt checkboxes with one choice, since combining them added
+-- little and cluttered the menu). Referenced as ii_identify.MODIFIER_LIST
+-- from ii_mcm.script. `label` is the bare suffix MCM appends to
+-- "<page>_<option>_lst_" for each dropdown entry when it resolves the
+-- display string (confirmed in-game: a full string-table id here shows up
+-- literally, doubled with that prefix, instead of resolving).
+MODIFIER_LIST = {
+	{ label = "none" },
+	{ dik = "DIK_LCONTROL", alt_dik = "DIK_RCONTROL", label = "ctrl" },
+	{ dik = "DIK_LSHIFT", alt_dik = "DIK_RSHIFT", label = "shift" },
+	{ dik = "DIK_LMENU", alt_dik = "DIK_RMENU", label = "alt" },
+}
+
+-- Community id -> display-name string id. Anything not listed here falls
+-- back to a prettified version of the raw community id, so unknown/modded
+-- factions still show something reasonable instead of nothing.
+local FACTION_NAMES = {
+	stalker    = "st_ii_faction_stalker",
+	bandit     = "st_ii_faction_bandit",
+	dolg       = "st_ii_faction_dolg",
+	freedom    = "st_ii_faction_freedom",
+	csky       = "st_ii_faction_csky",
+	ecolog     = "st_ii_faction_ecolog",
+	killer     = "st_ii_faction_killer",
+	military   = "st_ii_faction_military",
+	monolith   = "st_ii_faction_monolith",
+	renegade   = "st_ii_faction_renegade",
+	zombied    = "st_ii_faction_zombied",
+	greh       = "st_ii_faction_greh",
+	trader     = "st_ii_faction_trader",
+	monster    = "st_ii_faction_monster",
+	isg        = "st_ii_faction_isg",
+	arena      = "st_ii_faction_arena",
+}
+
+local COL_ENEMY   = { 224, 76,  64  }
+local COL_FRIEND  = { 118, 206, 128 }
+local COL_NEUTRAL = { 214, 194, 140 }
+
+-- Bones to anchor the tag to, best first (humanoid skeleton; monsters that
+-- lack all of these fall back to position()+offset in anchor_pos).
+local ANCHOR_BONES = { "bip01_head", "bip01_spine2", "bip01_spine1", "bip01_spine" }
+
+local C          = {}     -- live config (DEFAULTS overlaid with MCM values)
+local tracked    = {}     -- [obj_id] = { id, t0, col, name, icon }
+local TAGS       = nil    -- the IiTags dialog instance
+local SCAN_MS, FADE_MS, HOLD_MS = 350, 450, 4000
+
+local _prev_on_key_press = nil
+
+local _p = vector2()
+local _s = vector2()
+local function P(x, y) return _p:set(x, y) end
+local function S(x, y) return _s:set(x, y) end
+
+local _scratch = vector()
+
+-- --------------------------------------------------------------------------
+-- Config
+-- --------------------------------------------------------------------------
+local function read_config()
+	for key, default in pairs(DEFAULTS) do
+		local v = default
+		if ui_mcm and ui_mcm.get then
+			-- Option storage path mirrors the menu shape in ii_mcm.script: the
+			-- single "main" page nests options under "ii/main/<key>".
+			local got = ui_mcm.get("ii/main/" .. key)
+			if got ~= nil then v = got end
+		end
+		C[key] = v
+	end
+	SCAN_MS = math.floor((C.scan_time or 0.35) * 1000)
+	FADE_MS = math.floor((C.fade_time or 0.45) * 1000)
+	HOLD_MS = math.floor((C.hold_time or 4.0) * 1000)
+end
+
+-- C.key_dik comes straight from MCM's key-capture widget (whatever DIK/mouse
+-- code the player last clicked into the box); 0/nil means "never captured
+-- one", so fall back to the compiled-in default key.
+local function active_dik()
+	if C.key_dik and C.key_dik ~= 0 then return C.key_dik end
+	return DIK_keys and DIK_keys[DEFAULT_KEY_NAME]
+end
+
+-- key_state() returns a raw C BOOL (marshalled as a Lua number, not a real
+-- boolean), so 0 is truthy under plain Lua "if" semantics -- compare
+-- explicitly rather than trusting truthiness.
+local function key_down(dik)
+	if not dik or not key_state then return false end
+	local v = key_state(dik)
+	return v ~= nil and v ~= false and v ~= 0
+end
+
+local function modifiers_ok()
+	local e = MODIFIER_LIST[C.modifier_index] or MODIFIER_LIST[1]
+	if not e or not e.dik or not DIK_keys then return true end
+	return key_down(DIK_keys[e.dik]) or (e.alt_dik and key_down(DIK_keys[e.alt_dik])) or false
+end
+
+-- --------------------------------------------------------------------------
+-- Faction label / relation colour
+-- --------------------------------------------------------------------------
+local function faction_label(comm)
+	local sid = FACTION_NAMES[comm]
+	if sid then
+		local ok, txt = pcall(game.translate_string, sid)
+		if ok and txt and txt ~= sid then return txt end
+	end
+	local pretty = comm:gsub("_", " ")
+	pretty = pretty:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b:lower() end)
+	return pretty
+end
+
+-- The name shown on the tag: the NPC's own name where they have one (most
+-- humanoid stalkers), falling back to the faction label for generic mobs/
+-- monsters that carry no personal name.
+local function display_name(obj, comm)
+	local ok, name = pcall(obj.character_name, obj)
+	if ok and name and name ~= "" then
+		local ok2, txt = pcall(game.translate_string, name)
+		if ok2 and txt and txt ~= "" and txt ~= name then return txt end
+		return name
+	end
+	return faction_label(comm)
+end
+
+-- Faction patch texture id: the same "<community_id>_icon" convention the
+-- game's own character/relations UI uses (src/xrGame/ui/UICharacterInfo.cpp),
+-- so this reuses whatever emblem art already ships with the game/modpack
+-- instead of needing bundled icons for every faction.
+local function faction_icon_id(comm)
+	return comm .. "_icon"
+end
+
+local function relation_color(obj)
+	if not C.color_by_relation then return COL_NEUTRAL end
+	local ok, rel = pcall(obj.relation, obj, db.actor)
+	if not ok then return COL_NEUTRAL end
+	if rel == game_object.enemy then return COL_ENEMY end
+	if rel == game_object.friend then return COL_FRIEND end
+	return COL_NEUTRAL
+end
+
+-- --------------------------------------------------------------------------
+-- World anchor / projection
+-- --------------------------------------------------------------------------
+local function anchor_pos(obj)
+	local base = obj:position()
+	for _, bone in ipairs(ANCHOR_BONES) do
+		local ok, p = pcall(obj.bone_position, obj, bone)
+		if ok and p and p:distance_to_sqr(base) < 9 then
+			p.y = p.y + 0.12
+			return p
+		end
+	end
+	base.y = base.y + 1.3
+	return base
+end
+
+local function project_world(pos)
+	local w2u = (game and game.world2ui) or (level and level.world2ui)
+	if not w2u then return nil end
+	local ui = w2u(_scratch:set(pos), false, false)
+	if not ui or ui.x < -9000 then return nil end
+	return ui.x, ui.y
+end
+
+-- world2ui returns coordinates in the engine's fixed 1024x768 "virtual UI"
+-- space regardless of actual resolution/aspect, so screen centre (where the
+-- crosshair sits) is always exactly (512, 384) here.
+local UI_CX, UI_CY = 512, 384
+
+local function screen_dist_to_center(pos)
+	local sx, sy = project_world(pos)
+	if not sx then return nil end
+	local dx, dy = sx - UI_CX, sy - UI_CY
+	return math.sqrt(dx * dx + dy * dy)
+end
+
+-- Line-of-sight check for the FOV fallback: screen-space proximity alone
+-- doesn't account for occlusion (an NPC behind a building can still project
+-- close to the crosshair), so this casts a ray from the camera eye toward
+-- roughly chest height on the candidate and checks whether anything static
+-- (walls, buildings) blocks it before reaching them.
+local _los_rq = nil   -- lazily-created level.rq_result(), reused across calls
+
+local function eye_pos()
+	local dev = device and device()
+	if dev and dev.cam_pos then return dev.cam_pos end
+	return db.actor and db.actor:position()
+end
+
+local function has_los(from_pos, target_obj)
+	if not (level.ray_pick and level.rq_result and level.rq_target) then return true end
+	local to_pos = target_obj:position()
+	to_pos.y = to_pos.y + 1.0   -- rough chest height, not the feet/pivot point
+
+	local dir = vector():sub(to_pos, from_pos)
+	local dist = dir:magnitude()
+	if dist < 0.1 then return true end
+	dir:normalize()
+
+	_los_rq = _los_rq or level.rq_result()
+	local ok, hit = pcall(level.ray_pick, from_pos, dir, dist, level.rq_target.rqtStatic, _los_rq, nil)
+	if not ok then return true end   -- fail open: don't block selection if the check itself errors
+	if not hit then return true end  -- nothing static in the way
+	return _los_rq.range >= dist - 0.2   -- the "hit" is at/beyond the target, i.e. not actually blocking
+end
+
+-- Fallback target search: the nearest identifiable, visible NPC/creature to
+-- the crosshair on screen (not the nearest to the actor in world space)
+-- within fov_radius, so an approximate aim still finds someone -- you don't
+-- have to land a pixel-perfect hit on them.
+local function find_nearest_in_fov()
+	if not db.actor or not level.iterate_nearest then return nil end
+	local apos = db.actor:position()
+	local actor_id = db.actor:id()
+	local eye = eye_pos()
+	local best_obj, best_d = nil, C.fov_radius
+
+	pcall(level.iterate_nearest, apos, C.max_dist, function(obj)
+		if obj and obj:id() ~= actor_id then
+			local ok_alive, alive = pcall(obj.alive, obj)
+			if ok_alive and alive then
+				local ok_comm, comm = pcall(obj.character_community, obj)
+				if ok_comm and comm and comm ~= "" then
+					local d = screen_dist_to_center(obj:position())
+					if d and d < best_d and (not C.require_los or not eye or has_los(eye, obj)) then
+						best_d, best_obj = d, obj
+					end
+				end
+			end
+		end
+		return false   -- keep scanning the full set within max_dist
+	end)
+
+	return best_obj
+end
+
+-- --------------------------------------------------------------------------
+-- Identify trigger
+-- --------------------------------------------------------------------------
+-- Traces from the equipped weapon's own hit-test first (level.ETraceTarget.Weapon
+-- reads the attached hud item's pick result -- the same barrel-aligned trace
+-- the engine uses for firing, not the camera centre), falls back to the
+-- camera trace, and if neither hit anything, falls back to the nearest
+-- identifiable target within the on-screen FOV circle.
+local function get_target_obj()
+	if level.ETraceTarget then
+		local ok, obj = pcall(level.get_target_obj, level.ETraceTarget.Weapon)
+		if ok and obj then return obj end
+	end
+	local ok2, obj2 = pcall(level.get_target_obj)
+	if ok2 and obj2 then return obj2 end
+	return find_nearest_in_fov()
+end
+
+local function try_identify()
+	if not C.enabled or not db.actor then return end
+	local obj = get_target_obj()
+	if not obj then return end
+	if obj:id() == db.actor:id() then return end
+
+	local ok_alive, alive = pcall(obj.alive, obj)
+	if not ok_alive or not alive then return end
+
+	local ok_comm, comm = pcall(obj.character_community, obj)
+	if not ok_comm or not comm or comm == "" then return end
+
+	local ok_dist, dist = pcall(function() return obj:position():distance_to(db.actor:position()) end)
+	if not ok_dist or dist > C.max_dist then return end
+
+	local id = obj:id()
+	local tg = time_global()
+	if tracked[id] then
+		tracked[id].t0 = tg   -- re-identify: restart the reveal instead of stacking
+		return
+	end
+
+	local count, oldest_id, oldest_t = 0, nil, math.huge
+	for k, e in pairs(tracked) do
+		count = count + 1
+		if e.t0 < oldest_t then oldest_t, oldest_id = e.t0, k end
+	end
+	if count >= MAX_TAGS and oldest_id then tracked[oldest_id] = nil end
+
+	tracked[id] = {
+		id = id, t0 = tg, col = relation_color(obj),
+		name = display_name(obj, comm), icon = faction_icon_id(comm),
+	}
+end
+
+local function install_key_hook()
+	level_input = level_input or {}
+	_prev_on_key_press = level_input.on_key_press
+	level_input.on_key_press = function(key, action, disabled)
+		local handled = false
+		if _prev_on_key_press then
+			local ok, res = pcall(_prev_on_key_press, key, action, disabled)
+			if ok then handled = res end
+		end
+		if not disabled then
+			local dik = active_dik()
+			if dik and key == dik and modifiers_ok() then try_identify() end
+		end
+		return handled
+	end
+end
+
+-- --------------------------------------------------------------------------
+-- The tag dialog: a fixed pool of tag widget-sets, positioned per frame.
+-- --------------------------------------------------------------------------
+local DOT_D, ICON_D, ROW_GAP = 8, 20, 6
+
+class "IiTags" (CUIScriptWnd)
+
+function IiTags:__init() super()
+	self:InitControls()
+end
+
+function IiTags:InitControls()
+	self:SetWndRect(Frect():set(0, 0, 1024, 768))
+	self:SetAutoDelete(true)
+
+	self.xml = CScriptXmlInit()
+	self.xml:ParseFile("ii_tags.xml")
+
+	self.slots = {}
+	for i = 1, MAX_TAGS do
+		local glow    = self.xml:InitStatic("tag_glow", self)
+		local dot     = self.xml:InitStatic("tag_dot", self)
+		local spinner = self.xml:InitStatic("tag_spinner", self)
+		local icon    = self.xml:InitStatic("tag_icon", self)
+		local name_sh = self.xml:InitTextWnd("tag_name_sh:text", self)
+		local name    = self.xml:InitTextWnd("tag_name:text", self)
+		spinner:EnableHeading(true)
+		self.slots[i] = { glow = glow, dot = dot, spinner = spinner, icon = icon, name_sh = name_sh, name = name }
+		-- hidden starts unset (falsy) so this first hide_slot() call actually
+		-- runs the Show(false) calls below, instead of short-circuiting on its
+		-- own "already hidden" guard and leaving all widgets at their XML
+		-- default position (0,0 -- top-left) permanently visible.
+		self:hide_slot(i)
+	end
+end
+
+function IiTags:hide_slot(i)
+	local s = self.slots[i]
+	if not s or s.hidden then return end
+	s.hidden = true
+	s.glow:Show(false)
+	s.dot:Show(false)
+	s.spinner:Show(false)
+	s.icon:Show(false)
+	s.name_sh:Show(false)
+	s.name:Show(false)
+end
+
+local SPIN_D = 20            -- spinner diameter, px
+local SPIN_PERIOD_MS = 900   -- one full rotation
+
+-- hx, hy: anchor screen position (1024x768 virtual space) -- the identify
+-- point on the NPC's body. alpha: 0..255. scanning: true while the
+-- pre-reveal spinner is running; tg: time_global(), drives its rotation.
+-- Layout once revealed: a row of [relation dot][faction patch][name],
+-- horizontally centred above hx,hy. No background plate by design.
+function IiTags:draw_slot(i, hx, hy, label, alpha, col, icon_id, scanning, tg)
+	local s = self.slots[i]
+	if not s then return end
+	s.hidden = false
+
+	local r, g, b = col[1], col[2], col[3]
+
+	if alpha <= 1 then
+		-- scanning only: a rotating spinner on the body, nothing revealed yet
+		local spin_angle = (tg % SPIN_PERIOD_MS) / SPIN_PERIOD_MS * (2 * math.pi)
+		s.spinner:SetWndSize(S(SPIN_D, SPIN_D))
+		s.spinner:SetWndPos(P(hx - SPIN_D / 2, hy - SPIN_D / 2))
+		s.spinner:SetTextureColor(GetARGB(230, r, g, b))
+		s.spinner:SetHeading(spin_angle)
+		s.spinner:Show(true)
+
+		s.dot:Show(false)
+		s.glow:Show(false)
+		s.icon:Show(false)
+		s.name_sh:Show(false)
+		s.name:Show(false)
+		return
+	end
+
+	s.spinner:Show(false)
+
+	if s.icon_key ~= icon_id then
+		pcall(s.icon.InitTexture, s.icon, icon_id)
+		s.icon_key = icon_id
+	end
+
+	s.name:SetText(label)
+	s.name:AdjustWidthToText()
+	local tw = s.name:GetWidth()
+
+	local row_w = DOT_D + ROW_GAP + ICON_D + ROW_GAP + tw
+	local row_x = math.floor(hx - row_w / 2)
+	local row_cy = math.floor(hy - 46)   -- row's vertical centre, above the anchor point
+
+	local dot_x = row_x
+	s.dot:SetWndSize(S(DOT_D, DOT_D))
+	s.dot:SetWndPos(P(dot_x, row_cy - DOT_D / 2))
+	s.dot:SetTextureColor(GetARGB(alpha, r, g, b))
+	s.dot:Show(true)
+
+	local gsize = DOT_D * 3.2
+	s.glow:SetWndSize(S(gsize, gsize))
+	s.glow:SetWndPos(P(dot_x + DOT_D / 2 - gsize / 2, row_cy - gsize / 2))
+	s.glow:SetTextureColor(GetARGB(math.floor(alpha * 0.55), r, g, b))
+	s.glow:Show(true)
+
+	local icon_x = dot_x + DOT_D + ROW_GAP
+	s.icon:SetWndSize(S(ICON_D, ICON_D))
+	s.icon:SetWndPos(P(icon_x, row_cy - ICON_D / 2))
+	s.icon:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+	s.icon:Show(true)
+
+	local name_x = icon_x + ICON_D + ROW_GAP
+	local name_y = row_cy - 9   -- text box height 18, centred on the row
+	s.name_sh:SetWndPos(P(name_x + 1, name_y + 1))
+	s.name_sh:SetTextColor(GetARGB(math.floor(180 * alpha / 255), 0, 0, 0))
+	s.name_sh:Show(true)
+
+	s.name:SetWndPos(P(name_x, name_y))
+	s.name:SetTextColor(GetARGB(alpha, r, g, b))
+	s.name:Show(true)
+end
+
+-- --------------------------------------------------------------------------
+-- Per-frame update
+-- --------------------------------------------------------------------------
+local function ensure_tags()
+	if TAGS then return true end
+	local hud = get_hud and get_hud()
+	if not hud then return false end
+	TAGS = IiTags()
+	hud:AddDialogToRender(TAGS)
+	return true
+end
+
+local function render(tg)
+	local apos = db.actor and db.actor:position()
+	local total = SCAN_MS + FADE_MS + HOLD_MS + FADE_MS
+	local slot_i = 0
+
+	for id, e in pairs(tracked) do
+		local obj = level.object_by_id(id)
+		local remove = (obj == nil)
+		if not remove then
+			local ok_alive, alive = pcall(obj.alive, obj)
+			remove = not ok_alive or not alive
+		end
+
+		local elapsed = tg - e.t0
+		if not remove and elapsed > total then remove = true end
+
+		if remove then
+			tracked[id] = nil
+		else
+			local phase_alpha, scanning = 0, false
+			if elapsed < SCAN_MS then
+				scanning = true
+			elseif elapsed < SCAN_MS + FADE_MS then
+				phase_alpha = (elapsed - SCAN_MS) / FADE_MS
+			elseif elapsed < SCAN_MS + FADE_MS + HOLD_MS then
+				phase_alpha = 1
+			else
+				phase_alpha = 1 - (elapsed - (SCAN_MS + FADE_MS + HOLD_MS)) / FADE_MS
+				if phase_alpha < 0 then phase_alpha = 0 end
+			end
+
+			local pos = anchor_pos(obj)
+			local dist = apos and pos:distance_to(apos) or 0
+			local dist_fade = 1
+			if dist > C.fade_dist then
+				local span = math.max(1, C.max_dist - C.fade_dist)
+				dist_fade = 1 - (dist - C.fade_dist) / span
+				if dist_fade < 0 then dist_fade = 0 end
+			end
+
+			local sx, sy = project_world(pos)
+			if sx and dist <= C.max_dist * 1.15 then
+				slot_i = slot_i + 1
+				if slot_i <= MAX_TAGS then
+					local a = math.floor(255 * phase_alpha * dist_fade + 0.5)
+					TAGS:draw_slot(slot_i, sx, sy, e.name, a, e.col, e.icon, scanning, tg)
+				end
+			end
+		end
+	end
+
+	for i = slot_i + 1, MAX_TAGS do
+		TAGS:hide_slot(i)
+	end
+end
+
+local function actor_on_update()
+	if not C.enabled then
+		if TAGS then for i = 1, MAX_TAGS do TAGS:hide_slot(i) end end
+		return
+	end
+	if not ensure_tags() then return end
+	render(time_global())
+end
+
+-- --------------------------------------------------------------------------
+-- MCM live-apply + startup (on_mcm_load lives in ii_mcm.script)
+-- --------------------------------------------------------------------------
+function on_option_change()
+	read_config()
+end
+
+function on_game_start()
+	read_config()
+	install_key_hook()
+	RegisterScriptCallback("actor_on_update", actor_on_update)
+	RegisterScriptCallback("on_option_change", on_option_change)
+end
