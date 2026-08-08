@@ -76,8 +76,10 @@ Raising binoculars always makes identification faster and extends its range
 with the regular key too, independent of Binocular mode below. Toggle it and
 tune both multipliers in MCM.
 
-Farther targets also take longer to scan by default (up to 3x at max range),
-and looking through binoculars cancels most of that slowdown out. Toggle and
+Farther targets also take longer to scan by default (up to 3x right at your
+max range), scaling smoothly from instant up close — and since binoculars
+extend that max range, the same physical distance reads as proportionally
+closer through them, on top of their own flat speed bonus above. Toggle and
 tune in MCM.
 
 ### Binocular mode

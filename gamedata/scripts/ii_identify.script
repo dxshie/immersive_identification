@@ -31,9 +31,9 @@ DEFAULTS = {
 	binoc_boost       = true,  -- binoculars speed up + extend identify range, independent of binocular_mode
 	binoc_scan_mult   = 0.4,   -- scan_time multiplier while binoculars are raised (lower = faster reveal)
 	binoc_range_mult  = 2.5,   -- max_dist/fade_dist multiplier while binoculars are raised
-	dist_penalty        = true,  -- further targets take longer to scan/identify
-	dist_penalty_max    = 3.0,   -- scan time multiplier at max range (unaided)
-	dist_penalty_mitig  = 0.75,  -- how much binoculars cancel the distance penalty out (0 = none, 1 = fully)
+	dist_penalty      = true,  -- further targets take longer to scan/identify (binoc_range_mult mitigates
+	                           -- this for free -- see distance_scan_mult()'s comment)
+	dist_penalty_max  = 3.0,   -- scan time multiplier right at the (current, possibly boosted) max range
 }
 
 -- Section name of the stock binoculars item (confirmed from this engine's
@@ -397,21 +397,20 @@ local function is_binoc_active()
 	return fov < _fov_baseline * FOV_ZOOM_RATIO
 end
 
--- The further away a target is, the longer the "scanning" phase takes:
--- ramps from 1x at point-blank up to dist_penalty_max at max range.
--- Binoculars mitigate this (representing the optics compensating for
--- distance) by blending the multiplier back toward 1x by dist_penalty_mitig
--- -- independent of, and stacking with, binoc_scan_mult (a flat speed boost
--- regardless of distance).
-local function distance_scan_mult(dist, max_dist, mitigated)
+-- The further away a target is (as a fraction of the CURRENT effective max
+-- range), the longer the "scanning" phase takes: 1x at point-blank, ramping
+-- up to dist_penalty_max right at the cutoff. Passing eff_max_dist (already
+-- widened by binoc_range_mult when boosted) rather than the base C.max_dist
+-- means binoculars mitigate this for free -- the same physical distance is
+-- a smaller fraction of a longer range, so a target that would be almost at
+-- the (slow) unaided cutoff reads as comfortably inside the (fast) boosted
+-- one instead, on top of the flat binoc_scan_mult speed multiplier applied
+-- separately in try_identify().
+local function distance_scan_mult(dist, max_dist)
 	if not C.dist_penalty then return 1 end
 	local t = dist / math.max(1, max_dist)
 	if t < 0 then t = 0 elseif t > 1 then t = 1 end
-	local mult = 1 + (C.dist_penalty_max - 1) * t
-	if mitigated then
-		mult = 1 + (mult - 1) * (1 - C.dist_penalty_mitig)
-	end
-	return mult
+	return 1 + (C.dist_penalty_max - 1) * t
 end
 
 local function try_identify()
@@ -440,9 +439,10 @@ local function try_identify()
 	local ok_dist, dist = pcall(function() return obj:position():distance_to(db.actor:position()) end)
 	if not ok_dist or dist > eff_max_dist then return end
 
-	-- Distance penalty (mitigated by binoculars) stacks with the flat
-	-- binoc_scan_mult speed boost.
-	local eff_scan_ms = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max_dist, boosted))
+	-- Distance penalty scales against eff_max_dist (already widened when
+	-- boosted, mitigating the penalty for free), then the flat binoc_scan_mult
+	-- speed boost applies on top.
+	local eff_scan_ms = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max_dist))
 	if boosted then eff_scan_ms = math.floor(eff_scan_ms * C.binoc_scan_mult) end
 
 	local id = obj:id()
