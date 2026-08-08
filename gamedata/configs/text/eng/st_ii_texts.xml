@@ -66,6 +66,15 @@
 	<string id="ui_mcm_ii_scale_max"><text>Max scale (up close)</text></string>
 	<string id="ui_mcm_ii_scale_max_desc"><text>Largest size up close.</text></string>
 
+	<string id="ui_mcm_ii_dist_penalty"><text>Distance slows identification</text></string>
+	<string id="ui_mcm_ii_dist_penalty_desc"><text>Further targets take longer to scan.</text></string>
+
+	<string id="ui_mcm_ii_dist_penalty_max"><text>Max distance slowdown</text></string>
+	<string id="ui_mcm_ii_dist_penalty_max_desc"><text>Scan time multiplier at max range.</text></string>
+
+	<string id="ui_mcm_ii_dist_penalty_mitig"><text>Binoculars mitigation</text></string>
+	<string id="ui_mcm_ii_dist_penalty_mitig_desc"><text>How much binoculars cancel the distance slowdown.</text></string>
+
 	<!-- List-content ids: MCM resolves each modifier_index dropdown entry as
 	     "<page>_<option>_lst_" + the bare label from ii_identify.MODIFIER_LIST,
 	     i.e. "ii_main_modifier_index_lst_none" for the "none" entry. -->

@@ -76,11 +76,16 @@ Raising binoculars always makes identification faster and extends its range
 with the regular key too, independent of Binocular mode below. Toggle it and
 tune both multipliers in MCM.
 
+Farther targets also take longer to scan by default (up to 3x at max range),
+and looking through binoculars cancels most of that slowdown out. Toggle and
+tune in MCM.
+
 ### Binocular mode
 
 Turn this on in MCM and identification changes from "press a key" to "raise
-the binoculars and hold still": the key stops working unless binoculars are
-actively raised, and while they are, aiming near a target and holding the
-aim steady for a moment (configurable, default 0.6s) identifies them
-automatically — no key press needed. Move the aim off them (or past the
-steady tolerance) to reset; holding steady on them again re-triggers it.
+the binoculars and hold still": the key stops working unless you're actively
+looking through the binoculars (not just holding them — has to be zoomed
+in), and while you are, aiming near a target and holding the aim steady for
+a moment (configurable, default 0.6s) identifies them automatically — no key
+press needed. Move the aim off them (or past the steady tolerance) to reset;
+holding steady on them again re-triggers it.

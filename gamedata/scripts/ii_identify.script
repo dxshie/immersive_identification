@@ -31,6 +31,9 @@ DEFAULTS = {
 	binoc_boost       = true,  -- binoculars speed up + extend identify range, independent of binocular_mode
 	binoc_scan_mult   = 0.4,   -- scan_time multiplier while binoculars are raised (lower = faster reveal)
 	binoc_range_mult  = 2.5,   -- max_dist/fade_dist multiplier while binoculars are raised
+	dist_penalty        = true,  -- further targets take longer to scan/identify
+	dist_penalty_max    = 3.0,   -- scan time multiplier at max range (unaided)
+	dist_penalty_mitig  = 0.75,  -- how much binoculars cancel the distance penalty out (0 = none, 1 = fully)
 }
 
 -- Section name of the stock binoculars item (confirmed from this engine's
@@ -330,16 +333,85 @@ local function get_target_obj(max_dist)
 	return find_nearest_in_fov(max_dist)
 end
 
--- Is the actor currently holding up binoculars? `active_item()`/`section()`
+-- Is the binoculars item currently equipped/held? `active_item()`/`section()`
 -- confirmed via src/xrGame/script_game_object_script2.cpp:99,102,156 and the
--- section name via this repo's own axr_main.script:355.
-local function is_binoc_active()
+-- section name via this repo's own axr_main.script:355. On its own this only
+-- means "in hand", not "raised to the eye" -- see is_binoc_active() below.
+local function is_binoc_held()
 	if not db.actor then return false end
 	local ok, item = pcall(db.actor.active_item, db.actor)
 	if not ok or not item then return false end
 	local ok2, sec = pcall(item.section, item)
 	if not ok2 or not sec then return false end
 	return sec == BINOC_SECTION or sec:find("binoc") ~= nil
+end
+
+-- Is the actor actually looking through raised binoculars right now (not
+-- just holding them)? There's no direct Lua-side zoom-state getter for this
+-- (CWeapon::IsZoomed is bound only on a separate, disconnected legacy
+-- luabind class hierarchy CScriptGameObject can't reach), and the real event
+-- -- obj:set_callback(callback.weapon_zoom_in/out, fn) -- is a single
+-- last-writer-wins slot per object (src/xrGame/script_callback_ex.h's
+-- CScriptCallbackEx::set() calls clear() first): this repo's own
+-- gamedata/scripts/axr_main.script already claims that exact slot on
+-- db.actor to maintain a plain global `binoc_is_zoomed` and to broadcast
+-- SendScriptCallback("GUI_on_show/hide", "UIZoom") -- claiming it ourselves
+-- would silently break that. Reading `binoc_is_zoomed` instead (rather than
+-- registering anything) was tried first and turned out unreliable in
+-- practice (falls back to "held" whenever that global is unset, and
+-- apparently stays unset more often than expected -- possibly a different
+-- registration path/timing than assumed, or a build where axr_main's own
+-- registration never actually fires).
+--
+-- So instead of depending on any other script's state at all, this polls
+-- device().fov directly: looking through any optic (binoculars or a weapon
+-- scope) measurably narrows the camera's field of view, and that's a plain
+-- read with no shared slot to fight over. It self-calibrates a "normal"
+-- baseline from the widest FOV observed while binoculars are NOT the held
+-- item (so a weapon-scope zoom in that same window just fails to raise the
+-- baseline that frame rather than corrupting it), then treats a
+-- close-up-shrunk FOV while binoculars ARE held as "looking through them".
+-- Calibration (update_fov_baseline) runs unconditionally every frame from
+-- actor_on_update() regardless of which features are enabled, so the
+-- baseline is already warm the moment it's actually needed -- if it only
+-- ran when a feature using is_binoc_active() happened to fire (e.g. only on
+-- an identify keypress), it would go stale between uses instead of tracking
+-- the player's current FOV setting continuously.
+local FOV_ZOOM_RATIO = 0.7   -- current fov must drop below this fraction of baseline to count as zoomed
+local _fov_baseline = 60     -- self-corrects within moments of normal (unzoomed) play either way
+
+local function update_fov_baseline()
+	if is_binoc_held() then return end
+	local dev = device and device()
+	local fov = dev and dev.fov
+	if fov and fov > _fov_baseline then
+		_fov_baseline = fov   -- only ever raised, and only while not holding binoculars
+	end
+end
+
+local function is_binoc_active()
+	if not is_binoc_held() then return false end
+	local dev = device and device()
+	local fov = dev and dev.fov
+	if not fov or fov <= 0 then return true end   -- can't read fov: fail open to "held" behaviour
+	return fov < _fov_baseline * FOV_ZOOM_RATIO
+end
+
+-- The further away a target is, the longer the "scanning" phase takes:
+-- ramps from 1x at point-blank up to dist_penalty_max at max range.
+-- Binoculars mitigate this (representing the optics compensating for
+-- distance) by blending the multiplier back toward 1x by dist_penalty_mitig
+-- -- independent of, and stacking with, binoc_scan_mult (a flat speed boost
+-- regardless of distance).
+local function distance_scan_mult(dist, max_dist, mitigated)
+	if not C.dist_penalty then return 1 end
+	local t = dist / math.max(1, max_dist)
+	if t < 0 then t = 0 elseif t > 1 then t = 1 end
+	local mult = 1 + (C.dist_penalty_max - 1) * t
+	if mitigated then
+		mult = 1 + (mult - 1) * (1 - C.dist_penalty_mitig)
+	end
+	return mult
 end
 
 local function try_identify()
@@ -354,7 +426,6 @@ local function try_identify()
 	local boosted = C.binoc_boost and is_binoc_active()
 	local eff_max_dist = boosted and (C.max_dist * C.binoc_range_mult) or C.max_dist
 	local eff_fade_dist = boosted and (C.fade_dist * C.binoc_range_mult) or C.fade_dist
-	local eff_scan_ms = boosted and math.floor(SCAN_MS * C.binoc_scan_mult) or SCAN_MS
 
 	local obj = get_target_obj(eff_max_dist)
 	if not obj then return end
@@ -368,6 +439,11 @@ local function try_identify()
 
 	local ok_dist, dist = pcall(function() return obj:position():distance_to(db.actor:position()) end)
 	if not ok_dist or dist > eff_max_dist then return end
+
+	-- Distance penalty (mitigated by binoculars) stacks with the flat
+	-- binoc_scan_mult speed boost.
+	local eff_scan_ms = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max_dist, boosted))
+	if boosted then eff_scan_ms = math.floor(eff_scan_ms * C.binoc_scan_mult) end
 
 	local id = obj:id()
 	local tg = time_global()
@@ -695,6 +771,8 @@ local function render(tg)
 end
 
 local function actor_on_update()
+	update_fov_baseline()   -- keep this warm even while the mod is disabled
+
 	if not C.enabled then
 		if TAGS then for i = 1, MAX_TAGS do TAGS:hide_slot(i) end end
 		reset_steady()
