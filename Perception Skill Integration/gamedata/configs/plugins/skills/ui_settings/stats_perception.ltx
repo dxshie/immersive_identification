@@ -1,0 +1,17 @@
+; Wires the perception skill's inert "awareness" stat (see skill_perception.ltx)
+; to a functor in ii_identify.script, via the exact same generic per-stat-
+; description mechanism the Skill System's own bundled skills use (see
+; ui_haru_skills.script's BuildDescription/get_stats_func_value, and e.g.
+; survival's resistance stat -> functor = ui_haru_skills, get_resistance_string
+; in this same directory's stats_haru.ltx). This section is picked up by
+; ui_haru_skills.script's own `ini_descr = ini_file_ex("plugins\skills\
+; ui_settings\base.ltx")`, whose own base.ltx does `#include "stats_*.ltx"` --
+; a wildcard include, so this file merges in automatically with no edits to
+; the Skill System's own files, the same VFS-overlay pattern skill_perception.ltx
+; itself uses against skills_base.ltx.
+
+[perception]
+awareness = perception_awareness_stat
+
+[perception_awareness_stat]
+functor = ii_identify, perception_hint_stats

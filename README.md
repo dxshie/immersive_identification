@@ -84,11 +84,22 @@ Raising binoculars always makes identification faster and extends its range
 with the regular key too, independent of Binocular mode below. Toggle it and
 tune both multipliers in MCM.
 
-Farther targets also take longer to scan by default (up to 3x right at your
+Farther targets also take longer to scan by default (up to 5x right at your
 max range), scaling smoothly from instant up close — and since binoculars
 extend that max range, the same physical distance reads as proportionally
 closer through them, on top of their own flat speed bonus above. Toggle and
 tune in MCM.
+
+Higher-ranked stalkers also take longer to identify: a rookie always
+identifies at the normal rate, and each rank above that has its own fixed
+penalty (not an even step per rank — the jump from novice to trainee barely
+changes the time, while expert/master/legend are noticeably slower), up to
+3x by default for a legend. Monsters/mutants (no rank) are never penalised.
+Toggle and tune the legend-rank ceiling in MCM.
+
+Once you've identified a stalker, identifying them again later is faster
+(default: 40% faster) — the mod remembers everyone you've identified,
+including across save/load. Toggle and tune the speed multiplier in MCM.
 
 ### Binocular mode
 

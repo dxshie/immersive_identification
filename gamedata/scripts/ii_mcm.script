@@ -104,6 +104,22 @@ function on_mcm_load()
 				{ id = "dist_penalty_max", type = "track", val = 2, min = 1, max = 6, step = 0.1, prec = 1, def = d.dist_penalty_max,
 					text = "ui_mcm_ii_dist_penalty_max", hint = "ii_dist_penalty_max_desc" },
 
+				{ id = "title", type = "slide", text = "ui_mcm_ii_rank_penalty_title", size = { 512, 50 }, spacing = 20 },
+
+				{ id = "rank_penalty", type = "check", val = 1, def = d.rank_penalty,
+					text = "ui_mcm_ii_rank_penalty", hint = "ii_rank_penalty_desc" },
+
+				{ id = "rank_penalty_max", type = "track", val = 2, min = 1, max = 6, step = 0.1, prec = 1, def = d.rank_penalty_max,
+					text = "ui_mcm_ii_rank_penalty_max", hint = "ii_rank_penalty_max_desc" },
+
+				{ id = "title", type = "slide", text = "ui_mcm_ii_familiarity_title", size = { 512, 50 }, spacing = 20 },
+
+				{ id = "familiarity_boost", type = "check", val = 1, def = d.familiarity_boost,
+					text = "ui_mcm_ii_familiarity_boost", hint = "ii_familiarity_boost_desc" },
+
+				{ id = "familiarity_scan_mult", type = "track", val = 2, min = 0.1, max = 1, step = 0.05, prec = 2, def = d.familiarity_scan_mult,
+					text = "ui_mcm_ii_familiarity_scan_mult", hint = "ii_familiarity_scan_mult_desc" },
+
 				{ id = "title", type = "slide", text = "ui_mcm_ii_perception_title", size = { 512, 50 }, spacing = 20 },
 
 				{ id = "perception_compat", type = "check", val = 1, def = d.perception_compat,

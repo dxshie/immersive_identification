@@ -67,6 +67,22 @@
 	<string id="ui_mcm_ii_dist_penalty_max"><text>Max distance slowdown</text></string>
 	<string id="ui_mcm_ii_dist_penalty_max_desc"><text>Scan time multiplier at max range. Binoculars mitigate this for free by extending max range itself.</text></string>
 
+	<string id="ui_mcm_ii_rank_penalty_title"><text>Rank Penalty</text></string>
+
+	<string id="ui_mcm_ii_rank_penalty"><text>Rank slows identification</text></string>
+	<string id="ui_mcm_ii_rank_penalty_desc"><text>Higher-ranked stalkers take longer to identify than a rookie.</text></string>
+
+	<string id="ui_mcm_ii_rank_penalty_max"><text>Max rank slowdown</text></string>
+	<string id="ui_mcm_ii_rank_penalty_max_desc"><text>Scan time multiplier for the highest rank (legend), vs. a rookie.</text></string>
+
+	<string id="ui_mcm_ii_familiarity_title"><text>Familiarity</text></string>
+
+	<string id="ui_mcm_ii_familiarity_boost"><text>Remember identified stalkers</text></string>
+	<string id="ui_mcm_ii_familiarity_boost_desc"><text>Re-identifying someone you've identified before is faster.</text></string>
+
+	<string id="ui_mcm_ii_familiarity_scan_mult"><text>Familiar target speed multiplier</text></string>
+	<string id="ui_mcm_ii_familiarity_scan_mult_desc"><text>Scan time multiplier for a previously-identified target.</text></string>
+
 	<string id="ui_mcm_ii_perception_title"><text>Skill System (Perception)</text></string>
 
 	<string id="ui_mcm_ii_perception_compat"><text>Perception skill integration</text></string>

@@ -10,4 +10,11 @@
 	<string id="st_player_skills_perception"><text>Perception</text></string>
 	<string id="st_player_skills_hint_perception"><text>Faster faction/name identification (Immersive Identification's identify key/binoculars) the higher this skill's level. Levels up the first time you identify each stalker or creature -- re-identifying someone already identified doesn't grant experience.</text></string>
 	<string id="st_new_level_perception"><text>$clr_cyan* $clr_whiteIdentification speed improved</text></string>
+
+	<!-- Appended after st_player_skills_hint_perception by the Skill System's
+	     own per-stat hint mechanism (see stats_perception.ltx and
+	     ii_identify.script's perception_hint_stats()); live numbers at the
+	     actor's current level, not a static description. Every $token here
+	     is followed by whitespace/punctuation, never another letter/digit. -->
+	<string id="st_ii_perception_hint_stats"><text>\n \nAt your current level ($level), identifying a rookie stalker takes:\n  Point-blank: $t1 sec\n  Max range: $t2 sec\n  Point-blank, binoculars: $t3 sec\n  Max range, binoculars: $t4 sec\n \nHigher-ranked targets take proportionally longer on top of this, if enabled.</text></string>
 </string_table>

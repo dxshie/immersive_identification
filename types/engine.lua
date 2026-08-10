@@ -271,6 +271,23 @@ ui_mcm = {}
 function ui_mcm.get(path) end
 
 ---------------------------------------------------------------------------
+-- utils_data -- a base Anomaly/GAMMA bundled script (gamedata/scripts/
+-- utils_data.script, not part of this mod), always present in any real
+-- install; stubbed only for the one function this mod actually calls.
+---------------------------------------------------------------------------
+---@class UtilsDataApi
+utils_data = {}
+
+--- Replaces "$key" tokens in str with the corresponding value from repl
+--- (stringified). Used throughout the Skill System mod's own UI code for
+--- the exact same purpose (e.g. ui_haru_skills.script's
+--- `local parse_keys = utils_data.parse_string_keys`).
+---@param str string
+---@param repl table<string, any>
+---@return string
+function utils_data.parse_string_keys(str, repl) end
+
+---------------------------------------------------------------------------
 -- OOP helpers (a class-lib style shim bundled with the base game, not
 -- standard Lua): `class "Name" (Base)` declares a class; `super()` inside
 -- `:__init()` calls the base constructor. lua-language-server can't fully

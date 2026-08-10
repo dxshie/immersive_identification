@@ -35,6 +35,10 @@ DEFAULTS = {
 	perception_compat = true,  -- soft-integrate with the Skill System mod's "perception" skill, if present
 	perception_scan_mult = 0.04, -- scan time reduction per perception level (0.04 = 4% faster per level)
 	perception_xp        = 20,   -- perception XP granted per successful identify (skill-system side)
+	rank_penalty      = true,  -- higher-ranked stalkers take longer to identify (novice = baseline, legend = slowest)
+	rank_penalty_max  = 3.0,   -- scan time multiplier for the highest rank (legend), relative to a rookie
+	familiarity_boost = true,  -- once you've identified a stalker before, re-identifying them later is faster
+	familiarity_scan_mult = 0.6, -- scan time multiplier for a previously-identified target
 }
 
 -- Section name of the stock binoculars item (confirmed from this engine's
@@ -448,6 +452,52 @@ local function distance_scan_mult(dist, max_dist)
 	return 1 + (C.dist_penalty_max - 1) * t
 end
 
+-- Rank ladder for the rank-based scan penalty, in ascending order of how
+-- accomplished/well-known the stalker is. Deliberately the same rank-id set
+-- and relative ordering as the Skill System's own rank_table
+-- ($HOME/code/lua/skillsystem/gamedata/scripts/haru_skills.script's
+-- scavanger_effect, novice=25 ... legend=100) rather than reading
+-- obj:rank() (the raw numeric CHARACTER_RANK_VALUE, bound at
+-- src/xrGame/script_game_object_script2.cpp:146): that value is threshold-
+-- driven by each modpack's own game_relations.ltx, so its numeric scale
+-- isn't safe to assume, where rank NAMES (obj:rank_name(), already what
+-- this mod displays on the card via rank_label()) are the stable, ecosystem-
+-- standard identity to key off.
+-- Each rank's own difficulty weight (0 = reads exactly as fast as a rookie,
+-- 1 = full rank_penalty_max slowdown) -- NOT an evenly-spaced position on a
+-- ladder. A veteran isn't "5/8ths of the way" harder to place at a glance
+-- than a novice; the early promotions (novice -> trainee -> experienced)
+-- barely change how readable someone looks, while the last few tiers
+-- (expert -> master -> legend) are the stalkers who are genuinely harder to
+-- size up quickly. novice is pinned at exactly 0 so a rookie is always the
+-- unpenalised baseline regardless of the rank_penalty_max slider.
+local RANK_WEIGHT = {
+	novice       = 0.00,
+	trainee      = 0.08,
+	experienced  = 0.20,
+	professional = 0.35,
+	veteran      = 0.50,
+	expert       = 0.68,
+	master       = 0.85,
+	legend       = 1.00,
+}
+
+-- rank_penalty_max is the multiplier at weight 1 (legend); every other rank
+-- scales to its own fixed point between 1x (novice) and that ceiling via its
+-- weight above -- not a formula-derived interpolation between rank *tiers*.
+-- Monsters/mutants and any rank id outside RANK_WEIGHT (an unknown/modded
+-- rank ladder) fail open to no penalty -- rank_name() returns "" for
+-- non-stalkers (SAFE_WRAP, not an error), and there's nothing to classify a
+-- rank we don't recognise against.
+local function rank_scan_mult(obj)
+	if not C.rank_penalty then return 1 end
+	local ok, rid = pcall(obj.rank_name, obj)
+	if not ok or not rid or rid == "" then return 1 end
+	local w = RANK_WEIGHT[rid]
+	if not w then return 1 end
+	return 1 + (C.rank_penalty_max - 1) * w
+end
+
 -- --------------------------------------------------------------------------
 -- Skill System (haru_skills) compatibility: identification gets faster the
 -- higher the actor's "perception" skill level is. Soft dependency throughout
@@ -476,6 +526,54 @@ local function perception_scan_mult()
 	local mult = 1 - C.perception_scan_mult * lvl
 	if mult < 0.15 then mult = 0.15 end
 	return mult
+end
+
+-- Exposed as ii_identify.perception_hint_stats (cross-file global convention)
+-- for the Skill System menu's own per-stat hint mechanism -- the exact
+-- generic hook every one of its bundled skills uses to append live numbers
+-- to their tooltip (ui_haru_skills.script:131 get_stats_func_value /
+-- BuildDescription, e.g. survival's resistance stat -> functor =
+-- ui_haru_skills, get_resistance_string). Wired in via this component's own
+-- ui_settings/stats_perception.ltx ([perception] awareness = ... ; functor =
+-- ii_identify, perception_hint_stats), so it appends automatically after the
+-- static st_player_skills_hint_perception text, with no changes to the Skill
+-- System's own files. Called with the "awareness" stat's numeric value
+-- (BuildDescription always passes one), which is ignored -- awareness itself
+-- carries no real meaning (see skill_perception.ltx's comment); everything
+-- shown here is read fresh from the actor's actual current perception level
+-- and live MCM config instead.
+--
+-- Shows identify time for a rookie stalker (rank held at baseline -- see
+-- rank_scan_mult()'s RANK_WEIGHT, novice = 0 -- so this isolates perception's
+-- own effect; a rank penalty on top of a higher-ranked target, if enabled,
+-- multiplies further) at the actor's current level, across the four
+-- range/binocular combinations. All four $-tokens in the string are always
+-- followed by whitespace/punctuation, never another word character, so
+-- there's no ambiguity for whatever token-matching utils_data.parse_string_keys
+-- uses under the hood (confirmed by example against the Skill System's own
+-- stat strings, which follow the same rule for their own $stat token).
+function perception_hint_stats()
+	local lvl = perception_level()
+	local pmult = perception_scan_mult()
+
+	local function scan_seconds(dist, boosted_case)
+		local eff_max = boosted_case and (C.max_dist * C.binoc_range_mult) or C.max_dist
+		local t = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max))
+		if boosted_case then t = math.floor(t * C.binoc_scan_mult) end
+		t = math.floor(t * pmult)
+		return string.format("%.2f", t / 1000)
+	end
+
+	local ok, txt = pcall(function()
+		return utils_data.parse_string_keys(game.translate_string("st_ii_perception_hint_stats"), {
+			["level"] = lvl,
+			["t1"] = scan_seconds(0, false),
+			["t2"] = scan_seconds(C.max_dist, false),
+			["t3"] = scan_seconds(0, true),
+			["t4"] = scan_seconds(C.max_dist, true),
+		})
+	end)
+	return ok and txt or ""
 end
 
 -- Rewards using the identify feature with perception XP, same as the skill
@@ -524,6 +622,15 @@ end
 -- scheme (e.g. name+community) that has its own collision problems.
 local xp_awarded = {}
 
+-- Familiarity gate: [npc_id] = true once you've identified that target at
+-- least once, ever -- unlike xp_awarded (only set when perception XP was
+-- actually granted, so a later-installed Skill System can still pay out a
+-- previously-met NPC's first-time XP), this is set on every first successful
+-- identify regardless of the Skill System's presence, since the familiarity
+-- speed boost is a core mod feature, not part of that soft integration.
+-- Also persisted via save_state/load_state.
+local remembered = {}
+
 local function try_identify()
 	if not C.enabled or not db.actor then return end
 	if C.binocular_mode and not is_binoc_active() then return end
@@ -550,16 +657,26 @@ local function try_identify()
 	local ok_dist, dist = pcall(function() return obj:position():distance_to(db.actor:position()) end)
 	if not ok_dist or dist > eff_max_dist then return end
 
-	-- Distance penalty scales against eff_max_dist (already widened when
-	-- boosted, mitigating the penalty for free), then the flat binoc_scan_mult
-	-- speed boost applies on top, then the actor's perception skill level (if
-	-- the Skill System integration is present) shaves a further fraction off.
+	-- Target-side difficulty first (how far away, how accomplished the
+	-- stalker is), then actor-side mitigation on top: distance penalty scales
+	-- against eff_max_dist (already widened when boosted, mitigating the
+	-- penalty for free), rank penalty scales with the target's own rank, the
+	-- flat binoc_scan_mult speed boost applies next, then the actor's
+	-- perception skill level (if the Skill System integration is present)
+	-- shaves a further fraction off, and finally familiarity (below) discounts
+	-- a target you've identified before.
 	local eff_scan_ms = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max_dist))
+	eff_scan_ms = math.floor(eff_scan_ms * rank_scan_mult(obj))
 	if boosted then eff_scan_ms = math.floor(eff_scan_ms * C.binoc_scan_mult) end
 	eff_scan_ms = math.floor(eff_scan_ms * perception_scan_mult())
 
 	local id = obj:id()
 	local tg = time_global()
+
+	if C.familiarity_boost and remembered[id] then
+		eff_scan_ms = math.floor(eff_scan_ms * C.familiarity_scan_mult)
+	end
+
 	if tracked[id] then
 		tracked[id].t0 = tg   -- re-identify: restart the reveal instead of stacking
 		return
@@ -568,6 +685,7 @@ local function try_identify()
 	if not xp_awarded[id] and award_perception_xp() then
 		xp_awarded[id] = true
 	end
+	remembered[id] = true
 
 	local count, oldest_id, oldest_t = 0, nil, math.huge
 	for k, e in pairs(tracked) do
@@ -1050,22 +1168,25 @@ local function actor_on_update()
 end
 
 -- --------------------------------------------------------------------------
--- Save/load: persists xp_awarded only (tracked is transient reveal state,
--- deliberately not saved -- an active scan/reveal just restarts clean after
--- a load, same as it would after walking out of range and back). Declared
--- `local` rather than a bare global specifically to avoid colliding with
--- other scripts' own same-named save_state/load_state globals (e.g.
--- haru_skills.script defines its own): RegisterScriptCallback is a proper
--- multi-subscriber event bus (every mod's registered save_state fires, none
--- overwrite each other), unlike this engine's single-slot native
--- set_callback, so there's no need for -- and no benefit to -- a global here.
+-- Save/load: persists xp_awarded and remembered only (tracked is transient
+-- reveal state, deliberately not saved -- an active scan/reveal just
+-- restarts clean after a load, same as it would after walking out of range
+-- and back). Declared `local` rather than a bare global specifically to
+-- avoid colliding with other scripts' own same-named save_state/load_state
+-- globals (e.g. haru_skills.script defines its own): RegisterScriptCallback
+-- is a proper multi-subscriber event bus (every mod's registered save_state
+-- fires, none overwrite each other), unlike this engine's single-slot
+-- native set_callback, so there's no need for -- and no benefit to -- a
+-- global here.
 -- --------------------------------------------------------------------------
 local function save_state(m_data)
 	m_data.ii_xp_awarded = xp_awarded
+	m_data.ii_remembered = remembered
 end
 
 local function load_state(m_data)
 	xp_awarded = m_data.ii_xp_awarded or {}
+	remembered = m_data.ii_remembered or {}
 end
 
 -- --------------------------------------------------------------------------
