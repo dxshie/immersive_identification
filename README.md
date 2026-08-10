@@ -70,9 +70,18 @@ Configuration Menu) is optional but recommended for configuring the key/timing.
 4. Re-pressing the key on an already-identified target restarts the reveal.
    Up to 5 identifications can be active at once (oldest is dropped first).
 
-The card's overall size is a flat multiplier, tunable in MCM (not
-distance-based — text stays a fixed size regardless, so this only scales the
-plate/dot/icon/line around it).
+The card's overall size comes from one of two MCM-selectable modes: **Manual**
+(a flat multiplier you set yourself, unaffected by range) or **Bounding box**
+(auto — each frame it projects the target's actual render bounding box to
+screen space and scales to their real apparent size, so a mutant and a
+stalker at the same distance don't necessarily read as the same size). Either
+way, a separate overall multiplier applies on top so you can nudge the result
+without switching modes. Text (header/name/rank) steps through a few discrete
+font sizes as the card scales — the UI has no continuous text-scaling API —
+while the plate/icon/dot around it scale continuously. Below a configurable
+cutoff, the card layout stops making sense (illegible text, a sliver of a
+plate), so it's replaced with just the relation-coloured dot beside the
+target instead of trying to cram the full card into too little space.
 
 Everything is configurable in MCM: enable/disable, the key + modifier,
 relation colouring, scan/fade/hold durations, max/fade-out range, the

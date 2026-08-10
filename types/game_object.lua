@@ -96,6 +96,24 @@ function game_object:section() end
 ---@return boolean
 function game_object:see(other) end
 
+--- Render-visual bounding box in the object's LOCAL model space (the
+--- static bind-pose box, not updated per current animation frame) -- NOT
+--- world space. To get a world/screen-space extent, transform each of the
+--- 8 corners by xform() first. `hud` selects the held-item's own HUD-view
+--- visual instead of the object's world model; false for a world-space NPC
+--- box. script_game_object.cpp:95-104 (CObject::BoundingBox at
+--- xr_object.cpp:188 for the non-hud path), bound script_game_object_script2.cpp:94.
+---@param hud boolean
+---@return Fbox
+function game_object:bounding_box(hud) end
+
+--- The object's local-to-world transform matrix. `hud` selects the held
+--- item's own view-model transform instead of the object's world transform.
+--- script_game_object.cpp:72-89, bound script_game_object_script2.cpp:93.
+---@param hud boolean
+---@return Fmatrix
+function game_object:xform(hud) end
+
 ---------------------------------------------------------------------------
 -- EXTENDED (verified via C++ source in this project, not yet used here)
 ---------------------------------------------------------------------------

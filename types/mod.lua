@@ -15,6 +15,7 @@
 ---@class ii_identify
 ---@field DEFAULTS table config defaults, keyed by MCM option id
 ---@field MODIFIER_LIST { dik: string?, alt_dik: string?, label: string }[]
+---@field SCALE_MODE_LIST { label: string }[]
 ---@field DEFAULT_KEY_NAME string DIK_keys field name, e.g. "DIK_X"
 ii_identify = {}
 

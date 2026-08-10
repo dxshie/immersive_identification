@@ -95,4 +95,21 @@
 	<tag_rank>
 		<text font="letterica16" align="l" width="300" height="16" />
 	</tag_rank>
+
+	<!-- Never actually shown; created once (not per-slot) purely to harvest
+	     a CGameFont* per size this engine's letterica family offers
+	     (src/xrGame/ui/UIXmlInit.cpp's LETTERICA16/18/25_FONT_NAME defines
+	     are the only three), via GetFont(), so draw_slot can retarget the
+	     real text widgets' font at runtime via SetFont() as the card's scale
+	     crosses a threshold; there's no continuous runtime text-scaling
+	     API, only switching between these fixed sizes. -->
+	<tag_font_16>
+		<text font="letterica16" align="l" width="4" height="4" />
+	</tag_font_16>
+	<tag_font_18>
+		<text font="letterica18" align="l" width="4" height="4" />
+	</tag_font_18>
+	<tag_font_25>
+		<text font="letterica25" align="l" width="4" height="4" />
+	</tag_font_25>
 </w>

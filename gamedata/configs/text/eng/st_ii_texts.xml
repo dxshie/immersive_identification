@@ -55,8 +55,19 @@
 
 	<string id="ui_mcm_ii_distance_scaling_title"><text>Card Size</text></string>
 
+	<string id="ui_mcm_ii_scale_mode"><text>Scale mode</text></string>
+	<string id="ui_mcm_ii_scale_mode_desc"><text>Manual: flat scale below. Bounding box: auto-scales to the target's actual on-screen size.</text></string>
+
 	<string id="ui_mcm_ii_card_scale"><text>Card scale</text></string>
-	<string id="ui_mcm_ii_card_scale_desc"><text>Flat size multiplier for the whole card. Not distance-based.</text></string>
+	<string id="ui_mcm_ii_card_scale_desc"><text>Overall size multiplier, applied on top of the scale mode above.</text></string>
+
+	<string id="ui_mcm_ii_mini_scale_cutoff"><text>Mini mode cutoff</text></string>
+	<string id="ui_mcm_ii_mini_scale_cutoff_desc"><text>Below this scale, show just the relation dot instead of the full card.</text></string>
+
+	<!-- List-content ids for scale_mode, same "<page>_<option>_lst_<label>"
+	     convention as modifier_index below. -->
+	<string id="ii_main_scale_mode_lst_manual"><text>Manual</text></string>
+	<string id="ii_main_scale_mode_lst_bbox"><text>Bounding box</text></string>
 
 	<string id="ui_mcm_ii_binoc_title"><text>Binoculars</text></string>
 	<string id="ui_mcm_ii_dist_penalty_title"><text>Distance Penalty</text></string>

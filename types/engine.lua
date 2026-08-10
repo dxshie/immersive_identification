@@ -104,6 +104,27 @@ function FrectMethods:set(x1, y1, x2, y2) end
 ---@return Frect
 function Frect() end
 
+--- Axis-aligned box, min/max in the SAME space the box was fetched in (e.g.
+--- game_object:bounding_box() returns one in the object's local model
+--- space -- see that method's own comment). No script-side constructor is
+--- stubbed: the only source of one this mod uses is bounding_box().
+--- src/xrServerEntities/script_fvector_script.cpp:162-165.
+---@class Fbox
+---@field min Fvector
+---@field max Fvector
+local FboxMethods = {}
+
+--- The object's local-to-world transform matrix (game_object:xform()).
+--- src/xrServerEntities/script_fmatrix_script.cpp:31,60-61.
+---@class Fmatrix
+local Fmatrix = {}
+
+--- Transforms `p` by this matrix. Two overloads: write into a separate
+--- output vector (leaving `p` untouched), or transform `p` in place.
+---@param out_or_p Fvector destination (2-arg form) or the point to transform in place (1-arg form)
+---@param p Fvector? the point to transform, when using the 2-arg form
+function Fmatrix:transform(out_or_p, p) end
+
 ---------------------------------------------------------------------------
 -- device() / RenderDevice
 ---------------------------------------------------------------------------
@@ -384,3 +405,17 @@ function CUIStatic:AdjustWidthToText() end
 
 ---@return number
 function CUIStatic:GetWidth() end
+
+--- Opaque font handle (CGameFont*). No fields/methods stubbed -- this mod
+--- only ever passes one straight from GetFont() into SetFont() on another
+--- widget, never inspects it. src/xrGame/ui/UILines.h:22-23,
+--- src/xrGame/ui/UIStatic_script.cpp:54-55 (CUITextWnd::SetFont/GetFont;
+--- the InitTextWnd-returned widgets in this stub's unified CUIStatic).
+---@class CGameFont
+local CGameFont = {}
+
+---@param font CGameFont
+function CUIStatic:SetFont(font) end
+
+---@return CGameFont
+function CUIStatic:GetFont() end
