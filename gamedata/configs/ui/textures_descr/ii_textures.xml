@@ -1,18 +1,31 @@
 <w>
 	<!-- Immersive Identification ships its own tiny textures so the floating tag
-	     draws correctly with no dependency on any other mod. Both are plain white
-	     (RGB=255) with the shape carried entirely in alpha, so every element is
-	     tinted at runtime via SetTextureColor (relation colour). -->
+	     draws correctly with no dependency on any other mod. Most are plain
+	     white (RGB=255) with the shape carried entirely in alpha, so they're
+	     tinted at runtime via SetTextureColor (relation colour); ii_node is
+	     the one exception, see its own comment below. -->
 
 	<!-- Solid opaque square: plate background / accent bar / any rectangular chip. -->
 	<file name="ui\ii_white">
 		<texture id="ii_white" x="0" y="0" width="32" height="32" />
 	</file>
 
-	<!-- Soft anti-aliased circle: the identify pulse-dot and its glow halo
-	     (same texture, drawn at two sizes/alphas). -->
+	<!-- Soft anti-aliased circle, plain white, no outline: the glow halo
+	     behind the node (see ii_node below), and the scanning-phase pulse. -->
 	<file name="ui\ii_dot">
 		<texture id="ii_dot" x="0" y="0" width="64" height="64" />
+	</file>
+
+	<!-- The node dot itself: white fill with a BLACK outline ring baked in
+	     (not plain white like ii_dot above), matching
+	     gamma-immersive-quest-markers' iqm_circle technique ("dark border
+	     ring baked into the texture, tinted the accent colour"). Runtime
+	     SetTextureColor multiplies the whole texture by the tint colour;
+	     black times anything stays black (0*x=0), so the ring reads as a
+	     fixed dark outline regardless of tint while the white fill becomes
+	     exactly the relation colour; no separate draw call needed. -->
+	<file name="ui\ii_node">
+		<texture id="ii_node" x="0" y="0" width="64" height="64" />
 	</file>
 
 	<!-- Comet-tail ring, rotated at runtime via SetHeading: the identify

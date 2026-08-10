@@ -96,13 +96,29 @@ function game_object:section() end
 ---@return boolean
 function game_object:see(other) end
 
+
+---------------------------------------------------------------------------
+-- EXTENDED (verified via C++ source in this project, not yet used here)
+---------------------------------------------------------------------------
+
 --- Render-visual bounding box in the object's LOCAL model space (the
 --- static bind-pose box, not updated per current animation frame) -- NOT
---- world space. To get a world/screen-space extent, transform each of the
---- 8 corners by xform() first. `hud` selects the held-item's own HUD-view
---- visual instead of the object's world model; false for a world-space NPC
---- box. script_game_object.cpp:95-104 (CObject::BoundingBox at
+--- world space; the caller must transform it (e.g. via xform() below).
+--- `hud` selects the held-item's own HUD-view visual instead of the
+--- object's world model; false for a world-space NPC box.
+--- script_game_object.cpp:95-104 (CObject::BoundingBox at
 --- xr_object.cpp:188 for the non-hud path), bound script_game_object_script2.cpp:94.
+---
+--- CAUTION: tried in this project (bbox_screen_extent() in ii_identify.script,
+--- since replaced) combined with xform() + Fmatrix:transform() to project
+--- the 8 corners to screen space, and it never produced a result that
+--- actually varied with distance in live testing -- almost certainly the
+--- same class of bug as level.ray_pick's out-parameter (see has_los()'s
+--- comment in ii_identify.script): a Lua-bound out-parameter not behaving
+--- as its C++ signature suggests. The binding itself is real (confirmed via
+--- the C++ source above), but this specific *combination* has a live,
+--- unresolved failure -- don't reach for it again without re-verifying the
+--- transform() call in isolation first.
 ---@param hud boolean
 ---@return Fbox
 function game_object:bounding_box(hud) end
@@ -110,13 +126,11 @@ function game_object:bounding_box(hud) end
 --- The object's local-to-world transform matrix. `hud` selects the held
 --- item's own view-model transform instead of the object's world transform.
 --- script_game_object.cpp:72-89, bound script_game_object_script2.cpp:93.
+--- See bounding_box()'s CAUTION above -- Fmatrix:transform() used against
+--- this matrix did not behave as expected in practice.
 ---@param hud boolean
 ---@return Fmatrix
 function game_object:xform(hud) end
-
----------------------------------------------------------------------------
--- EXTENDED (verified via C++ source in this project, not yet used here)
----------------------------------------------------------------------------
 
 --- Class id. script_game_object_script2.cpp:99.
 ---@return integer

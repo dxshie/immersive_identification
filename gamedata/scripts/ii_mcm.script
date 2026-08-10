@@ -17,37 +17,40 @@ function on_mcm_load()
 		end
 	end
 
-	local scale_mode_content = {}
-	if ii_identify and ii_identify.SCALE_MODE_LIST then
-		for idx, e in ipairs(ii_identify.SCALE_MODE_LIST) do
-			scale_mode_content[#scale_mode_content + 1] = { idx, e.label }
-		end
-	end
-
 	-- Default DIK for the key-capture widget below: resolved here (not in
 	-- DEFAULTS, since DIK_keys isn't ready when ii_identify.script is first
 	-- parsed) from ii_identify.DEFAULT_KEY_NAME, the single source of truth.
 	local default_key_name = (ii_identify and ii_identify.DEFAULT_KEY_NAME) or "DIK_X"
 	local default_key_dik = (DIK_keys and DIK_keys[default_key_name]) or 0
 
-	-- The top-level node must NOT carry sh (sh marks a leaf PAGE whose gr holds
-	-- actual options; a folder of pages is a plain node whose children carry
-	-- sh). One page ("main") is enough here, but the wrapper is still required
-	-- or MCM's option-tree walker recurses into these entries looking for a
-	-- gr of their own and crashes on the first real option (nil "gr").
-	--
 	-- `text` is used literally as the string-table id. `hint` (the caption
 	-- shown next to each control) gets "ui_mcm_" auto-prepended by MCM, so it
 	-- must be passed bare (e.g. "ii_enabled_desc", resolving to the real id
 	-- "ui_mcm_ii_enabled_desc" in st_ii_texts.xml) — passing the full id here
 	-- double-prefixes it and shows the raw unresolved id in-game instead.
+	local function opt_title(text)
+		return { id = "title", type = "slide", text = text, size = { 512, 50 }, spacing = 20 }
+	end
+	local function opt_check(id)
+		return { id = id, type = "check", val = 1, def = d[id],
+			text = "ui_mcm_ii_" .. id, hint = "ii_" .. id .. "_desc" }
+	end
+	local function opt_track(id, min, max, step, prec)
+		return { id = id, type = "track", val = 2, min = min, max = max, step = step, prec = prec, def = d[id],
+			text = "ui_mcm_ii_" .. id, hint = "ii_" .. id .. "_desc" }
+	end
+
+	-- The top-level node must NOT carry sh (sh marks a leaf PAGE whose gr holds
+	-- actual options; a folder of pages is a plain node whose children carry
+	-- sh). One page ("main") is enough here, but the wrapper is still required
+	-- or MCM's option-tree walker recurses into these entries looking for a
+	-- gr of their own and crashes on the first real option (nil "gr").
 	return {
 		id = "ii", gr = {
 			{ id = "main", sh = true, gr = {
-				{ id = "title", type = "slide", text = "ui_mcm_ii_title", size = { 512, 50 }, spacing = 20 },
+				opt_title("ui_mcm_ii_title"),
 
-				{ id = "enabled", type = "check", val = 1, def = d.enabled,
-					text = "ui_mcm_ii_enabled", hint = "ii_enabled_desc" },
+				opt_check("enabled"),
 
 				-- Click into the box, then press a keyboard/mouse key to bind it.
 				-- type = "key_bind", val = 2 -- confirmed schema.
@@ -57,92 +60,42 @@ function on_mcm_load()
 				{ id = "modifier_index", type = "list", val = 2, def = d.modifier_index, content = modifier_content,
 					text = "ui_mcm_ii_modifier", hint = "ii_modifier_desc" },
 
-				{ id = "color_by_relation", type = "check", val = 1, def = d.color_by_relation,
-					text = "ui_mcm_ii_color_by_relation", hint = "ii_color_by_relation_desc" },
+				opt_check("color_by_relation"),
+				opt_track("scan_time", 0, 2, 0.05, 2),
+				opt_track("fade_time", 0.1, 2, 0.05, 2),
+				opt_track("hold_time", 1, 15, 0.5, 1),
+				opt_track("max_dist", 10, 500, 10),
+				opt_track("fade_dist", 5, 500, 10),
+				opt_track("fov_radius", 20, 400, 10),
+				opt_check("require_los"),
+				opt_check("binocular_mode"),
+				opt_track("steady_time", 0.2, 3, 0.1, 1),
 
-				{ id = "scan_time", type = "track", val = 2, min = 0, max = 2, step = 0.05, prec = 2, def = d.scan_time,
-					text = "ui_mcm_ii_scan_time", hint = "ii_scan_time_desc" },
+				opt_title("ui_mcm_ii_binoc_title"),
+				opt_check("binoc_boost"),
+				opt_track("binoc_scan_mult", 0.1, 1, 0.05, 2),
+				opt_track("binoc_range_mult", 1, 5, 0.1, 1),
 
-				{ id = "fade_time", type = "track", val = 2, min = 0.1, max = 2, step = 0.05, prec = 2, def = d.fade_time,
-					text = "ui_mcm_ii_fade_time", hint = "ii_fade_time_desc" },
+				opt_title("ui_mcm_ii_distance_scaling_title"),
+				opt_track("card_scale", 0.5, 2, 0.05, 2),
+				opt_track("mini_scale_cutoff", 0.1, 1, 0.05, 2),
 
-				{ id = "hold_time", type = "track", val = 2, min = 1, max = 15, step = 0.5, prec = 1, def = d.hold_time,
-					text = "ui_mcm_ii_hold_time", hint = "ii_hold_time_desc" },
+				opt_title("ui_mcm_ii_dist_penalty_title"),
+				opt_check("dist_penalty"),
+				opt_track("dist_penalty_max", 1, 6, 0.1, 1),
 
-				{ id = "max_dist", type = "track", val = 2, min = 10, max = 500, step = 10, def = d.max_dist,
-					text = "ui_mcm_ii_max_dist", hint = "ii_max_dist_desc" },
+				opt_title("ui_mcm_ii_rank_penalty_title"),
+				opt_check("rank_penalty"),
+				opt_track("rank_penalty_max", 1, 6, 0.1, 1),
 
-				{ id = "fade_dist", type = "track", val = 2, min = 5, max = 500, step = 10, def = d.fade_dist,
-					text = "ui_mcm_ii_fade_dist", hint = "ii_fade_dist_desc" },
+				opt_title("ui_mcm_ii_familiarity_title"),
+				opt_check("familiarity_boost"),
+				opt_track("familiarity_scan_mult", 0.1, 1, 0.05, 2),
 
-				{ id = "fov_radius", type = "track", val = 2, min = 20, max = 400, step = 10, def = d.fov_radius,
-					text = "ui_mcm_ii_fov_radius", hint = "ii_fov_radius_desc" },
-
-				{ id = "require_los", type = "check", val = 1, def = d.require_los,
-					text = "ui_mcm_ii_require_los", hint = "ii_require_los_desc" },
-
-				{ id = "binocular_mode", type = "check", val = 1, def = d.binocular_mode,
-					text = "ui_mcm_ii_binocular_mode", hint = "ii_binocular_mode_desc" },
-
-				{ id = "steady_time", type = "track", val = 2, min = 0.2, max = 3, step = 0.1, prec = 1, def = d.steady_time,
-					text = "ui_mcm_ii_steady_time", hint = "ii_steady_time_desc" },
-
-				{ id = "title", type = "slide", text = "ui_mcm_ii_binoc_title", size = { 512, 50 }, spacing = 20 },
-
-				{ id = "binoc_boost", type = "check", val = 1, def = d.binoc_boost,
-					text = "ui_mcm_ii_binoc_boost", hint = "ii_binoc_boost_desc" },
-
-				{ id = "binoc_scan_mult", type = "track", val = 2, min = 0.1, max = 1, step = 0.05, prec = 2, def = d.binoc_scan_mult,
-					text = "ui_mcm_ii_binoc_scan_mult", hint = "ii_binoc_scan_mult_desc" },
-
-				{ id = "binoc_range_mult", type = "track", val = 2, min = 1, max = 5, step = 0.1, prec = 1, def = d.binoc_range_mult,
-					text = "ui_mcm_ii_binoc_range_mult", hint = "ii_binoc_range_mult_desc" },
-
-				{ id = "title", type = "slide", text = "ui_mcm_ii_distance_scaling_title", size = { 512, 50 }, spacing = 20 },
-
-				{ id = "scale_mode", type = "list", val = 2, def = d.scale_mode, content = scale_mode_content,
-					text = "ui_mcm_ii_scale_mode", hint = "ii_scale_mode_desc" },
-
-				{ id = "card_scale", type = "track", val = 2, min = 0.5, max = 2, step = 0.05, prec = 2, def = d.card_scale,
-					text = "ui_mcm_ii_card_scale", hint = "ii_card_scale_desc" },
-
-				{ id = "mini_scale_cutoff", type = "track", val = 2, min = 0.1, max = 1, step = 0.05, prec = 2, def = d.mini_scale_cutoff,
-					text = "ui_mcm_ii_mini_scale_cutoff", hint = "ii_mini_scale_cutoff_desc" },
-
-				{ id = "title", type = "slide", text = "ui_mcm_ii_dist_penalty_title", size = { 512, 50 }, spacing = 20 },
-
-				{ id = "dist_penalty", type = "check", val = 1, def = d.dist_penalty,
-					text = "ui_mcm_ii_dist_penalty", hint = "ii_dist_penalty_desc" },
-
-				{ id = "dist_penalty_max", type = "track", val = 2, min = 1, max = 6, step = 0.1, prec = 1, def = d.dist_penalty_max,
-					text = "ui_mcm_ii_dist_penalty_max", hint = "ii_dist_penalty_max_desc" },
-
-				{ id = "title", type = "slide", text = "ui_mcm_ii_rank_penalty_title", size = { 512, 50 }, spacing = 20 },
-
-				{ id = "rank_penalty", type = "check", val = 1, def = d.rank_penalty,
-					text = "ui_mcm_ii_rank_penalty", hint = "ii_rank_penalty_desc" },
-
-				{ id = "rank_penalty_max", type = "track", val = 2, min = 1, max = 6, step = 0.1, prec = 1, def = d.rank_penalty_max,
-					text = "ui_mcm_ii_rank_penalty_max", hint = "ii_rank_penalty_max_desc" },
-
-				{ id = "title", type = "slide", text = "ui_mcm_ii_familiarity_title", size = { 512, 50 }, spacing = 20 },
-
-				{ id = "familiarity_boost", type = "check", val = 1, def = d.familiarity_boost,
-					text = "ui_mcm_ii_familiarity_boost", hint = "ii_familiarity_boost_desc" },
-
-				{ id = "familiarity_scan_mult", type = "track", val = 2, min = 0.1, max = 1, step = 0.05, prec = 2, def = d.familiarity_scan_mult,
-					text = "ui_mcm_ii_familiarity_scan_mult", hint = "ii_familiarity_scan_mult_desc" },
-
-				{ id = "title", type = "slide", text = "ui_mcm_ii_perception_title", size = { 512, 50 }, spacing = 20 },
-
-				{ id = "perception_compat", type = "check", val = 1, def = d.perception_compat,
-					text = "ui_mcm_ii_perception_compat", hint = "ii_perception_compat_desc" },
-
-				{ id = "perception_scan_mult", type = "track", val = 2, min = 0, max = 0.1, step = 0.01, prec = 2, def = d.perception_scan_mult,
-					text = "ui_mcm_ii_perception_scan_mult", hint = "ii_perception_scan_mult_desc" },
-
-				{ id = "perception_xp", type = "track", val = 2, min = 0, max = 100, step = 5, def = d.perception_xp,
-					text = "ui_mcm_ii_perception_xp", hint = "ii_perception_xp_desc" },
+				opt_title("ui_mcm_ii_perception_title"),
+				opt_check("perception_compat"),
+				opt_track("perception_scan_mult", 0, 0.1, 0.01, 2),
+				opt_track("perception_xp", 0, 100, 5),
 			}},
 		}
 	}

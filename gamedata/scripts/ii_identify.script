@@ -7,6 +7,12 @@
 
 local MAX_TAGS = 5   -- most identifications tracked/drawn at once
 
+-- render()'s per-frame scratch list of on-screen cards, reused instead of
+-- allocated fresh every call -- tracked is capped at MAX_TAGS (see
+-- try_identify), so this pool never needs to grow past it.
+local active_pool = {}
+for i = 1, MAX_TAGS do active_pool[i] = {} end
+
 -- Defaults, also the fallback when MCM is absent. Keys match the MCM option
 -- ids under the "ii" menu (see ii_mcm.script). Declared non-local so the menu
 -- file can read it as ii_identify.DEFAULTS (single source of truth).
@@ -25,9 +31,8 @@ DEFAULTS = {
 	binocular_mode    = false, -- gate identify behind binoculars being actively raised, and
 	                           -- auto-trigger it on a steady aim instead of needing the key
 	steady_time       = 0.6,   -- seconds: how long the aim must hold still (binocular mode) before auto-identifying
-	card_scale        = 1.0,   -- global size multiplier applied on top of whichever scale_mode below computes
-	scale_mode        = 1,     -- index into SCALE_MODE_LIST: 1 = manual (flat, card_scale alone), 2 = bounding box (auto)
-	mini_scale_cutoff = 0.4,   -- below this final scale, show just the relation dot instead of the full card
+	card_scale        = 1.0,   -- flat size multiplier for the whole card (manual, not distance-based)
+	mini_scale_cutoff = 0.4,   -- below this scale, show just the relation dot instead of the full card
 	binoc_boost       = true,  -- binoculars speed up + extend identify range, independent of binocular_mode
 	binoc_scan_mult   = 0.4,   -- scan_time multiplier while binoculars are raised (lower = faster reveal)
 	binoc_range_mult  = 2.5,   -- max_dist/fade_dist multiplier while binoculars are raised
@@ -70,17 +75,6 @@ MODIFIER_LIST = {
 	{ dik = "DIK_LMENU", alt_dik = "DIK_RMENU", label = "alt" },
 }
 
--- Same list-content convention as MODIFIER_LIST above. "manual" is the flat
--- card_scale value alone (1 = reference size, unaffected by range/pose);
--- "bbox" projects the target's actual render bounding box to screen space
--- each frame and derives scale from its apparent on-screen height -- see
--- bbox_screen_extent()'s comment for why this is closer to "how big they
--- really look" than the old pure 1/distance formula was, and its tradeoffs.
-SCALE_MODE_LIST = {
-	{ label = "manual" },
-	{ label = "bbox" },
-}
-
 -- Community id -> display-name string id. Anything not listed here falls
 -- back to a prettified version of the raw community id, so unknown/modded
 -- factions still show something reasonable instead of nothing.
@@ -110,6 +104,7 @@ local COL_NEUTRAL = { 214, 194, 140 }
 -- Bones to anchor the tag to, best first (humanoid skeleton; monsters that
 -- lack all of these fall back to position()+offset in anchor_pos).
 local ANCHOR_BONES = { "bip01_head", "bip01_spine2", "bip01_spine1", "bip01_spine" }
+local ANCHOR_LIFT = 0.12   -- metres above the matched bone
 
 local C          = {}     -- live config (DEFAULTS overlaid with MCM values)
 local tracked    = {}     -- [obj_id] = { id, t0, col, name, icon }
@@ -182,14 +177,23 @@ local function modifiers_ok()
 	return key_down(DIK_keys[e.dik]) or (e.alt_dik and key_down(DIK_keys[e.alt_dik])) or false
 end
 
+-- Calls fn(...) through pcall and returns its result, or nil on error --
+-- collapses the `local ok, v = pcall(...); if not ok then ...` idiom used
+-- throughout this file down to a single expression at each call site.
+local function safe_call(fn, ...)
+	local ok, v = pcall(fn, ...)
+	if ok then return v end
+	return nil
+end
+
 -- --------------------------------------------------------------------------
 -- Faction label / relation colour
 -- --------------------------------------------------------------------------
 local function faction_label(comm)
 	local sid = FACTION_NAMES[comm]
 	if sid then
-		local ok, txt = pcall(game.translate_string, sid)
-		if ok and txt and txt ~= sid then return txt end
+		local txt = safe_call(game.translate_string, sid)
+		if txt and txt ~= sid then return txt end
 	end
 	local pretty = comm:gsub("_", " ")
 	pretty = pretty:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b:lower() end)
@@ -200,10 +204,10 @@ end
 -- humanoid stalkers), falling back to the faction label for generic mobs/
 -- monsters that carry no personal name.
 local function display_name(obj, comm)
-	local ok, name = pcall(obj.character_name, obj)
-	if ok and name and name ~= "" then
-		local ok2, txt = pcall(game.translate_string, name)
-		if ok2 and txt and txt ~= "" and txt ~= name then return txt end
+	local name = safe_call(obj.character_name, obj)
+	if name and name ~= "" then
+		local txt = safe_call(game.translate_string, name)
+		if txt and txt ~= "" and txt ~= name then return txt end
 		return name
 	end
 	return faction_label(comm)
@@ -219,10 +223,10 @@ end
 -- engine's own Discord Rich Presence integration uses (Actor.cpp:1442-1449),
 -- so it matches the game's own terminology instead of inventing new labels.
 local function rank_label(obj)
-	local ok, rid = pcall(obj.rank_name, obj)
-	if not ok or not rid or rid == "" then return nil end
-	local ok2, txt = pcall(game.translate_string, "st_rank_" .. rid)
-	if ok2 and txt and txt ~= "" and txt ~= ("st_rank_" .. rid) then return txt end
+	local rid = safe_call(obj.rank_name, obj)
+	if not rid or rid == "" then return nil end
+	local txt = safe_call(game.translate_string, "st_rank_" .. rid)
+	if txt and txt ~= "" and txt ~= ("st_rank_" .. rid) then return txt end
 	local pretty = rid:gsub("_", " ")
 	pretty = pretty:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b:lower() end)
 	return pretty
@@ -238,8 +242,7 @@ end
 
 local function relation_color(obj)
 	if not C.color_by_relation then return COL_NEUTRAL end
-	local ok, rel = pcall(obj.relation, obj, db.actor)
-	if not ok then return COL_NEUTRAL end
+	local rel = safe_call(obj.relation, obj, db.actor)
 	if rel == game_object.enemy then return COL_ENEMY end
 	if rel == game_object.friend then return COL_FRIEND end
 	return COL_NEUTRAL
@@ -251,9 +254,9 @@ end
 local function anchor_pos(obj)
 	local base = obj:position()
 	for _, bone in ipairs(ANCHOR_BONES) do
-		local ok, p = pcall(obj.bone_position, obj, bone)
-		if ok and p and p:distance_to_sqr(base) < 9 then
-			p.y = p.y + 0.12
+		local p = safe_call(obj.bone_position, obj, bone)
+		if p and p:distance_to_sqr(base) < 9 then
+			p.y = p.y + ANCHOR_LIFT
 			return p
 		end
 	end
@@ -281,35 +284,16 @@ local function screen_dist_to_center(pos)
 	return math.sqrt(dx * dx + dy * dy)
 end
 
--- Line-of-sight check: screen-space proximity alone doesn't account for
--- occlusion (an NPC behind a building can still project close to the
--- crosshair), and it turns out a direct raycast hit isn't proof of
--- visibility either (see get_target_obj() below) -- so every candidate,
--- from every selection method, is gated through this.
---
--- This went through four hand-rolled raycast revisions (level.ray_pick's
--- out-parameter, then the CRayPick class with rqtStatic, then rqtBoth, then
--- applying it uniformly) before any of them reliably blocked anything.
--- Rather than debug a fifth raycast variant blind, this uses the engine's
--- own first-class visibility primitive instead: `obj:see(other)`, bound at
--- src/xrGame/script_game_object_script2.cpp:138 to
--- CScriptGameObject::CheckObjectVisibility (src/xrGame/script_game_object.cpp:311).
--- For the actor specifically, that dispatches to
--- CActor::memory().visual().visible_now(...) (src/xrGame/script_game_object.cpp:320-333,
--- CActorMemory in src/xrGame/actor_memory.cpp) -- a real camera-driven
--- (position/direction/FOV straight from the active player camera) per-triangle
--- occlusion raycast against rqtStatic|rqtObject|rqtObstacle geometry,
--- self-ignoring the actor's own body, refreshed automatically every ~100ms
--- (src/xrGame/vision_client.cpp). This exact `Actor()->memory().visual().visible_now()`
--- path is what the engine's own autoaim target-lock (cameralook.cpp:180) and
--- PDA/map marker visibility gating (map_location.cpp:822) already use for
--- essentially this same purpose, so it's a well-exercised primitive rather
--- than a one-off. One tradeoff: it's a smoothed/cached read (a short grace
--- window keeps a just-occluded target flagged visible a little longer, and
--- distance/lighting factor into the underlying accumulation, same as the
--- AI's own "can I see the player" logic) rather than an instantaneous
--- geometric ray -- fine for a deliberate keypress action, and arguably a
--- better match for "can I actually perceive this target" than a bare ray.
+-- Line-of-sight check: screen-space proximity alone doesn't prove visibility
+-- (an NPC behind a building can still project near the crosshair), and
+-- neither does a raw raycast hit (see get_target_obj() below) -- so every
+-- candidate is gated through this instead. Uses the engine's own visibility
+-- primitive, `obj:see(other)` (src/xrGame/script_game_object_script2.cpp:138
+-- -> CheckObjectVisibility -> CActorMemory::visible_now(), a real camera-
+-- driven per-triangle occlusion raycast, the same one autoaim and PDA marker
+-- gating use). It's a smoothed/cached read (short grace window on losing
+-- sight), not an instantaneous ray -- fine for a deliberate keypress, and
+-- arguably closer to "can the player actually perceive this" anyway.
 local function has_los(target_obj)
 	if not db.actor then return true end
 	local ok, visible = pcall(db.actor.see, db.actor, target_obj)
@@ -329,10 +313,10 @@ local function find_nearest_in_fov(max_dist)
 
 	pcall(level.iterate_nearest, apos, max_dist, function(obj)
 		if obj and obj:id() ~= actor_id then
-			local ok_alive, alive = pcall(obj.alive, obj)
-			if ok_alive and alive then
-				local ok_comm, comm = pcall(obj.character_community, obj)
-				if ok_comm and comm and comm ~= "" then
+			local alive = safe_call(obj.alive, obj)
+			if alive then
+				local comm = safe_call(obj.character_community, obj)
+				if comm and comm ~= "" then
 					local d = screen_dist_to_center(obj:position())
 					if d and d < best_d and (not C.require_los or has_los(obj)) then
 						best_d, best_obj = d, obj
@@ -375,12 +359,10 @@ local function get_target_obj(max_dist)
 	end
 
 	if level.ETraceTarget then
-		local ok, obj = pcall(level.get_target_obj, level.ETraceTarget.Weapon)
-		local a = ok and accept(obj)
+		local a = accept(safe_call(level.get_target_obj, level.ETraceTarget.Weapon))
 		if a then return a end
 	end
-	local ok2, obj2 = pcall(level.get_target_obj)
-	local a2 = ok2 and accept(obj2)
+	local a2 = accept(safe_call(level.get_target_obj))
 	if a2 then return a2 end
 	return find_nearest_in_fov(max_dist)
 end
@@ -391,44 +373,27 @@ end
 -- means "in hand", not "raised to the eye" -- see is_binoc_active() below.
 local function is_binoc_held()
 	if not db.actor then return false end
-	local ok, item = pcall(db.actor.active_item, db.actor)
-	if not ok or not item then return false end
-	local ok2, sec = pcall(item.section, item)
-	if not ok2 or not sec then return false end
+	local item = safe_call(db.actor.active_item, db.actor)
+	if not item then return false end
+	local sec = safe_call(item.section, item)
+	if not sec then return false end
 	return sec == BINOC_SECTION or sec:find("binoc") ~= nil
 end
 
 -- Is the actor actually looking through raised binoculars right now (not
--- just holding them)? There's no direct Lua-side zoom-state getter for this
--- (CWeapon::IsZoomed is bound only on a separate, disconnected legacy
--- luabind class hierarchy CScriptGameObject can't reach), and the real event
--- -- obj:set_callback(callback.weapon_zoom_in/out, fn) -- is a single
--- last-writer-wins slot per object (src/xrGame/script_callback_ex.h's
--- CScriptCallbackEx::set() calls clear() first): this repo's own
--- gamedata/scripts/axr_main.script already claims that exact slot on
--- db.actor to maintain a plain global `binoc_is_zoomed` and to broadcast
--- SendScriptCallback("GUI_on_show/hide", "UIZoom") -- claiming it ourselves
--- would silently break that. Reading `binoc_is_zoomed` instead (rather than
--- registering anything) was tried first and turned out unreliable in
--- practice (falls back to "held" whenever that global is unset, and
--- apparently stays unset more often than expected -- possibly a different
--- registration path/timing than assumed, or a build where axr_main's own
--- registration never actually fires).
+-- just holding them)? There's no usable Lua-side zoom-state getter: the
+-- native IsZoomed is on a class hierarchy Lua can't reach, and the zoom
+-- callback slot (obj:set_callback(callback.weapon_zoom_in/out, ...)) is a
+-- single last-writer-wins slot already claimed by this repo's own
+-- axr_main.script -- registering our own would break its `binoc_is_zoomed`
+-- global, and reading that global instead proved unreliable in practice.
 --
--- So instead of depending on any other script's state at all, this polls
--- device().fov directly: looking through any optic (binoculars or a weapon
--- scope) measurably narrows the camera's field of view, and that's a plain
--- read with no shared slot to fight over. It self-calibrates a "normal"
--- baseline from the widest FOV observed while binoculars are NOT the held
--- item (so a weapon-scope zoom in that same window just fails to raise the
--- baseline that frame rather than corrupting it), then treats a
--- close-up-shrunk FOV while binoculars ARE held as "looking through them".
--- Calibration (update_fov_baseline) runs unconditionally every frame from
--- actor_on_update() regardless of which features are enabled, so the
--- baseline is already warm the moment it's actually needed -- if it only
--- ran when a feature using is_binoc_active() happened to fire (e.g. only on
--- an identify keypress), it would go stale between uses instead of tracking
--- the player's current FOV setting continuously.
+-- So this polls device().fov directly instead: any optic narrows the
+-- camera's FOV, so it self-calibrates a "normal" baseline from the widest
+-- FOV seen while binoculars are NOT held, then treats a shrunk FOV while
+-- they ARE held as "looking through them". Calibration runs every frame
+-- from actor_on_update() regardless of feature state, so the baseline is
+-- already warm whenever is_binoc_active() is actually called.
 local FOV_ZOOM_RATIO = 0.7   -- current fov must drop below this fraction of baseline to count as zoomed
 local _fov_baseline = 60     -- self-corrects within moments of normal (unzoomed) play either way
 
@@ -504,8 +469,8 @@ local RANK_WEIGHT = {
 -- rank we don't recognise against.
 local function rank_scan_mult(obj)
 	if not C.rank_penalty then return 1 end
-	local ok, rid = pcall(obj.rank_name, obj)
-	if not ok or not rid or rid == "" then return 1 end
+	local rid = safe_call(obj.rank_name, obj)
+	if not rid or rid == "" then return 1 end
 	local w = RANK_WEIGHT[rid]
 	if not w then return 1 end
 	return 1 + (C.rank_penalty_max - 1) * w
@@ -590,30 +555,21 @@ function perception_hint_stats()
 end
 
 -- Rewards using the identify feature with perception XP, same as the skill
--- system's own skills reward using them (footsteps -> endurance, hits ->
--- survival, etc.). Only fires when the "perception" skill actually exists in
--- skills_levels (the optional skill_perception.ltx component is installed).
+-- system's own skills reward using them. Only fires when the "perception"
+-- skill actually exists in skills_levels (the optional skill_perception.ltx
+-- component is installed).
 --
--- Deliberately does NOT call haru_skills.increase_skill(skill, amount):
--- that function computes `amount * options["exp_multiplier_" .. skill]`, and
--- options[] is only ever populated for the four hardcoded base skills
--- (strength/endurance/scavenging/survival) in on_option_change -- true of
--- both the vanilla Skill System mod's haru_skills.script AND the separate
--- "G.A.M.M.A. Skill System Balance" addon's replacement of that same file
--- (checked both directly). options["exp_multiplier_perception"] is nil in
--- either, so increase_skill("perception", ...) always throws (attempt to
--- perform arithmetic on a nil value) before ever touching .experience --
--- silently, since this was originally pcall'd, so no XP was ever actually
--- granted. Writing .experience directly sidesteps that hardcoded lookup
--- entirely; the periodic update_stats() (registered on actor_on_update in
--- both variants, and already running regardless of this mod) independently
--- re-checks every configured skill's experience against its requirement and
--- calls level_up_skill for us, so this needs no level-up logic of its own.
--- Returns true if XP was actually granted (perception_compat on, the skill
--- exists), false otherwise -- the caller uses this to decide whether the
--- target should be marked as already-farmed (see xp_awarded below); an
--- unsuccessful grant (compat off / Skill System absent) shouldn't burn a
--- target's one-time award if the integration gets enabled/installed later.
+-- Deliberately does NOT call haru_skills.increase_skill(skill, amount): it
+-- multiplies by options["exp_multiplier_" .. skill], which is only ever
+-- populated for the four hardcoded base skills in both known variants of
+-- that file, so it would throw on "perception" before touching .experience.
+-- Writing .experience directly sidesteps that; the periodic update_stats()
+-- (already running regardless of this mod) independently re-checks every
+-- configured skill's experience against its requirement and levels it up,
+-- so this needs no level-up logic of its own.
+-- Returns true if XP was actually granted -- the caller uses this to gate
+-- xp_awarded (see below) so a target isn't burned as already-farmed if the
+-- integration was off/absent at the time.
 local function award_perception_xp()
 	if not C.perception_compat then return false end
 	local lv = haru_skills and haru_skills.skills_levels and haru_skills.skills_levels["perception"]
@@ -661,14 +617,14 @@ local function try_identify()
 	if not obj then return end
 	if obj:id() == db.actor:id() then return end
 
-	local ok_alive, alive = pcall(obj.alive, obj)
-	if not ok_alive or not alive then return end
+	local alive = safe_call(obj.alive, obj)
+	if not alive then return end
 
-	local ok_comm, comm = pcall(obj.character_community, obj)
-	if not ok_comm or not comm or comm == "" then return end
+	local comm = safe_call(obj.character_community, obj)
+	if not comm or comm == "" then return end
 
-	local ok_dist, dist = pcall(function() return obj:position():distance_to(db.actor:position()) end)
-	if not ok_dist or dist > eff_max_dist then return end
+	local dist = safe_call(function() return obj:position():distance_to(db.actor:position()) end)
+	if not dist or dist > eff_max_dist then return end
 
 	-- Target-side difficulty first (how far away, how accomplished the
 	-- stalker is), then actor-side mitigation on top: distance penalty scales
@@ -708,10 +664,17 @@ local function try_identify()
 	if count >= MAX_TAGS and oldest_id then tracked[oldest_id] = nil end
 
 	tracked[id] = {
-		id = id, t0 = tg, col = relation_color(obj),
+		t0 = tg, col = relation_color(obj),
 		header = faction_label(comm), name = display_name(obj, comm),
 		icon = faction_icon_id(comm), rank = rank_label(obj),
 		scan_ms = eff_scan_ms, max_dist = eff_max_dist, fade_dist = eff_fade_dist,
+		-- Snapshotted like scan_ms/max_dist/fade_dist above: FADE_MS/HOLD_MS
+		-- can change live via MCM mid-reveal, and without this snapshot an
+		-- already-active tag's `total` (see render()) would shrink/grow
+		-- retroactively -- e.g. lowering hold_time while a tag is mid-hold
+		-- could delete it outright the next frame instead of letting it
+		-- finish the reveal it started.
+		fade_ms = FADE_MS, hold_ms = HOLD_MS,
 	}
 end
 
@@ -803,7 +766,6 @@ local CARD_OFF_X, CARD_OFF_Y = 60, 34   -- px (before scale) from the anchor to 
 ---@class IiTags : CUIScriptWnd
 ---@field xml CScriptXmlInit
 ---@field slots table[]
----@field fonts table<number, CGameFont>
 IiTags = {}
 
 class "IiTags" (CUIScriptWnd)
@@ -818,16 +780,6 @@ function IiTags:InitControls()
 
 	self.xml = CScriptXmlInit()
 	self.xml:ParseFile("ii_tags.xml")
-
-	-- Harvest a CGameFont* per discrete size via three throwaway widgets
-	-- (see their own comment in ii_tags.xml), so draw_slot can retarget the
-	-- real text widgets' font at runtime instead of needing 3x duplicate
-	-- widgets per text role. Created once for the whole dialog, not per slot.
-	local f16 = self.xml:InitTextWnd("tag_font_16:text", self)
-	local f18 = self.xml:InitTextWnd("tag_font_18:text", self)
-	local f25 = self.xml:InitTextWnd("tag_font_25:text", self)
-	f16:Show(false); f18:Show(false); f25:Show(false)
-	self.fonts = { [16] = f16:GetFont(), [18] = f18:GetFont(), [25] = f25:GetFont() }
 
 	self.slots = {}
 	for i = 1, MAX_TAGS do
@@ -866,22 +818,25 @@ function IiTags:InitControls()
 	end
 end
 
+-- The plate/accent/icon/text widgets, shared by hide_slot and draw_slot's
+-- scanning/mini branches -- glow/node/spinner are deliberately excluded
+-- since each caller shows or hides those three differently.
+local CARD_WIDGET_KEYS = {
+	"shadow", "line_sh", "line", "plate", "accent", "icon",
+	"head_sh", "head", "name_sh", "name", "rank_sh", "rank",
+}
+
+local function hide_card_widgets(s)
+	for _, k in ipairs(CARD_WIDGET_KEYS) do
+		s[k]:Show(false)
+	end
+end
+
 function IiTags:hide_slot(i)
 	local s = self.slots[i]
 	if not s or s.hidden then return end
 	s.hidden = true
-	s.shadow:Show(false)
-	s.line_sh:Show(false)
-	s.line:Show(false)
-	s.plate:Show(false)
-	s.accent:Show(false)
-	s.icon:Show(false)
-	s.head_sh:Show(false)
-	s.head:Show(false)
-	s.name_sh:Show(false)
-	s.name:Show(false)
-	s.rank_sh:Show(false)
-	s.rank:Show(false)
+	hide_card_widgets(s)
 	s.glow:Show(false)
 	s.node:Show(false)
 	s.spinner:Show(false)
@@ -891,19 +846,32 @@ local SPIN_D = 20            -- spinner diameter, px, at scale 1
 local SPIN_PERIOD_MS = 900   -- one full rotation
 
 -- Draws just the relation-coloured node dot + its glow halo at the body
--- anchor -- shared by the scanning-spinner branch's sibling states and by
--- draw_slot's own mini/full paths, since all three eventually need this
--- exact pair positioned the exact same way. `s` is a slot table (has .node/
--- .glow), not `self` -- this is a plain function, not a method.
+-- anchor -- shared by the scanning-spinner branch and draw_slot's mini/full
+-- paths, since all three need this exact pair positioned the same way. `s`
+-- is a slot table (has .node/.glow), not `self` -- a plain function, not a
+-- method. Sizing matches gamma-immersive-quest-markers' card_node/card_glow
+-- proportions (node_size=7, glow = node_size * nscale * 2.8).
+--
+-- Capped separately from the card's own `scale` (which the user can push
+-- well past 1x via the card_scale MCM slider): applying that same growth to
+-- the small marker dot ballooned it into a blob at high scale, most visible
+-- in its baked-in outline ring (see ii_node's texture comment) getting
+-- proportionally thick, since a ring that's a fixed fraction of the dot's
+-- radius reads heavier the bigger the dot gets. The leader line (drawn
+-- separately in draw_slot) isn't capped since a thicker line doesn't have
+-- that same "blob" problem.
+local NODE_SCALE_MAX = 1.4
+
 local function draw_node_glow(s, hx, hy, scale, alpha, r, g, b)
-	local ns = 10 * scale
+	local node_scale = math.min(scale, NODE_SCALE_MAX)
+	local ns = 7 * node_scale
 	local nsx = math.max(2, math.floor(ns * UI_KX + 0.5))
 	s.node:SetWndSize(S(nsx, ns))
 	s.node:SetWndPos(P(math.floor(hx - nsx / 2), math.floor(hy - ns / 2)))
 	s.node:SetTextureColor(GetARGB(alpha, r, g, b))
 	s.node:Show(true)
 
-	local gs = ns * 3.5
+	local gs = ns * 2.8
 	local gsx = math.max(2, math.floor(gs * UI_KX + 0.5))
 	s.glow:SetWndSize(S(gsx, gs))
 	s.glow:SetWndPos(P(math.floor(hx - gsx / 2), math.floor(hy - gs / 2)))
@@ -911,82 +879,30 @@ local function draw_node_glow(s, hx, hy, scale, alpha, r, g, b)
 	s.glow:Show(true)
 end
 
--- Discrete text-size steps for the card's header/name/rank text, keyed to
--- the same `scale` value everything else in the card scales by. Only three
--- sizes actually exist in this engine's letterica family (16/18/25 -- see
--- the tag_font_* comment in ii_tags.xml), so this is necessarily a stepped
--- switch, not a continuous scale, unlike the plate/icon/dot sizing above it.
--- `primary` is the name line's size, `secondary` the header/rank lines' --
--- name stays one step above header/rank where the size ladder allows it, so
--- the visual hierarchy (name = primary, header/rank = secondary) holds at
--- the two upper tiers and only collapses to one size at the smallest.
-local FONT_TIERS = {
-	{ min = 1.35, primary = 25, secondary = 18 },
-	{ min = 0.85, primary = 18, secondary = 16 },
-	{ min = 0,    primary = 16, secondary = 16 },
-}
-
--- How far scale has to clear a tier boundary before actually switching.
--- Without this, `scale` hovering right at a threshold (natural frame-to-
--- frame jitter -- especially in bounding-box mode, where the measured
--- projected height wobbles a little with animation/head-bob even at a
--- constant distance) flickers the font size, and the plate size that
--- depends on it, back and forth every other frame right at that exact
--- distance -- the "scales up and down at certain points" symptom.
-local FONT_TIER_HYST = 0.08
-
--- Sticky tier selection: stays in `current` unless scale has moved
--- decisively (by FONT_TIER_HYST) past whichever boundary borders it, rather
--- than reselecting from scratch every call.
-local function pick_font_tier(scale, current)
-	if current then
-		for idx, t in ipairs(FONT_TIERS) do
-			if t == current then
-				local tier_above = FONT_TIERS[idx - 1]   -- lower index = higher min
-				local tier_below = FONT_TIERS[idx + 1]
-				local rose_out = tier_above and scale >= tier_above.min + FONT_TIER_HYST
-				local fell_out = tier_below and scale < t.min - FONT_TIER_HYST
-				if not rose_out and not fell_out then return current end
-				break
-			end
-		end
-	end
-	for _, t in ipairs(FONT_TIERS) do
-		if scale >= t.min then return t end
-	end
-	return FONT_TIERS[#FONT_TIERS]
-end
-
--- Same sticky/hysteresis idea as FONT_TIER_HYST above, for the mini-mode
--- (dot-only) on/off switch: without it, scale hovering right at
--- C.mini_scale_cutoff would pop the whole card in and out every other frame
--- instead of just switching once cleanly.
-local MINI_MODE_HYST = 0.04
-
-local function sticky_mini_mode(scale, cutoff, current)
-	if current == nil then return scale < cutoff end
-	if current then return scale < cutoff + MINI_MODE_HYST end
-	return scale < cutoff - MINI_MODE_HYST
+-- Positions/tints/shows one text line plus its 1px-offset shadow copy.
+local function draw_shadowed_text(main, sh, x, y, alpha, r, g, b, shadow_a)
+	sh:SetWndPos(P(x + 1, y + 1))
+	sh:SetTextColor(GetARGB(shadow_a, 0, 0, 0))
+	sh:Show(true)
+	main:SetWndPos(P(x, y))
+	main:SetTextColor(GetARGB(alpha, r, g, b))
+	main:Show(true)
 end
 
 -- hx, hy: anchor screen position (1024x768 virtual space) -- the identify
 -- point on the NPC's body, and where the leader line starts. alpha: 0..255.
 -- scanning: true while the pre-reveal spinner is running (no card yet); tg:
--- time_global(), drives the spinner's rotation. scale: base_scale(obj) *
--- C.card_scale (see render()) -- manual mode is just the flat card_scale
--- multiplier (1 = reference size); bbox mode derives the base from the
--- target's actual projected bounding-box height, so it reacts to their real
--- apparent size instead of a flat distance curve. Either way it's applied to
--- the whole card, the node/glow, and the card's offset from the anchor.
+-- time_global(), drives the spinner's rotation. scale: C.card_scale, a flat
+-- MCM-configurable multiplier (1 = reference size), unaffected by range or
+-- pose -- applied to the whole card, the node/glow, and the card's offset
+-- from the anchor. Text itself is font-rendered at a fixed size (this UI
+-- system has no continuous runtime text-scaling API, and an attempt at
+-- distance-reactive discrete font tiers didn't work out -- see git history),
+-- so only the plate/paddings around it grow or shrink.
 --
 -- Below C.mini_scale_cutoff the card layout doesn't hold up any more (text
 -- unreadable, plate a near-illegible sliver), so this falls back to just the
 -- relation-coloured node dot + glow instead -- see the branch below.
---
--- Text (header/name/rank) steps through FONT_TIERS's three discrete sizes as
--- scale crosses their thresholds (there's no continuous runtime text-scaling
--- API, only switching between a fixed few font sizes), while the plate/
--- paddings around it still scale continuously.
 --
 -- Layout once revealed (above the mini cutoff): a plate offset up and to one
 -- side of the anchor (flipped to the other side near the screen edge), with
@@ -996,13 +912,20 @@ end
 -- both. A leader line joins the node dot at the anchor to the plate's
 -- nearest corner. Mirrors gamma-immersive-quest-markers' card technique
 -- (see this class's header comment above InitControls).
-function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning, tg, scale, rank)
+--
+-- stack_offset (px, optional): extra vertical push above the normal
+-- CARD_OFF_Y, set by render()'s overlap-avoidance pass when another active
+-- card's anchor is close enough to plausibly collide with this one's. The
+-- leader line naturally gets longer to reach the raised card; no separate
+-- handling needed for it.
+function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning, tg, scale, rank, stack_offset)
 	local s = self.slots[i]
 	if not s then return end
 	s.hidden = false
 
 	local r, g, b = col[1], col[2], col[3]
 	scale = scale or 1
+	stack_offset = stack_offset or 0
 	alpha = math.floor(alpha)
 	if alpha > 255 then alpha = 255 end
 
@@ -1013,36 +936,33 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 		-- itself, not `alpha <= 1`: alpha is also driven by distance fade, so
 		-- a target near the max fade-out distance during the *revealed*
 		-- phase could hit alpha<=1 too and wrongly flip back to the spinner.
+		-- Width squeezed by UI_KX like the node/glow/line elsewhere in this
+		-- class: the 4:3 virtual UI stretched onto a wider real screen would
+		-- otherwise draw this as an ellipse, not a circle, while it rotates.
 		local spin_d = SPIN_D * scale
+		local spin_dx = math.max(2, math.floor(spin_d * UI_KX + 0.5))
 		local spin_angle = (tg % SPIN_PERIOD_MS) / SPIN_PERIOD_MS * (2 * math.pi)
-		s.spinner:SetWndSize(S(spin_d, spin_d))
-		s.spinner:SetWndPos(P(hx - spin_d / 2, hy - spin_d / 2))
+		s.spinner:SetWndSize(S(spin_dx, spin_d))
+		s.spinner:SetWndPos(P(hx - spin_dx / 2, hy - spin_d / 2))
 		s.spinner:SetTextureColor(GetARGB(230, 255, 255, 255))
 		s.spinner:SetHeading(spin_angle)
 		s.spinner:Show(true)
 
-		s.shadow:Show(false); s.line_sh:Show(false); s.line:Show(false)
-		s.plate:Show(false); s.accent:Show(false); s.icon:Show(false)
-		s.head_sh:Show(false); s.head:Show(false)
-		s.name_sh:Show(false); s.name:Show(false)
-		s.rank_sh:Show(false); s.rank:Show(false)
+		hide_card_widgets(s)
 		s.glow:Show(false); s.node:Show(false)
 		return
 	end
 
 	s.spinner:Show(false)
 
-	-- Mini fallback: the card doesn't fit any more at this scale, so just
+	-- Mini fallback: below the cutoff, the card doesn't fit any more, so just
 	-- show the relation dot -- the same node the leader line would otherwise
-	-- connect to a card, minus the card. Sticky (see sticky_mini_mode).
-	local mini = sticky_mini_mode(scale, C.mini_scale_cutoff, s.mini_mode)
-	s.mini_mode = mini
-	if mini then
-		s.shadow:Show(false); s.line_sh:Show(false); s.line:Show(false)
-		s.plate:Show(false); s.accent:Show(false); s.icon:Show(false)
-		s.head_sh:Show(false); s.head:Show(false)
-		s.name_sh:Show(false); s.name:Show(false)
-		s.rank_sh:Show(false); s.rank:Show(false)
+	-- connect to a card, minus the card. `scale` is a single flat MCM value
+	-- shared by every card (not distance-derived), so this is a global
+	-- on/off rather than a per-target one -- no hysteresis needed, since it
+	-- only ever changes when the player edits the slider, not per frame.
+	if scale < C.mini_scale_cutoff then
+		hide_card_widgets(s)
 		draw_node_glow(s, hx, hy, scale, alpha, r, g, b)
 		return
 	end
@@ -1052,41 +972,16 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 		s.icon_key = icon_id
 	end
 
-	-- Retarget the text widgets' font when scale crosses a tier boundary.
-	-- Table-identity comparison (pick_font_tier always returns the same
-	-- FONT_TIERS entry for a given range) is enough to detect a change.
-	local tier = pick_font_tier(scale, s.last_tier)
-	if tier ~= s.last_tier then
-		local pf, sf = self.fonts[tier.primary], self.fonts[tier.secondary]
-		if pf then s.name:SetFont(pf); s.name_sh:SetFont(pf) end
-		if sf then
-			s.head:SetFont(sf); s.head_sh:SetFont(sf)
-			s.rank:SetFont(sf); s.rank_sh:SetFont(sf)
-		end
-		s.last_tier = tier
-		-- font size changes the measured text width even when the strings
-		-- themselves haven't, so force the cw/ch cache below to recompute.
-		s.last_head, s.last_name, s.last_rank = nil, nil, nil
-	end
-
 	local has_rank = rank and rank ~= ""
 	local pad, accent_w = 8, 3
 	local iw = 16 * scale
 	local lead = 5 * scale
 	local ispan = iw + 4 * scale
 
-	-- Raw text width (font-rendered px, independent of `scale` -- scale only
-	-- affects the plate/padding around the text, not the font itself) is the
-	-- one part worth caching: only re-measured when the strings or font tier
-	-- actually change (four AdjustWidthToText/GetWidth calls per change, not
-	-- per frame), same caching IQM uses. cw/ch themselves are NOT cached --
-	-- they fold in scale-dependent padding (lead/ispan/accent_w), computed
-	-- fresh from the live `scale` every frame further down. Caching the
-	-- whole cw/ch here (as an earlier version of this did) froze the plate's
-	-- size at whatever scale was active the last time the text changed,
-	-- while everything else (position offset, node/glow, shadow margin)
-	-- kept updating live -- visibly jumpy/desynced whenever scale changes
-	-- continuously (bounding-box mode), only resyncing on a tier change.
+	-- Text width: only re-measured when the strings actually change (four
+	-- AdjustWidthToText/GetWidth calls per change, not per frame), same
+	-- caching IQM uses -- this runs once per tracked target per frame
+	-- otherwise, so it adds up.
 	local text_w = s.text_w
 	if header ~= s.last_head or name ~= s.last_name or rank ~= s.last_rank then
 		s.head:SetText(header); s.head_sh:SetText(header)
@@ -1103,11 +998,37 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 	end
 
 	local cw = math.floor(accent_w + lead + ispan + text_w + pad + 0.5)
-	local ch = math.floor((has_rank and 54 or 40) * scale + 0.5)
+
+	-- Vertical rhythm: fixed padding/leading and fixed line heights matching
+	-- each widget's own XML-declared font size (letterica16 for header/rank,
+	-- letterica18 for name -- ii_tags.xml) -- text itself is a fixed size,
+	-- same as it's always been (see this function's header comment); a
+	-- dynamic-per-distance font size was tried and removed (see git
+	-- history), so this no longer varies with `scale` at all. Only the
+	-- plate/icon/accent bar around this text block still scale with
+	-- `scale`, so the card as a whole still grows/shrinks up close.
+	-- GAP_AFTER_HEADER (space below the faction line, before the name) and
+	-- GAP_AFTER_NAME (space below the name, before the rank -- or before the
+	-- plate's bottom edge, in the no-rank case) are two distinct requested
+	-- values, not a single shared line gap.
+	local PAD_TOP, PAD_BOTTOM = 7, 7
+	local GAP_AFTER_HEADER, GAP_AFTER_NAME = 3, 5
+	local head_h, name_h, rank_h = 16, 18, 16
+
+	local ch
+	if has_rank then
+		ch = PAD_TOP + head_h + GAP_AFTER_HEADER + name_h + GAP_AFTER_NAME + rank_h + PAD_BOTTOM
+	else
+		ch = PAD_TOP + head_h + GAP_AFTER_HEADER + name_h + GAP_AFTER_NAME
+	end
 
 	-- place the card up and to one side of the anchor; flip to the left near
-	-- the right edge of the (1024-wide virtual) screen.
-	local off_x, off_y = CARD_OFF_X * scale, CARD_OFF_Y * scale
+	-- the right edge of the (1024-wide virtual) screen. stack_offset (see
+	-- render()'s overlap-avoidance pass) pushes it further up still when
+	-- another card's anchor is close enough to plausibly collide -- the
+	-- leader line below just extends to reach it, which is what visually
+	-- stacks the two instead of them landing flush on top of each other.
+	local off_x, off_y = CARD_OFF_X * scale, CARD_OFF_Y * scale + stack_offset
 	local right = (hx + off_x + cw) <= 1014
 	local cx = right and (hx + off_x) or (hx - off_x - cw)
 	if cx < 4 then cx = 4 end
@@ -1144,30 +1065,22 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 
 	-- header (faction, relation-tinted) / name (target's own name, brighter)
 	-- / rank (muted, if any), stacked, starting past the accent bar + icon.
+	-- Y positions accumulate from the same PAD_TOP/GAP_AFTER_HEADER/
+	-- GAP_AFTER_NAME/head_h/name_h used for ch above (fixed, not scaled --
+	-- see that comment), so the lines stay tight against each other and
+	-- correctly proportioned to whichever font is actually in use.
 	local txo = cx + accent_w + lead + ispan
 	local shadow_a = math.floor(180 * alpha / 255)
+	local head_y = math.floor(cy + PAD_TOP)
+	local name_y = math.floor(head_y + head_h + GAP_AFTER_HEADER)
+	local rank_y = math.floor(name_y + name_h + GAP_AFTER_NAME)
 
-	s.head_sh:SetWndPos(P(txo + 1, cy + 6 * scale + 1))
-	s.head_sh:SetTextColor(GetARGB(shadow_a, 0, 0, 0))
-	s.head_sh:Show(true)
-	s.head:SetWndPos(P(txo, cy + 6 * scale))
-	s.head:SetTextColor(GetARGB(alpha, r, g, b))
-	s.head:Show(true)
-
-	s.name_sh:SetWndPos(P(txo + 1, cy + 21 * scale + 1))
-	s.name_sh:SetTextColor(GetARGB(shadow_a, 0, 0, 0))
-	s.name_sh:Show(true)
-	s.name:SetWndPos(P(txo, cy + 21 * scale))
-	s.name:SetTextColor(GetARGB(alpha, 235, 230, 220))
-	s.name:Show(true)
+	draw_shadowed_text(s.head, s.head_sh, txo, head_y, alpha, r, g, b, shadow_a)
+	draw_shadowed_text(s.name, s.name_sh, txo, name_y, alpha, 235, 230, 220, shadow_a)
 
 	if has_rank then
-		s.rank_sh:SetWndPos(P(txo + 1, cy + 38 * scale + 1))
-		s.rank_sh:SetTextColor(GetARGB(shadow_a, 0, 0, 0))
-		s.rank_sh:Show(true)
-		s.rank:SetWndPos(P(txo, cy + 38 * scale))
-		s.rank:SetTextColor(GetARGB(math.floor(200 * alpha / 255), 210, 205, 195))   -- muted: secondary to the name
-		s.rank:Show(true)
+		-- muted: secondary to the name, so its own (lower) alpha rather than the shared one
+		draw_shadowed_text(s.rank, s.rank_sh, txo, rank_y, math.floor(200 * alpha / 255), 210, 205, 195, shadow_a)
 	else
 		s.rank_sh:Show(false)
 		s.rank:Show(false)
@@ -1225,93 +1138,32 @@ local function ensure_tags()
 	return true
 end
 
--- --------------------------------------------------------------------------
--- Bounding-box scale mode: projects the target's actual render bounding box
--- to screen space instead of a pure 1/distance formula (the auto-scaling
--- approach used before it was removed -- see git history/README). Both
--- accomplish the same core goal (bigger up close, smaller far away, via
--- perspective projection of a fixed-size box), but this one also reacts to
--- the target's actual model scale rather than a flat curve.
--- --------------------------------------------------------------------------
-local _bbox_local = vector()
-local _bbox_world = vector()
-
--- All 8 corners of an axis-aligned box, as which extreme (0=min, 1=max) each
--- axis takes.
-local BBOX_CORNERS = {
-	{ 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 },
-	{ 1, 1, 0 }, { 1, 0, 1 }, { 0, 1, 1 }, { 1, 1, 1 },
-}
-
--- Projects all 8 corners of obj:bounding_box() (LOCAL model space -- see
--- that method's comment in types/game_object.lua) through obj:xform() to
--- world space, then through project_world() to screen space, and returns
--- the resulting screen-space height in virtual-1024x768 px (or nil if the
--- object/box/matrix aren't available, or every corner projects off-screen).
--- The box itself is the model's static BIND-POSE box (src/xrEngine/
--- xr_object.cpp:188, getVisData().box -- not updated per current animation
--- frame), so a crouching/prone target reads the same size as standing at
--- the same distance; fine for the primary goal here (distance falloff,
--- which this still gets exactly right -- projecting a fixed-size box IS how
--- perspective shrinks things with distance), just not pose-reactive.
-local function bbox_screen_extent(obj)
-	local ok_box, box = pcall(obj.bounding_box, obj, false)
-	if not ok_box or not box then return nil end
-	local ok_xf, xf = pcall(obj.xform, obj, false)
-	if not ok_xf or not xf then return nil end
-
-	local minx, miny, minz = box.min.x, box.min.y, box.min.z
-	local maxx, maxy, maxz = box.max.x, box.max.y, box.max.z
-
-	local min_sy, max_sy = math.huge, -math.huge
-	local any = false
-	for _, c in ipairs(BBOX_CORNERS) do
-		_bbox_local:set(c[1] == 1 and maxx or minx, c[2] == 1 and maxy or miny, c[3] == 1 and maxz or minz)
-		local ok_t = pcall(xf.transform, xf, _bbox_world, _bbox_local)
-		if ok_t then
-			local sx, sy = project_world(_bbox_world)
-			if sx and sy then
-				any = true
-				if sy < min_sy then min_sy = sy end
-				if sy > max_sy then max_sy = sy end
-			end
-		end
-	end
-	if not any then return nil end
-	return max_sy - min_sy
-end
-
--- Reference apparent height (virtual-space px) that maps to bbox-mode scale
--- = 1, and the clamp bounds on the raw measurement -- purely to stop a
--- point-blank target (bbox height briefly huge) or a barely-there sliver
--- (bbox height tiny, near the edge of max range) from producing an absurd
--- card size. None of these are derived from a formula (there's no "correct"
--- answer here, same as the old distance-based reference distance wasn't
--- either); not MCM-exposed, same precedent as CARD_OFF_X/DOT_D and similar.
-local BBOX_REF_PX = 130
-local BBOX_SCALE_MIN, BBOX_SCALE_MAX = 0.2, 3.0
-
--- The scale BEFORE the card_scale multiplier: 1 in manual mode (card_scale
--- alone does all the work, as before), or the clamped bbox measurement in
--- bbox mode -- failing open to 1 if the bbox measurement isn't available
--- this frame (object briefly not renderable, off-screen, etc.) rather than
--- flickering the card to some stale/zero size.
-local function base_scale(obj)
-	if C.scale_mode == 2 then
-		local h = bbox_screen_extent(obj)
-		if h and h > 0 then
-			local s = h / BBOX_REF_PX
-			if s < BBOX_SCALE_MIN then s = BBOX_SCALE_MIN elseif s > BBOX_SCALE_MAX then s = BBOX_SCALE_MAX end
-			return s
-		end
-	end
-	return 1
-end
+-- Overlap avoidance: two anchors this close together in screen space (px,
+-- 1024x768 virtual space) would draw their cards on top of each other,
+-- since both extend the same fixed offset in roughly the same direction
+-- from their own anchor. STACK_STEP is how much further up each additional
+-- overlapping card gets pushed -- the leader line just extends to reach it,
+-- which is what stacks them cleanly instead of them sitting flush on the
+-- same spot. Deliberately a proximity heuristic on the anchors themselves,
+-- not real measured card-rect overlap: the actual plate width/height isn't
+-- known until draw_slot measures the text, and gathering that up front
+-- would mean either duplicating that measurement here or restructuring
+-- draw_slot to run in two phases -- this is simpler and, since it only ever
+-- misfires by stacking a pair that would narrowly NOT have overlapped, the
+-- failure mode is "slightly more separated than strictly necessary", not a
+-- visible collision.
+local STACK_DIST_X, STACK_DIST_Y = 140, 90
+local STACK_STEP = 58
 
 local function render(tg)
 	if not TAGS then return end   -- only ever called after ensure_tags() succeeds, but don't assume it
 	local apos = db.actor and db.actor:position()
-	local slot_i = 0
+
+	-- First pass: resolve which targets are actually on-screen and drawable
+	-- this frame (unchanged logic from before), collecting them instead of
+	-- drawing immediately, so the second pass below can see every card's
+	-- anchor at once before any of them are actually positioned.
+	local active_n = 0
 
 	for id, e in pairs(tracked) do
 		-- Per-instance range/speed, captured at identify time in try_identify()
@@ -1322,13 +1174,14 @@ local function render(tg)
 		local scan_ms = e.scan_ms or SCAN_MS
 		local max_dist = e.max_dist or C.max_dist
 		local fade_dist = e.fade_dist or C.fade_dist
-		local total = scan_ms + FADE_MS + HOLD_MS + FADE_MS
+		local fade_ms = e.fade_ms or FADE_MS
+		local hold_ms = e.hold_ms or HOLD_MS
+		local total = scan_ms + fade_ms + hold_ms + fade_ms
 
 		local obj = level.object_by_id(id)
 		local remove = not obj
 		if obj then
-			local ok_alive, alive = pcall(obj.alive, obj)
-			remove = not ok_alive or not alive
+			remove = not safe_call(obj.alive, obj)
 		end
 
 		local elapsed = tg - e.t0
@@ -1340,12 +1193,12 @@ local function render(tg)
 			local phase_alpha, scanning = 0, false
 			if elapsed < scan_ms then
 				scanning = true
-			elseif elapsed < scan_ms + FADE_MS then
-				phase_alpha = (elapsed - scan_ms) / FADE_MS
-			elseif elapsed < scan_ms + FADE_MS + HOLD_MS then
+			elseif elapsed < scan_ms + fade_ms then
+				phase_alpha = (elapsed - scan_ms) / fade_ms
+			elseif elapsed < scan_ms + fade_ms + hold_ms then
 				phase_alpha = 1
 			else
-				phase_alpha = 1 - (elapsed - (scan_ms + FADE_MS + HOLD_MS)) / FADE_MS
+				phase_alpha = 1 - (elapsed - (scan_ms + fade_ms + hold_ms)) / fade_ms
 				if phase_alpha < 0 then phase_alpha = 0 end
 			end
 
@@ -1360,13 +1213,38 @@ local function render(tg)
 
 			local sx, sy = project_world(pos)
 			if sx and dist <= max_dist * 1.15 then
-				slot_i = slot_i + 1
-				if slot_i <= MAX_TAGS then
-					local a = math.floor(255 * phase_alpha * dist_fade + 0.5)
-					local scale = base_scale(obj) * C.card_scale
-					TAGS:draw_slot(slot_i, sx, sy, e.header, e.name, a, e.col, e.icon, scanning, tg, scale, e.rank)
-				end
+				active_n = active_n + 1
+				local a = active_pool[active_n]
+				a.hx, a.hy, a.header, a.name = sx, sy, e.header, e.name
+				a.a = math.floor(255 * phase_alpha * dist_fade + 0.5)
+				a.col, a.icon, a.scanning = e.col, e.icon, scanning
+				a.scale, a.rank = C.card_scale, e.rank
 			end
+		end
+	end
+
+	-- Second pass: for each active card, count how many EARLIER cards in
+	-- this same list have an anchor close enough (in both axes) to
+	-- plausibly collide, and stack it that many steps higher. Scanning-only
+	-- and mini-mode cards don't get a stack offset (draw_slot ignores it in
+	-- both cases): a bare spinner or a single small dot at the same spot is
+	-- a far smaller collision than two full cards, not worth the extra
+	-- separation.
+	local slot_i = 0
+	for i = 1, active_n do
+		local ai = active_pool[i]
+		local stack = 0
+		for j = 1, i - 1 do
+			local aj = active_pool[j]
+			if math.abs(ai.hx - aj.hx) < STACK_DIST_X and math.abs(ai.hy - aj.hy) < STACK_DIST_Y then
+				stack = stack + 1
+			end
+		end
+
+		slot_i = slot_i + 1
+		if slot_i <= MAX_TAGS then
+			TAGS:draw_slot(slot_i, ai.hx, ai.hy, ai.header, ai.name, ai.a, ai.col, ai.icon,
+				ai.scanning, tg, ai.scale, ai.rank, stack * STACK_STEP)
 		end
 	end
 
