@@ -1,9 +1,30 @@
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://qconsulting.ca/fo3/ModConfig5.0.xsd">
 	<moduleName>Immersive Identification</moduleName>
 
-	<!-- No user-facing choices: this mod is a single self-contained gamedata
-	     drop-in, so it installs directly with no wizard steps. -->
+	<!-- The base mod is a single self-contained gamedata drop-in with no
+	     required choices; the one wizard step below is for an optional
+	     compatibility patch. -->
 	<requiredInstallFiles>
 		<folder source="gamedata" destination="gamedata" />
 	</requiredInstallFiles>
+
+	<installSteps order="Explicit">
+		<installStep name="Optional Components">
+			<optionalFileGroups order="Explicit">
+				<group name="Compatibility" type="SelectAny">
+					<plugins order="Explicit">
+						<plugin name="Neutralize FactionID HUD">
+							<description>Disables the separate FactionID mod's own on-screen faction HUD (its script becomes a no-op) so it doesn't show its own indicator alongside this mod's. Only install this if you also have FactionID installed.</description>
+							<files>
+								<folder source="FactionID Neutralized/gamedata" destination="gamedata" />
+							</files>
+							<typeDescriptor>
+								<type name="Optional" />
+							</typeDescriptor>
+						</plugin>
+					</plugins>
+				</group>
+			</optionalFileGroups>
+		</installStep>
+	</installSteps>
 </config>

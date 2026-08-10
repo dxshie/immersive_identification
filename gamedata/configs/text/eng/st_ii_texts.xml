@@ -1,11 +1,7 @@
 <?xml version="1.0" encoding="windows-1251"?>
 <string_table>
-
-	<!-- MCM sidebar/mod-list display name: a different string id than the
-	     in-page title slide below ("ui_mcm_menu_" + module id, confirmed by
-	     the reference mod's identical "ui_mcm_menu_iqm" for module id "iqm";
-	     without this, MCM shows the raw id "ui_mcm_menu_ii" in the list). -->
 	<string id="ui_mcm_menu_ii"><text>Immersive Identification</text></string>
+	<string id="ui_mcm_menu_main"><text>Main</text></string>
 
 	<string id="ui_mcm_ii_title"><text>Immersive Identification</text></string>
 

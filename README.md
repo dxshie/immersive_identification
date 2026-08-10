@@ -5,9 +5,10 @@ bindable key to identify them. Instead of a HUD element, the result is a
 floating tag anchored to the target's own body in 3D world space — a small
 rotating spinner on their body while it "scans", then a compact row that
 fades in above them: a relation-coloured dot (red = enemy, green = friend,
-tan = neutral), their faction patch, and their name. No background plate, no
-box, no persistent screen-space UI — just those elements anchored to the
-target while active.
+tan = neutral), their faction patch, and their name, with their rank on its
+own line underneath (skipped for monsters/mutants, which don't have one). No
+background plate, no box, no persistent screen-space UI — just those
+elements anchored to the target while active.
 
 Built for the engine exposed by this repo (`xray-monolith`) and modelled on
 the projection/render technique used by
@@ -17,19 +18,21 @@ Immersive Quest Markers
 
 ### Mod Organizer 2 (FOMOD)
 
-`immersive-identification-fomod.zip` (built from `fomod/` + `gamedata/` in
-this repo) is a ready-to-install FOMOD archive:
+`immersive-identification-fomod-v<version>.zip` (built from `fomod/` +
+`gamedata/` in this repo) is a ready-to-install FOMOD archive:
 
-1. In MO2: **Install Mod...** and point it at `immersive-identification-fomod.zip`
-   (or drag the zip into the MO2 window).
-2. The mod has no install-time options, so it installs directly — no wizard
-   steps to click through.
+1. In MO2: **Install Mod...** and point it at the zip (or drag it into the
+   MO2 window).
+2. If you also have the separate **FactionID** mod installed, check
+   "Neutralize FactionID HUD" in the wizard so its own on-screen faction
+   indicator doesn't show up alongside this mod's. Otherwise leave it
+   unchecked; everything else installs with no other choices to make.
 3. Enable it in your mod list like any other mod.
 
 To rebuild the zip after editing the mod (from this directory):
 
 ```
-zip -r -X ../immersive-identification-fomod.zip fomod gamedata README.md
+nix run .#package   # builds immersive-identification-fomod-v<version>.zip
 ```
 
 ### Manual
@@ -91,3 +94,18 @@ in), and while you are, aiming near a target and holding the aim steady for
 a moment (configurable, default 0.6s) identifies them automatically — no key
 press needed. Move the aim off them (or past the steady tolerance) to reset;
 holding steady on them again re-triggers it.
+
+## Development
+
+`nix develop` gives you `xmllint`, `lua-language-server`, Lua 5.1
+(`lua`/`luac`), and `7z` on `PATH`. `types/` has EmmyLua stubs for the engine
+API this mod uses (each entry cited against xray-monolith's C++ source), and
+`.luarc.json` wires them up — point your editor's Lua LSP at this repo and
+`gamedata/scripts/*.script` gets real completion/type-checking.
+
+```
+nix run .#check-xml                 # validate every XML file in the repo
+nix run .#check-lua                 # full lua-language-server diagnostics, headless
+nix run .#package                   # build immersive-identification-fomod-v<version>.zip
+luac -p gamedata/scripts/*.script   # Lua 5.1 syntax check
+```

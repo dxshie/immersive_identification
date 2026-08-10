@@ -18,9 +18,9 @@ DEFAULTS = {
 	scan_time         = 0.35,  -- seconds: "scanning" pulse before the tag reveals
 	fade_time         = 0.45,  -- seconds: fade in / fade out
 	hold_time         = 4.0,   -- seconds: tag stays fully visible
-	max_dist          = 60,    -- metres: identify only works within this range
+	max_dist          = 50,    -- metres: identify only works within this range
 	fade_dist         = 40,    -- metres: tag starts fading with distance beyond this
-	fov_radius        = 140,   -- virtual-space px (1024-wide): invisible target-assist radius
+	fov_radius        = 110,   -- virtual-space px (1024-wide): invisible target-assist radius
 	require_los       = true,  -- target-assist fallback only picks targets with clear line of sight
 	binocular_mode    = false, -- gate identify behind binoculars being actively raised, and
 	                           -- auto-trigger it on a steady aim instead of needing the key
@@ -33,7 +33,7 @@ DEFAULTS = {
 	binoc_range_mult  = 2.5,   -- max_dist/fade_dist multiplier while binoculars are raised
 	dist_penalty      = true,  -- further targets take longer to scan/identify (binoc_range_mult mitigates
 	                           -- this for free -- see distance_scan_mult()'s comment)
-	dist_penalty_max  = 3.0,   -- scan time multiplier right at the (current, possibly boosted) max range
+	dist_penalty_max  = 5.0,   -- scan time multiplier right at the (current, possibly boosted) max range
 }
 
 -- Section name of the stock binoculars item (confirmed from this engine's
@@ -95,6 +95,7 @@ local ANCHOR_BONES = { "bip01_head", "bip01_spine2", "bip01_spine1", "bip01_spin
 
 local C          = {}     -- live config (DEFAULTS overlaid with MCM values)
 local tracked    = {}     -- [obj_id] = { id, t0, col, name, icon }
+---@type IiTags|nil
 local TAGS       = nil    -- the IiTags dialog instance
 local SCAN_MS, FADE_MS, HOLD_MS = 350, 450, 4000
 
@@ -174,6 +175,25 @@ local function display_name(obj, comm)
 		return name
 	end
 	return faction_label(comm)
+end
+
+-- Rank shown under the name: obj:rank_name() (src/xrGame/script_game_object3.cpp:597,
+-- SAFE_WRAP-bound at script_game_object_script2.cpp:147) returns a raw id
+-- ("novice", "experienced", "veteran", "master", "expert") for CAI_Stalker
+-- objects, empty string (logged, not thrown, since it's SAFE_WRAP) for
+-- anything else -- monsters/mutants included, which is why this returns nil
+-- for them rather than a fallback: no rank line makes more sense than a
+-- fabricated one. Localised via "st_rank_" + id, the same convention this
+-- engine's own Discord Rich Presence integration uses (Actor.cpp:1442-1449),
+-- so it matches the game's own terminology instead of inventing new labels.
+local function rank_label(obj)
+	local ok, rid = pcall(obj.rank_name, obj)
+	if not ok or not rid or rid == "" then return nil end
+	local ok2, txt = pcall(game.translate_string, "st_rank_" .. rid)
+	if ok2 and txt and txt ~= "" and txt ~= ("st_rank_" .. rid) then return txt end
+	local pretty = rid:gsub("_", " ")
+	pretty = pretty:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b:lower() end)
+	return pretty
 end
 
 -- Faction patch texture id: the same "<community_id>_icon" convention the
@@ -461,7 +481,7 @@ local function try_identify()
 
 	tracked[id] = {
 		id = id, t0 = tg, col = relation_color(obj),
-		name = display_name(obj, comm), icon = faction_icon_id(comm),
+		name = display_name(obj, comm), icon = faction_icon_id(comm), rank = rank_label(obj),
 		scan_ms = eff_scan_ms, max_dist = eff_max_dist, fade_dist = eff_fade_dist,
 	}
 end
@@ -542,6 +562,16 @@ end
 -- --------------------------------------------------------------------------
 local DOT_D, ICON_D, ROW_GAP = 5, 20, 6
 
+-- The `---@class` annotation has to attach to an actual declaration, and
+-- `class "IiTags" (CUIScriptWnd)` below is a bare function-call statement
+-- (`class("IiTags")(CUIScriptWnd)`), not an assignment -- so this shadow
+-- global exists purely for the type checker; the classlib call immediately
+-- below is what actually registers the real class at runtime.
+---@class IiTags : CUIScriptWnd
+---@field xml CScriptXmlInit
+---@field slots table[]
+IiTags = {}
+
 class "IiTags" (CUIScriptWnd)
 
 function IiTags:__init() super()
@@ -563,8 +593,13 @@ function IiTags:InitControls()
 		local icon    = self.xml:InitStatic("tag_icon", self)
 		local name_sh = self.xml:InitTextWnd("tag_name_sh:text", self)
 		local name    = self.xml:InitTextWnd("tag_name:text", self)
+		local rank_sh = self.xml:InitTextWnd("tag_rank_sh:text", self)
+		local rank    = self.xml:InitTextWnd("tag_rank:text", self)
 		spinner:EnableHeading(true)
-		self.slots[i] = { glow = glow, dot = dot, spinner = spinner, icon = icon, name_sh = name_sh, name = name }
+		self.slots[i] = {
+			glow = glow, dot = dot, spinner = spinner, icon = icon,
+			name_sh = name_sh, name = name, rank_sh = rank_sh, rank = rank,
+		}
 		-- hidden starts unset (falsy) so this first hide_slot() call actually
 		-- runs the Show(false) calls below, instead of short-circuiting on its
 		-- own "already hidden" guard and leaving all widgets at their XML
@@ -583,6 +618,8 @@ function IiTags:hide_slot(i)
 	s.icon:Show(false)
 	s.name_sh:Show(false)
 	s.name:Show(false)
+	s.rank_sh:Show(false)
+	s.rank:Show(false)
 end
 
 local SPIN_D = 20            -- spinner diameter, px, at scale 1
@@ -596,8 +633,10 @@ local SPIN_PERIOD_MS = 900   -- one full rotation
 -- size (this UI system has no continuous runtime text-scaling API, only
 -- discrete font choices), so it does not grow/shrink with distance.
 -- Layout once revealed: a row of [relation dot][faction patch][name],
--- horizontally centred above hx,hy. No background plate by design.
-function IiTags:draw_slot(i, hx, hy, label, alpha, col, icon_id, scanning, tg, scale)
+-- horizontally centred above hx,hy, with rank (if any -- obj:rank_name()
+-- returns nothing for monsters/mutants) centred on its own line below.
+-- No background plate by design.
+function IiTags:draw_slot(i, hx, hy, label, alpha, col, icon_id, scanning, tg, scale, rank)
 	local s = self.slots[i]
 	if not s then return end
 	s.hidden = false
@@ -605,10 +644,13 @@ function IiTags:draw_slot(i, hx, hy, label, alpha, col, icon_id, scanning, tg, s
 	local r, g, b = col[1], col[2], col[3]
 	scale = scale or 1
 
-	if alpha <= 1 then
+	if scanning then
 		-- scanning only: a rotating spinner on the body, nothing revealed yet.
 		-- Always plain white -- relation isn't known/shown as a colour cue
-		-- until the tag actually reveals.
+		-- until the tag actually reveals. Branches on the `scanning` flag
+		-- itself, not `alpha <= 1`: alpha is also driven by distance fade, so
+		-- a target near the max fade-out distance during the *revealed*
+		-- phase could hit alpha<=1 too and wrongly flip back to the spinner.
 		local spin_d = SPIN_D * scale
 		local spin_angle = (tg % SPIN_PERIOD_MS) / SPIN_PERIOD_MS * (2 * math.pi)
 		s.spinner:SetWndSize(S(spin_d, spin_d))
@@ -622,6 +664,8 @@ function IiTags:draw_slot(i, hx, hy, label, alpha, col, icon_id, scanning, tg, s
 		s.icon:Show(false)
 		s.name_sh:Show(false)
 		s.name:Show(false)
+		s.rank_sh:Show(false)
+		s.rank:Show(false)
 		return
 	end
 
@@ -671,6 +715,25 @@ function IiTags:draw_slot(i, hx, hy, label, alpha, col, icon_id, scanning, tg, s
 	s.name:SetWndPos(P(name_x, name_y))
 	s.name:SetTextColor(GetARGB(alpha, r, g, b))
 	s.name:Show(true)
+
+	if rank and rank ~= "" then
+		s.rank:SetText(rank)
+		s.rank:AdjustWidthToText()
+		local rtw = s.rank:GetWidth()
+		local rank_x = math.floor(hx - rtw / 2)
+		local rank_y = math.floor(row_cy + icon_d / 2 + 2)   -- clear of the icon at any scale
+
+		s.rank_sh:SetWndPos(P(rank_x + 1, rank_y + 1))
+		s.rank_sh:SetTextColor(GetARGB(math.floor(180 * alpha / 255), 0, 0, 0))
+		s.rank_sh:Show(true)
+
+		s.rank:SetWndPos(P(rank_x, rank_y))
+		s.rank:SetTextColor(GetARGB(math.floor(200 * alpha / 255), 210, 205, 195))   -- muted: secondary to the name
+		s.rank:Show(true)
+	else
+		s.rank_sh:Show(false)
+		s.rank:Show(false)
+	end
 end
 
 -- --------------------------------------------------------------------------
@@ -705,6 +768,7 @@ local function distance_scale(dist)
 end
 
 local function render(tg)
+	if not TAGS then return end   -- only ever called after ensure_tags() succeeds, but don't assume it
 	local apos = db.actor and db.actor:position()
 	local slot_i = 0
 
@@ -720,8 +784,8 @@ local function render(tg)
 		local total = scan_ms + FADE_MS + HOLD_MS + FADE_MS
 
 		local obj = level.object_by_id(id)
-		local remove = (obj == nil)
-		if not remove then
+		local remove = not obj
+		if obj then
 			local ok_alive, alive = pcall(obj.alive, obj)
 			remove = not ok_alive or not alive
 		end
@@ -759,7 +823,7 @@ local function render(tg)
 				if slot_i <= MAX_TAGS then
 					local a = math.floor(255 * phase_alpha * dist_fade + 0.5)
 					local scale = distance_scale(dist)
-					TAGS:draw_slot(slot_i, sx, sy, e.name, a, e.col, e.icon, scanning, tg, scale)
+					TAGS:draw_slot(slot_i, sx, sy, e.name, a, e.col, e.icon, scanning, tg, scale, e.rank)
 				end
 			end
 		end

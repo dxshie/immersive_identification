@@ -32,4 +32,15 @@
 	<tag_name>
 		<text font="letterica16" align="l" width="300" height="18" />
 	</tag_name>
+
+	<!-- Rank, centred on its own line below the name. Muted grey (set in
+	     script) rather than the relation colour, to read as secondary detail
+	     under the name rather than competing with it. Hidden entirely for
+	     targets with no rank (monsters/mutants; see rank_label()). -->
+	<tag_rank_sh>
+		<text font="letterica16" align="l" width="300" height="16" />
+	</tag_rank_sh>
+	<tag_rank>
+		<text font="letterica16" align="l" width="300" height="16" />
+	</tag_rank>
 </w>
