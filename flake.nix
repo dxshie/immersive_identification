@@ -77,7 +77,7 @@
                 echo "error: could not read <Version> from fomod/info.xml" >&2
                 exit 1
               fi
-              out="immersive-identification-fomod-v''${version}.zip"
+              out="./package/immersive-identification-fomod-v''${version}.zip"
               rm -f "$out"
               "${pkgs.p7zip}/bin/7z" a -tzip -x'!.gitkeep' "$out" fomod gamedata README.md "FactionID Neutralized"
               echo "built $out"
