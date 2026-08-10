@@ -936,14 +936,18 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 		-- itself, not `alpha <= 1`: alpha is also driven by distance fade, so
 		-- a target near the max fade-out distance during the *revealed*
 		-- phase could hit alpha<=1 too and wrongly flip back to the spinner.
-		-- Width squeezed by UI_KX like the node/glow/line elsewhere in this
-		-- class: the 4:3 virtual UI stretched onto a wider real screen would
-		-- otherwise draw this as an ellipse, not a circle, while it rotates.
+		-- NOT width-squeezed by UI_KX like the static node/glow/line: those
+		-- are pre-distorted so the engine's anisotropic virtual-to-screen
+		-- stretch turns them back into circles, but that trick only holds
+		-- for a shape at a fixed orientation. SetHeading() below rotates
+		-- this widget in virtual space *before* that stretch is applied, and
+		-- rotation doesn't commute with a non-uniform scale -- a squeezed
+		-- rectangle rotated first comes out elliptical at every angle rather
+		-- than circular, so this stays square instead.
 		local spin_d = SPIN_D * scale
-		local spin_dx = math.max(2, math.floor(spin_d * UI_KX + 0.5))
 		local spin_angle = (tg % SPIN_PERIOD_MS) / SPIN_PERIOD_MS * (2 * math.pi)
-		s.spinner:SetWndSize(S(spin_dx, spin_d))
-		s.spinner:SetWndPos(P(hx - spin_dx / 2, hy - spin_d / 2))
+		s.spinner:SetWndSize(S(spin_d, spin_d))
+		s.spinner:SetWndPos(P(hx - spin_d / 2, hy - spin_d / 2))
 		s.spinner:SetTextureColor(GetARGB(230, 255, 255, 255))
 		s.spinner:SetHeading(spin_angle)
 		s.spinner:Show(true)
