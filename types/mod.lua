@@ -17,3 +17,18 @@
 ---@field MODIFIER_LIST { dik: string?, alt_dik: string?, label: string }[]
 ---@field DEFAULT_KEY_NAME string DIK_keys field name, e.g. "DIK_X"
 ii_identify = {}
+
+-- Soft dependency: the separate Skill System mod (haru_skills.script, at
+-- $HOME/code/lua/skillsystem, also shipped in a rebalanced form by the
+-- "G.A.M.M.A. Skill System Balance" addon), stubbed only for the one entry
+-- point ii_identify.script actually reads/writes (see its perception_level()
+-- / award_perception_xp()) -- deliberately NOT haru_skills.increase_skill,
+-- which both known variants of that file make unusable for any skill outside
+-- their own hardcoded four (see award_perception_xp()'s comment). May
+-- legitimately be nil at runtime -- this repo only ships the compatibility
+-- skill_perception.ltx as an OPTIONAL FOMOD component (see
+-- fomod/ModuleConfig.xml), so every real access is nil-chained rather than
+-- assumed present.
+---@class haru_skills
+---@field skills_levels table<string, { current_level: number, max_level: number, experience: number, requirement: number }>
+haru_skills = {}

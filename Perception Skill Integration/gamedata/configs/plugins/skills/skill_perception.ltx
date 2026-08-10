@@ -1,0 +1,17 @@
+; Adds a "perception" skill to the Skill System (haru_skills) mod, picked up
+; automatically by its plugins/skills/skills_base.ltx `#include "skill_*.ltx"`
+; wildcard. Immersive Identification reads this skill's current_level (via
+; the cross-file haru_skills global) to speed up identification, and grants
+; it XP on a successful identify -- see ii_identify.script's
+; perception_level()/award_perception_xp(). The stats block below is inert
+; (no functor: nothing else reacts to it); it exists only because
+; haru_skills.script's on_game_load unconditionally reads a "<skill>_stats"
+; section for every configured skill.
+
+[perception]
+max_level = 15
+base_requirement = 600
+
+[perception_stats]
+awareness = 0
+awareness_increment = 1

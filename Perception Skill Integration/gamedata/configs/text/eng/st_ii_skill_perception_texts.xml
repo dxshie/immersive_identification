@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<string_table>
+	<!-- Skill System menu (ui_haru_skills.script) reads these three exactly
+	     the same way it reads its own bundled skills' st_player_skills_<skill>
+	     / st_player_skills_hint_<skill> / st_new_level_<skill>; without them
+	     the menu would show the raw, untranslated string id (name) or nothing
+	     at all (hint; the base skills don't define one either, so it's just
+	     blank for them; see ui_haru_skills.script:138/193 and
+	     haru_skills.script's level_up_skill()). -->
+	<string id="st_player_skills_perception"><text>Perception</text></string>
+	<string id="st_player_skills_hint_perception"><text>Faster faction/name identification (Immersive Identification's identify key/binoculars) the higher this skill's level. Levels up the first time you identify each stalker or creature -- re-identifying someone already identified doesn't grant experience.</text></string>
+	<string id="st_new_level_perception"><text>$clr_cyan* $clr_whiteIdentification speed improved</text></string>
+</string_table>

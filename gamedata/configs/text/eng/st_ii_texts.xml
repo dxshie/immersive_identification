@@ -53,20 +53,30 @@
 	<string id="ui_mcm_ii_binoc_range_mult"><text>Binoculars range multiplier</text></string>
 	<string id="ui_mcm_ii_binoc_range_mult_desc"><text>Range multiplier while binoculars are raised.</text></string>
 
-	<string id="ui_mcm_ii_distance_scaling"><text>Scale tag with distance</text></string>
-	<string id="ui_mcm_ii_distance_scaling_desc"><text>Shrink/grow the tag with distance.</text></string>
+	<string id="ui_mcm_ii_distance_scaling_title"><text>Card Size</text></string>
 
-	<string id="ui_mcm_ii_scale_min"><text>Min scale (far away)</text></string>
-	<string id="ui_mcm_ii_scale_min_desc"><text>Smallest size at extreme range.</text></string>
+	<string id="ui_mcm_ii_card_scale"><text>Card scale</text></string>
+	<string id="ui_mcm_ii_card_scale_desc"><text>Flat size multiplier for the whole card. Not distance-based.</text></string>
 
-	<string id="ui_mcm_ii_scale_max"><text>Max scale (up close)</text></string>
-	<string id="ui_mcm_ii_scale_max_desc"><text>Largest size up close.</text></string>
+	<string id="ui_mcm_ii_binoc_title"><text>Binoculars</text></string>
+	<string id="ui_mcm_ii_dist_penalty_title"><text>Distance Penalty</text></string>
 
 	<string id="ui_mcm_ii_dist_penalty"><text>Distance slows identification</text></string>
 	<string id="ui_mcm_ii_dist_penalty_desc"><text>Further targets take longer to scan.</text></string>
 
 	<string id="ui_mcm_ii_dist_penalty_max"><text>Max distance slowdown</text></string>
 	<string id="ui_mcm_ii_dist_penalty_max_desc"><text>Scan time multiplier at max range. Binoculars mitigate this for free by extending max range itself.</text></string>
+
+	<string id="ui_mcm_ii_perception_title"><text>Skill System (Perception)</text></string>
+
+	<string id="ui_mcm_ii_perception_compat"><text>Perception skill integration</text></string>
+	<string id="ui_mcm_ii_perception_compat_desc"><text>Identifying gets faster with a higher Skill System perception level (needs the optional FOMOD component).</text></string>
+
+	<string id="ui_mcm_ii_perception_scan_mult"><text>Speed bonus per level</text></string>
+	<string id="ui_mcm_ii_perception_scan_mult_desc"><text>Scan time reduction per perception level.</text></string>
+
+	<string id="ui_mcm_ii_perception_xp"><text>Perception XP per identify</text></string>
+	<string id="ui_mcm_ii_perception_xp_desc"><text>Perception experience granted on a successful identify.</text></string>
 
 	<!-- List-content ids: MCM resolves each modifier_index dropdown entry as
 	     "<page>_<option>_lst_" + the bare label from ii_identify.MODIFIER_LIST,

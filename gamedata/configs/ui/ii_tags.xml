@@ -1,41 +1,93 @@
 <w>
-	<!-- Soft glow halo behind the relation-coloured dot (revealed state only). -->
-	<tag_glow width="40" height="40" stretch="1">
-		<texture r="255" g="255" b="255" a="140">ii_dot</texture>
-	</tag_glow>
+	<!-- Card-style layout (mirrors gamma-immersive-quest-markers' iqm_cards.xml
+	     technique): a plate offset to one side of the target's body, joined to
+	     an anchor "node" dot on their chest by a rotated leader-line strip. -->
 
-	<!-- Relation-coloured dot at the identify anchor point: friend/enemy/neutral
-	     at a glance. Only shown once revealed (steady, no pulsing). -->
-	<tag_dot width="10" height="10" stretch="1">
-		<texture r="255" g="255" b="255" a="255">ii_dot</texture>
-	</tag_dot>
+	<!-- Soft drop shadow: a genuinely feathered texture (ii_shadow, an SDF
+	     blur; see its own comment in textures_descr/ii_textures.xml),
+	     stretched larger than and behind the plate, so the card reads as
+	     lifted off the world instead of pasted flat onto it. Previously
+	     reused ii_white (a hard-edged opaque square) here, which just looked
+	     like a second flat rectangle, not a shadow. -->
+	<tag_shadow width="80" height="40" stretch="1">
+		<texture r="0" g="0" b="0" a="160">ii_shadow</texture>
+	</tag_shadow>
 
-	<!-- "Scanning" spinner shown on the body before the tag reveals, rotated
-	     continuously via SetHeading; replaces a plain pulsing dot. -->
-	<tag_spinner width="20" height="20" stretch="1">
-		<texture r="255" g="255" b="255" a="230">ii_spinner</texture>
-	</tag_spinner>
+	<!-- Card plate: solid rectangle, tinted dark charcoal + translucent in
+	     script (ii_white is a plain opaque square, so the shape here is just
+	     the widget's own rect, sharp corners rather than rounded, kept
+	     simple rather than generating a bespoke rounded-rect texture). -->
+	<tag_plate width="80" height="40" stretch="1">
+		<texture r="24" g="22" b="19" a="185">ii_white</texture>
+	</tag_plate>
 
-	<!-- Faction patch. Texture is swapped at runtime to "<community_id>_icon"
-	     via InitTexture; the same convention the game's own character/
-	     relations UI uses for faction emblems, so this placeholder texture
-	     is never actually shown; shown at native colour (no tint). -->
+	<!-- Accent bar down the plate's left edge, tinted the relation colour. -->
+	<tag_accent width="3" height="26" stretch="1">
+		<texture r="255" g="255" b="255" a="255">ii_white</texture>
+	</tag_accent>
+
+	<!-- Faction patch, inline between the accent bar and the text. Texture is
+	     swapped at runtime to "<community_id>_icon" via InitTexture, the same
+	     convention the game's own character/relations UI uses. -->
 	<tag_icon width="20" height="20" stretch="1">
 		<texture r="255" g="255" b="255" a="255">ii_white</texture>
 	</tag_icon>
 
-	<!-- Stalker's name. No background plate by design: just a 1px black
-	     shadow copy behind the relation-coloured face for legibility. -->
+	<!-- Leader line: a thin strip rotated via SetHeading, connecting the node
+	     on the target's body to the plate's nearest corner. Drop-shadow copy
+	     drawn first, black and a touch thicker. -->
+	<tag_line_sh width="64" height="2" stretch="1">
+		<texture r="0" g="0" b="0" a="255">ii_white</texture>
+	</tag_line_sh>
+	<tag_line width="64" height="2" stretch="1">
+		<texture r="255" g="255" b="255" a="200">ii_white</texture>
+	</tag_line>
+
+	<!-- Soft glow halo behind the node dot (relation colour, low alpha).
+	     stretch="1" is required, not cosmetic: stretch="0" is engine tmNative
+	     mode (src/xrGame/ui/UIStatic.h's SetStretchTexture), which ignores
+	     every SetWndSize() call from the script and always draws the source
+	     texture at its native pixel size (ii_dot.dds is 64x64); that was
+	     the "dot is extremely big" bug, since draw_slot's ns/nsx sizing was
+	     silently never applied. -->
+	<tag_glow width="40" height="40" stretch="1">
+		<texture r="255" g="255" b="255" a="140">ii_dot</texture>
+	</tag_glow>
+
+	<!-- The node: a single relation-coloured dot at the identify anchor point
+	     on the target's body, where the leader line begins. -->
+	<tag_node width="10" height="10" stretch="1">
+		<texture r="255" g="255" b="255" a="255">ii_dot</texture>
+	</tag_node>
+
+	<!-- "Scanning" spinner shown on the body before the tag reveals (no card
+	     yet), rotated continuously via SetHeading. Same stretch="1"
+	     requirement as tag_glow/tag_node above; ii_spinner.dds is 128x128
+	     native, so this was also drawing full-size regardless of scale. -->
+	<tag_spinner width="20" height="20" stretch="1">
+		<texture r="255" g="255" b="255" a="230">ii_spinner</texture>
+	</tag_spinner>
+
+	<!-- Header line: the target's faction, small and tinted the relation
+	     colour, the secondary/context line, same role as IQM's card_head. -->
+	<tag_head_sh>
+		<text font="letterica16" align="l" width="300" height="16" />
+	</tag_head_sh>
+	<tag_head>
+		<text font="letterica16" align="l" width="300" height="16" />
+	</tag_head>
+
+	<!-- Name line: the target's own name (or the faction label again for
+	     nameless mobs), warm off-white, the primary line, larger/brighter
+	     than the header, same role as IQM's card_name. -->
 	<tag_name_sh>
-		<text font="letterica16" align="l" width="300" height="18" />
+		<text font="letterica18" align="l" width="300" height="18" />
 	</tag_name_sh>
 	<tag_name>
-		<text font="letterica16" align="l" width="300" height="18" />
+		<text font="letterica18" align="l" width="300" height="18" />
 	</tag_name>
 
-	<!-- Rank, centred on its own line below the name. Muted grey (set in
-	     script) rather than the relation colour, to read as secondary detail
-	     under the name rather than competing with it. Hidden entirely for
+	<!-- Rank: its own line under the name, muted grey. Hidden entirely for
 	     targets with no rank (monsters/mutants; see rank_label()). -->
 	<tag_rank_sh>
 		<text font="letterica16" align="l" width="300" height="16" />

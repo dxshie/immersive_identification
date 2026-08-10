@@ -93,14 +93,8 @@ function on_mcm_load()
 
 				{ id = "title", type = "slide", text = "ui_mcm_ii_distance_scaling_title", size = { 512, 50 }, spacing = 20 },
 
-				{ id = "distance_scaling", type = "check", val = 1, def = d.distance_scaling,
-					text = "ui_mcm_ii_distance_scaling", hint = "ii_distance_scaling_desc" },
-
-				{ id = "scale_min", type = "track", val = 2, min = 0.05, max = 1, step = 0.05, prec = 2, def = d.scale_min,
-					text = "ui_mcm_ii_scale_min", hint = "ii_scale_min_desc" },
-
-				{ id = "scale_max", type = "track", val = 2, min = 1, max = 3, step = 0.1, prec = 1, def = d.scale_max,
-					text = "ui_mcm_ii_scale_max", hint = "ii_scale_max_desc" },
+				{ id = "card_scale", type = "track", val = 2, min = 0.5, max = 2, step = 0.05, prec = 2, def = d.card_scale,
+					text = "ui_mcm_ii_card_scale", hint = "ii_card_scale_desc" },
 
 				{ id = "title", type = "slide", text = "ui_mcm_ii_dist_penalty_title", size = { 512, 50 }, spacing = 20 },
 
@@ -109,6 +103,17 @@ function on_mcm_load()
 
 				{ id = "dist_penalty_max", type = "track", val = 2, min = 1, max = 6, step = 0.1, prec = 1, def = d.dist_penalty_max,
 					text = "ui_mcm_ii_dist_penalty_max", hint = "ii_dist_penalty_max_desc" },
+
+				{ id = "title", type = "slide", text = "ui_mcm_ii_perception_title", size = { 512, 50 }, spacing = 20 },
+
+				{ id = "perception_compat", type = "check", val = 1, def = d.perception_compat,
+					text = "ui_mcm_ii_perception_compat", hint = "ii_perception_compat_desc" },
+
+				{ id = "perception_scan_mult", type = "track", val = 2, min = 0, max = 0.1, step = 0.01, prec = 2, def = d.perception_scan_mult,
+					text = "ui_mcm_ii_perception_scan_mult", hint = "ii_perception_scan_mult_desc" },
+
+				{ id = "perception_xp", type = "track", val = 2, min = 0, max = 100, step = 5, def = d.perception_xp,
+					text = "ui_mcm_ii_perception_xp", hint = "ii_perception_xp_desc" },
 			}},
 		}
 	}

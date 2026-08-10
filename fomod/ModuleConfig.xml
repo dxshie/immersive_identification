@@ -2,8 +2,8 @@
 	<moduleName>Immersive Identification</moduleName>
 
 	<!-- The base mod is a single self-contained gamedata drop-in with no
-	     required choices; the one wizard step below is for an optional
-	     compatibility patch. -->
+	     required choices; the wizard step below is for optional
+	     compatibility patches / integrations. -->
 	<requiredInstallFiles>
 		<folder source="gamedata" destination="gamedata" />
 	</requiredInstallFiles>
@@ -17,6 +17,15 @@
 							<description>Disables the separate FactionID mod's own on-screen faction HUD (its script becomes a no-op) so it doesn't show its own indicator alongside this mod's. Only install this if you also have FactionID installed.</description>
 							<files>
 								<folder source="FactionID Neutralized/gamedata" destination="gamedata" />
+							</files>
+							<typeDescriptor>
+								<type name="Optional" />
+							</typeDescriptor>
+						</plugin>
+						<plugin name="Skill System: Perception">
+							<description>Adds a "perception" skill to the Skill System (haru_skills) mod and links it to identification speed: the higher your perception level, the faster you identify targets, and successful identifications grant perception XP. Only install this if you also have the Skill System mod installed.</description>
+							<files>
+								<folder source="Perception Skill Integration/gamedata" destination="gamedata" />
 							</files>
 							<typeDescriptor>
 								<type name="Optional" />

@@ -25,15 +25,16 @@ DEFAULTS = {
 	binocular_mode    = false, -- gate identify behind binoculars being actively raised, and
 	                           -- auto-trigger it on a steady aim instead of needing the key
 	steady_time       = 0.6,   -- seconds: how long the aim must hold still (binocular mode) before auto-identifying
-	distance_scaling  = true,  -- shrink/grow the dot, glow, patch and spinner with distance
-	scale_min         = 0.2,   -- smallest they shrink to at extreme range
-	scale_max         = 1.6,   -- largest they grow to close up
+	card_scale        = 1.0,   -- flat size multiplier for the whole card (manual, not distance-based -- see draw_slot's comment)
 	binoc_boost       = true,  -- binoculars speed up + extend identify range, independent of binocular_mode
 	binoc_scan_mult   = 0.4,   -- scan_time multiplier while binoculars are raised (lower = faster reveal)
 	binoc_range_mult  = 2.5,   -- max_dist/fade_dist multiplier while binoculars are raised
 	dist_penalty      = true,  -- further targets take longer to scan/identify (binoc_range_mult mitigates
 	                           -- this for free -- see distance_scan_mult()'s comment)
 	dist_penalty_max  = 5.0,   -- scan time multiplier right at the (current, possibly boosted) max range
+	perception_compat = true,  -- soft-integrate with the Skill System mod's "perception" skill, if present
+	perception_scan_mult = 0.04, -- scan time reduction per perception level (0.04 = 4% faster per level)
+	perception_xp        = 20,   -- perception XP granted per successful identify (skill-system side)
 }
 
 -- Section name of the stock binoculars item (confirmed from this engine's
@@ -99,6 +100,13 @@ local tracked    = {}     -- [obj_id] = { id, t0, col, name, icon }
 local TAGS       = nil    -- the IiTags dialog instance
 local SCAN_MS, FADE_MS, HOLD_MS = 350, 450, 4000
 
+-- Aspect-correction factor the engine applies to rotated (SetHeading) statics:
+-- the 4:3 virtual UI (1024x768) is stretched onto the real (usually wider)
+-- screen, so a strip rotated to an angle in that virtual space needs its X
+-- pre-divided by this to still point at the right screen pixel. Recomputed in
+-- read_config() (device() isn't ready when this file is first parsed).
+local UI_KX = 1
+
 local _prev_on_key_press = nil
 
 local _p = vector2()
@@ -125,6 +133,13 @@ local function read_config()
 	SCAN_MS = math.floor((C.scan_time or 0.35) * 1000)
 	FADE_MS = math.floor((C.fade_time or 0.45) * 1000)
 	HOLD_MS = math.floor((C.hold_time or 4.0) * 1000)
+
+	-- kx = (h/w) / (UI_BASE_HEIGHT/UI_BASE_WIDTH) = (h/w) / (768/1024). See UI_KX's
+	-- declaration for why the leader line needs this.
+	local dev = device and device()
+	local w = dev and dev.width or 0
+	local h = dev and dev.height or 0
+	UI_KX = (w > 0 and h > 0) and ((h / w) / (768 / 1024)) or 1
 end
 
 -- C.key_dik comes straight from MCM's key-capture widget (whatever DIK/mouse
@@ -433,6 +448,82 @@ local function distance_scan_mult(dist, max_dist)
 	return 1 + (C.dist_penalty_max - 1) * t
 end
 
+-- --------------------------------------------------------------------------
+-- Skill System (haru_skills) compatibility: identification gets faster the
+-- higher the actor's "perception" skill level is. Soft dependency throughout
+-- -- the Skill System mod may not be installed at all, and even when it is,
+-- its base pack ships no "perception" skill (only endurance/strength/
+-- survival/scavenging), so this mod ships its own skill_perception.ltx as an
+-- optional FOMOD component (see fomod/ModuleConfig.xml) that the skill
+-- system's own `#include "skill_*.ltx"` wildcard picks up automatically.
+-- Every access below is nil-chained rather than pcall'd: haru_skills is
+-- either a whole missing global or a well-formed table (its own
+-- on_game_load populates skills_levels for every configured skill), so there
+-- is no method call here that can throw, just table field reads.
+-- --------------------------------------------------------------------------
+local function perception_level()
+	if not C.perception_compat then return 0 end
+	local lv = haru_skills and haru_skills.skills_levels and haru_skills.skills_levels["perception"]
+	return (lv and lv.current_level) or 0
+end
+
+-- Multiplicative scan-time reduction from the current perception level (1 =
+-- no bonus, lower = faster), floored so it never reaches a near-instant
+-- reveal at max level.
+local function perception_scan_mult()
+	local lvl = perception_level()
+	if lvl <= 0 then return 1 end
+	local mult = 1 - C.perception_scan_mult * lvl
+	if mult < 0.15 then mult = 0.15 end
+	return mult
+end
+
+-- Rewards using the identify feature with perception XP, same as the skill
+-- system's own skills reward using them (footsteps -> endurance, hits ->
+-- survival, etc.). Only fires when the "perception" skill actually exists in
+-- skills_levels (the optional skill_perception.ltx component is installed).
+--
+-- Deliberately does NOT call haru_skills.increase_skill(skill, amount):
+-- that function computes `amount * options["exp_multiplier_" .. skill]`, and
+-- options[] is only ever populated for the four hardcoded base skills
+-- (strength/endurance/scavenging/survival) in on_option_change -- true of
+-- both the vanilla Skill System mod's haru_skills.script AND the separate
+-- "G.A.M.M.A. Skill System Balance" addon's replacement of that same file
+-- (checked both directly). options["exp_multiplier_perception"] is nil in
+-- either, so increase_skill("perception", ...) always throws (attempt to
+-- perform arithmetic on a nil value) before ever touching .experience --
+-- silently, since this was originally pcall'd, so no XP was ever actually
+-- granted. Writing .experience directly sidesteps that hardcoded lookup
+-- entirely; the periodic update_stats() (registered on actor_on_update in
+-- both variants, and already running regardless of this mod) independently
+-- re-checks every configured skill's experience against its requirement and
+-- calls level_up_skill for us, so this needs no level-up logic of its own.
+-- Returns true if XP was actually granted (perception_compat on, the skill
+-- exists), false otherwise -- the caller uses this to decide whether the
+-- target should be marked as already-farmed (see xp_awarded below); an
+-- unsuccessful grant (compat off / Skill System absent) shouldn't burn a
+-- target's one-time award if the integration gets enabled/installed later.
+local function award_perception_xp()
+	if not C.perception_compat then return false end
+	local lv = haru_skills and haru_skills.skills_levels and haru_skills.skills_levels["perception"]
+	if not lv or type(lv.experience) ~= "number" then return false end
+	lv.experience = lv.experience + C.perception_xp
+	return true
+end
+
+-- Per-target one-time XP gate: [npc_id] = true once that target has ever
+-- earned perception XP, so repeatedly re-identifying the same stalker after
+-- its tag fades out (tracked[id] clears, so the earlier "already tracked"
+-- check alone doesn't stop this) can't farm unlimited XP off one NPC.
+-- Persisted via save_state/load_state below so reloading a save doesn't
+-- reset the list either. Keyed by the engine's alife object id like
+-- `tracked` already is; the one edge case is a since-dead NPC's id being
+-- recycled onto an unrelated new object, which would just silently deny
+-- that one new NPC its first-time XP -- rare, and the failure mode is
+-- "no XP" rather than anything worse, so not worth a heavier identity
+-- scheme (e.g. name+community) that has its own collision problems.
+local xp_awarded = {}
+
 local function try_identify()
 	if not C.enabled or not db.actor then return end
 	if C.binocular_mode and not is_binoc_active() then return end
@@ -461,15 +552,21 @@ local function try_identify()
 
 	-- Distance penalty scales against eff_max_dist (already widened when
 	-- boosted, mitigating the penalty for free), then the flat binoc_scan_mult
-	-- speed boost applies on top.
+	-- speed boost applies on top, then the actor's perception skill level (if
+	-- the Skill System integration is present) shaves a further fraction off.
 	local eff_scan_ms = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max_dist))
 	if boosted then eff_scan_ms = math.floor(eff_scan_ms * C.binoc_scan_mult) end
+	eff_scan_ms = math.floor(eff_scan_ms * perception_scan_mult())
 
 	local id = obj:id()
 	local tg = time_global()
 	if tracked[id] then
 		tracked[id].t0 = tg   -- re-identify: restart the reveal instead of stacking
 		return
+	end
+
+	if not xp_awarded[id] and award_perception_xp() then
+		xp_awarded[id] = true
 	end
 
 	local count, oldest_id, oldest_t = 0, nil, math.huge
@@ -481,7 +578,8 @@ local function try_identify()
 
 	tracked[id] = {
 		id = id, t0 = tg, col = relation_color(obj),
-		name = display_name(obj, comm), icon = faction_icon_id(comm), rank = rank_label(obj),
+		header = faction_label(comm), name = display_name(obj, comm),
+		icon = faction_icon_id(comm), rank = rank_label(obj),
 		scan_ms = eff_scan_ms, max_dist = eff_max_dist, fade_dist = eff_fade_dist,
 	}
 end
@@ -558,9 +656,13 @@ local function install_key_hook()
 end
 
 -- --------------------------------------------------------------------------
--- The tag dialog: a fixed pool of tag widget-sets, positioned per frame.
+-- The tag dialog: a fixed pool of card widget-sets, positioned per frame.
+-- Card layout (plate + accent bar + icon + header/name/rank text, joined to
+-- a node dot on the target's body by a rotated leader line) mirrors
+-- gamma-immersive-quest-markers' iqm_cards.xml / IqmCards:draw_slot
+-- technique (see $HOME/code/lua/gamma-immersive-quest-markers).
 -- --------------------------------------------------------------------------
-local DOT_D, ICON_D, ROW_GAP = 5, 20, 6
+local CARD_OFF_X, CARD_OFF_Y = 60, 34   -- px (before scale) from the anchor to the card
 
 -- The `---@class` annotation has to attach to an actual declaration, and
 -- `class "IiTags" (CUIScriptWnd)` below is a bare function-call statement
@@ -587,18 +689,32 @@ function IiTags:InitControls()
 
 	self.slots = {}
 	for i = 1, MAX_TAGS do
-		local glow    = self.xml:InitStatic("tag_glow", self)
-		local dot     = self.xml:InitStatic("tag_dot", self)
-		local spinner = self.xml:InitStatic("tag_spinner", self)
+		-- Creation order = draw order (later draws on top): shadow, leader
+		-- line (behind the plate, so the plate's edge draws over its end for
+		-- a flush join), plate, accent bar, icon, then the header/name/rank
+		-- text (parented to `self`, not the plate, so they draw on top of
+		-- it), and finally the glow/node at the body anchor.
+		local shadow  = self.xml:InitStatic("tag_shadow", self)
+		local line_sh = self.xml:InitStatic("tag_line_sh", self)
+		local line    = self.xml:InitStatic("tag_line", self)
+		local plate   = self.xml:InitStatic("tag_plate", self)
+		local accent  = self.xml:InitStatic("tag_accent", self)
 		local icon    = self.xml:InitStatic("tag_icon", self)
+		local head_sh = self.xml:InitTextWnd("tag_head_sh:text", self)
+		local head    = self.xml:InitTextWnd("tag_head:text", self)
 		local name_sh = self.xml:InitTextWnd("tag_name_sh:text", self)
 		local name    = self.xml:InitTextWnd("tag_name:text", self)
 		local rank_sh = self.xml:InitTextWnd("tag_rank_sh:text", self)
 		local rank    = self.xml:InitTextWnd("tag_rank:text", self)
+		local glow    = self.xml:InitStatic("tag_glow", self)
+		local node    = self.xml:InitStatic("tag_node", self)
+		local spinner = self.xml:InitStatic("tag_spinner", self)
 		spinner:EnableHeading(true)
 		self.slots[i] = {
-			glow = glow, dot = dot, spinner = spinner, icon = icon,
+			shadow = shadow, line_sh = line_sh, line = line, plate = plate,
+			accent = accent, icon = icon, head_sh = head_sh, head = head,
 			name_sh = name_sh, name = name, rank_sh = rank_sh, rank = rank,
+			glow = glow, node = node, spinner = spinner,
 		}
 		-- hidden starts unset (falsy) so this first hide_slot() call actually
 		-- runs the Show(false) calls below, instead of short-circuiting on its
@@ -612,37 +728,55 @@ function IiTags:hide_slot(i)
 	local s = self.slots[i]
 	if not s or s.hidden then return end
 	s.hidden = true
-	s.glow:Show(false)
-	s.dot:Show(false)
-	s.spinner:Show(false)
+	s.shadow:Show(false)
+	s.line_sh:Show(false)
+	s.line:Show(false)
+	s.plate:Show(false)
+	s.accent:Show(false)
 	s.icon:Show(false)
+	s.head_sh:Show(false)
+	s.head:Show(false)
 	s.name_sh:Show(false)
 	s.name:Show(false)
 	s.rank_sh:Show(false)
 	s.rank:Show(false)
+	s.glow:Show(false)
+	s.node:Show(false)
+	s.spinner:Show(false)
 end
 
 local SPIN_D = 20            -- spinner diameter, px, at scale 1
 local SPIN_PERIOD_MS = 900   -- one full rotation
 
 -- hx, hy: anchor screen position (1024x768 virtual space) -- the identify
--- point on the NPC's body. alpha: 0..255. scanning: true while the
--- pre-reveal spinner is running; tg: time_global(), drives its rotation.
--- scale: distance_scale() result (1 = reference size; see render()) applied
--- to the dot/glow/patch/spinner -- the name text is font-rendered at a fixed
--- size (this UI system has no continuous runtime text-scaling API, only
--- discrete font choices), so it does not grow/shrink with distance.
--- Layout once revealed: a row of [relation dot][faction patch][name],
--- horizontally centred above hx,hy, with rank (if any -- obj:rank_name()
--- returns nothing for monsters/mutants) centred on its own line below.
--- No background plate by design.
-function IiTags:draw_slot(i, hx, hy, label, alpha, col, icon_id, scanning, tg, scale, rank)
+-- point on the NPC's body, and where the leader line starts. alpha: 0..255.
+-- scanning: true while the pre-reveal spinner is running (no card yet); tg:
+-- time_global(), drives the spinner's rotation. scale: C.card_scale, a flat
+-- MCM-configurable multiplier (1 = reference size) applied to the whole
+-- card, the node/glow, and the card's offset from the anchor -- NOT
+-- distance-based (a distance/dist_penalty auto-scale was tried and removed:
+-- it fought the card layout, e.g. the card floating disconnected from a
+-- shrunk-to-scale_min distant target). Text itself is font-rendered at a
+-- fixed size (this UI system has no continuous runtime text-scaling API),
+-- so only the plate/paddings around it grow or shrink.
+--
+-- Layout once revealed: a plate offset up and to one side of the anchor
+-- (flipped to the other side near the screen edge), with a relation-tinted
+-- accent bar down its left edge, the faction icon inlined, then a header
+-- line (faction, relation-tinted) and a name line (the target's own name,
+-- brighter) stacked, plus a rank line (if any) below both. A leader line
+-- joins the node dot at the anchor to the plate's nearest corner. Mirrors
+-- gamma-immersive-quest-markers' card technique (see this class's header
+-- comment above InitControls).
+function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning, tg, scale, rank)
 	local s = self.slots[i]
 	if not s then return end
 	s.hidden = false
 
 	local r, g, b = col[1], col[2], col[3]
 	scale = scale or 1
+	alpha = math.floor(alpha)
+	if alpha > 255 then alpha = 255 end
 
 	if scanning then
 		-- scanning only: a rotating spinner on the body, nothing revealed yet.
@@ -659,13 +793,12 @@ function IiTags:draw_slot(i, hx, hy, label, alpha, col, icon_id, scanning, tg, s
 		s.spinner:SetHeading(spin_angle)
 		s.spinner:Show(true)
 
-		s.dot:Show(false)
-		s.glow:Show(false)
-		s.icon:Show(false)
-		s.name_sh:Show(false)
-		s.name:Show(false)
-		s.rank_sh:Show(false)
-		s.rank:Show(false)
+		s.shadow:Show(false); s.line_sh:Show(false); s.line:Show(false)
+		s.plate:Show(false); s.accent:Show(false); s.icon:Show(false)
+		s.head_sh:Show(false); s.head:Show(false)
+		s.name_sh:Show(false); s.name:Show(false)
+		s.rank_sh:Show(false); s.rank:Show(false)
+		s.glow:Show(false); s.node:Show(false)
 		return
 	end
 
@@ -676,64 +809,152 @@ function IiTags:draw_slot(i, hx, hy, label, alpha, col, icon_id, scanning, tg, s
 		s.icon_key = icon_id
 	end
 
-	s.name:SetText(label)
-	s.name:AdjustWidthToText()
-	local tw = s.name:GetWidth()
+	local has_rank = rank and rank ~= ""
+	local pad, accent_w = 8, 3
+	local iw = 16 * scale
+	local lead = 5 * scale
+	local ispan = iw + 4 * scale
 
-	local dot_d = DOT_D * scale
-	local icon_d = ICON_D * scale
-	local gap = ROW_GAP * scale
+	-- card size: text widths only re-measured when the strings actually
+	-- change (four AdjustWidthToText/GetWidth calls per change, not per
+	-- frame), same caching IQM uses -- this runs once per tracked target per
+	-- frame otherwise, so it adds up.
+	local cw, ch = s.cw, s.ch
+	if header ~= s.last_head or name ~= s.last_name or rank ~= s.last_rank then
+		s.head:SetText(header); s.head_sh:SetText(header)
+		s.name:SetText(name); s.name_sh:SetText(name)
+		s.head:AdjustWidthToText(); s.head_sh:AdjustWidthToText()
+		s.name:AdjustWidthToText(); s.name_sh:AdjustWidthToText()
+		local text_w = math.max(s.head:GetWidth(), s.name:GetWidth())
+		if has_rank then
+			s.rank:SetText(rank); s.rank_sh:SetText(rank)
+			s.rank:AdjustWidthToText(); s.rank_sh:AdjustWidthToText()
+			text_w = math.max(text_w, s.rank:GetWidth())
+		end
+		cw = math.floor(accent_w + lead + ispan + text_w + pad + 0.5)
+		ch = math.floor((has_rank and 54 or 40) * scale + 0.5)
+		s.cw, s.ch, s.last_head, s.last_name, s.last_rank = cw, ch, header, name, rank
+	end
 
-	local row_w = dot_d + gap + icon_d + gap + tw
-	local row_x = math.floor(hx - row_w / 2)
-	local row_cy = math.floor(hy - 46 * scale)   -- row's vertical centre, above the anchor point
+	-- place the card up and to one side of the anchor; flip to the left near
+	-- the right edge of the (1024-wide virtual) screen.
+	local off_x, off_y = CARD_OFF_X * scale, CARD_OFF_Y * scale
+	local right = (hx + off_x + cw) <= 1014
+	local cx = right and (hx + off_x) or (hx - off_x - cw)
+	if cx < 4 then cx = 4 end
+	local cy = hy - off_y - ch
+	if cy < 4 then cy = 4 end
 
-	local dot_x = row_x
-	s.dot:SetWndSize(S(dot_d, dot_d))
-	s.dot:SetWndPos(P(dot_x, row_cy - dot_d / 2))
-	s.dot:SetTextureColor(GetARGB(alpha, r, g, b))
-	s.dot:Show(true)
+	-- soft drop shadow (ii_shadow, feathered -- see its texture comment),
+	-- larger and offset down-right of the plate, so the card reads as lifted
+	-- off the world instead of pasted flat on it. Margin needs real room for
+	-- the feather band to show past the plate's edge, not just a couple of
+	-- px -- 5 read as another hard rectangle peeking out from behind the
+	-- plate rather than a soft shadow.
+	local sh_m = 9 * scale
+	s.shadow:SetWndPos(P(cx - sh_m + 3, cy - sh_m + 4))
+	s.shadow:SetWndSize(S(cw + sh_m * 2, ch + sh_m * 2))
+	s.shadow:SetTextureColor(GetARGB(math.floor(160 * alpha / 255), 0, 0, 0))
+	s.shadow:Show(true)
 
-	local gsize = dot_d * 3.2
-	s.glow:SetWndSize(S(gsize, gsize))
-	s.glow:SetWndPos(P(dot_x + dot_d / 2 - gsize / 2, row_cy - gsize / 2))
-	s.glow:SetTextureColor(GetARGB(math.floor(alpha * 0.55), r, g, b))
-	s.glow:Show(true)
+	s.plate:SetWndPos(P(cx, cy))
+	s.plate:SetWndSize(S(cw, ch))
+	s.plate:SetTextureColor(GetARGB(math.floor(185 * alpha / 255), 24, 22, 19))
+	s.plate:Show(true)
 
-	local icon_x = dot_x + dot_d + gap
-	s.icon:SetWndSize(S(icon_d, icon_d))
-	s.icon:SetWndPos(P(icon_x, row_cy - icon_d / 2))
+	local acc_in = 6 * scale
+	s.accent:SetWndPos(P(cx, cy + acc_in))
+	s.accent:SetWndSize(S(accent_w, ch - acc_in * 2))
+	s.accent:SetTextureColor(GetARGB(alpha, r, g, b))
+	s.accent:Show(true)
+
+	s.icon:SetWndPos(P(cx + accent_w + lead, cy + math.floor((ch - iw) * 0.5)))
+	s.icon:SetWndSize(S(iw, iw))
 	s.icon:SetTextureColor(GetARGB(alpha, 255, 255, 255))
 	s.icon:Show(true)
 
-	local name_x = icon_x + icon_d + gap
-	local name_y = row_cy - 9   -- text box height 18, centred on the row -- fixed, text doesn't scale
-	s.name_sh:SetWndPos(P(name_x + 1, name_y + 1))
-	s.name_sh:SetTextColor(GetARGB(math.floor(180 * alpha / 255), 0, 0, 0))
-	s.name_sh:Show(true)
+	-- header (faction, relation-tinted) / name (target's own name, brighter)
+	-- / rank (muted, if any), stacked, starting past the accent bar + icon.
+	local txo = cx + accent_w + lead + ispan
+	local shadow_a = math.floor(180 * alpha / 255)
 
-	s.name:SetWndPos(P(name_x, name_y))
-	s.name:SetTextColor(GetARGB(alpha, r, g, b))
+	s.head_sh:SetWndPos(P(txo + 1, cy + 6 * scale + 1))
+	s.head_sh:SetTextColor(GetARGB(shadow_a, 0, 0, 0))
+	s.head_sh:Show(true)
+	s.head:SetWndPos(P(txo, cy + 6 * scale))
+	s.head:SetTextColor(GetARGB(alpha, r, g, b))
+	s.head:Show(true)
+
+	s.name_sh:SetWndPos(P(txo + 1, cy + 21 * scale + 1))
+	s.name_sh:SetTextColor(GetARGB(shadow_a, 0, 0, 0))
+	s.name_sh:Show(true)
+	s.name:SetWndPos(P(txo, cy + 21 * scale))
+	s.name:SetTextColor(GetARGB(alpha, 235, 230, 220))
 	s.name:Show(true)
 
-	if rank and rank ~= "" then
-		s.rank:SetText(rank)
-		s.rank:AdjustWidthToText()
-		local rtw = s.rank:GetWidth()
-		local rank_x = math.floor(hx - rtw / 2)
-		local rank_y = math.floor(row_cy + icon_d / 2 + 2)   -- clear of the icon at any scale
-
-		s.rank_sh:SetWndPos(P(rank_x + 1, rank_y + 1))
-		s.rank_sh:SetTextColor(GetARGB(math.floor(180 * alpha / 255), 0, 0, 0))
+	if has_rank then
+		s.rank_sh:SetWndPos(P(txo + 1, cy + 38 * scale + 1))
+		s.rank_sh:SetTextColor(GetARGB(shadow_a, 0, 0, 0))
 		s.rank_sh:Show(true)
-
-		s.rank:SetWndPos(P(rank_x, rank_y))
+		s.rank:SetWndPos(P(txo, cy + 38 * scale))
 		s.rank:SetTextColor(GetARGB(math.floor(200 * alpha / 255), 210, 205, 195))   -- muted: secondary to the name
 		s.rank:Show(true)
 	else
 		s.rank_sh:Show(false)
 		s.rank:Show(false)
 	end
+
+	-- node + its glow halo at the anchor point on the body. Width squeezed by
+	-- UI_KX like the leader line, since the 4:3 virtual UI stretched onto a
+	-- wider screen would otherwise draw an equal w/h circle as an oval.
+	local ns = 10 * scale
+	local nsx = math.max(2, math.floor(ns * UI_KX + 0.5))
+	s.node:SetWndSize(S(nsx, ns))
+	s.node:SetWndPos(P(math.floor(hx - nsx / 2), math.floor(hy - ns / 2)))
+	s.node:SetTextureColor(GetARGB(alpha, r, g, b))
+	s.node:Show(true)
+
+	local gs = ns * 3.5
+	local gsx = math.max(2, math.floor(gs * UI_KX + 0.5))
+	s.glow:SetWndSize(S(gsx, gs))
+	s.glow:SetWndPos(P(math.floor(hx - gsx / 2), math.floor(hy - gs / 2)))
+	s.glow:SetTextureColor(GetARGB(math.floor(alpha * 0.55), r, g, b))
+	s.glow:Show(true)
+
+	-- leader line: node -> nearest bottom corner of the card, extended
+	-- slightly past the corner so its end tucks under the plate (drawn over
+	-- it), giving a flush join at any aspect ratio. The engine's heading
+	-- rotation multiplies the strip's X by UI_KX, so dx is pre-divided by it
+	-- here to land exactly on both endpoints (see UI_KX's declaration).
+	local corner_x = right and cx or (cx + cw)
+	local corner_y = cy + ch
+	local dx, dy = corner_x - hx, corner_y - hy
+	local seglen = math.sqrt(dx * dx + dy * dy)
+	if seglen > 0.001 then
+		local over = 6
+		dx = dx + dx / seglen * over
+		dy = dy + dy / seglen * over
+		corner_x, corner_y = hx + dx, hy + dy
+	end
+	local dxk = dx / UI_KX
+	local len = math.sqrt(dxk * dxk + dy * dy)
+	local ang = math.atan2(-dy, dxk)
+	local mx, my = (hx + corner_x) * 0.5, (hy + corner_y) * 0.5
+	local thick = 2 * scale
+
+	s.line_sh:SetWndSize(S(len, thick + 2))
+	s.line_sh:SetWndPos(P(mx - len * 0.5, my - (thick + 2) * 0.5))
+	s.line_sh:EnableHeading(true)
+	s.line_sh:SetHeading(ang)
+	s.line_sh:SetTextureColor(GetARGB(math.floor(alpha * 0.5), 0, 0, 0))
+	s.line_sh:Show(true)
+
+	s.line:SetWndSize(S(len, thick))
+	s.line:SetWndPos(P(mx - len * 0.5, my - thick * 0.5))
+	s.line:EnableHeading(true)
+	s.line:SetHeading(ang)
+	s.line:SetTextureColor(GetARGB(math.floor(alpha * 0.8), r, g, b))
+	s.line:Show(true)
 end
 
 -- --------------------------------------------------------------------------
@@ -746,25 +967,6 @@ local function ensure_tags()
 	TAGS = IiTags()
 	hud:AddDialogToRender(TAGS)
 	return true
-end
-
--- Inverse-distance scaling (scale ~ 1/dist), the same relationship a
--- perspective projection uses for apparent size -- matches how the
--- character's own on-screen size actually shrinks with distance, so the tag
--- (and the fixed-px "float above the head" offset in draw_slot, which is
--- multiplied by this same scale) stays visually anchored to them instead of
--- flattening out at scale_min partway through the identify range and
--- looking comically oversized/disconnected next to a barely-visible distant
--- target. SCALE_REF_DIST is the distance at which scale = 1 (fixed, not
--- exposed in MCM to keep it simple).
-local SCALE_REF_DIST = 8
-
-local function distance_scale(dist)
-	if not C.distance_scaling then return 1 end
-	local s = SCALE_REF_DIST / math.max(dist, 0.5)
-	if s < C.scale_min then s = C.scale_min end
-	if s > C.scale_max then s = C.scale_max end
-	return s
 end
 
 local function render(tg)
@@ -822,8 +1024,7 @@ local function render(tg)
 				slot_i = slot_i + 1
 				if slot_i <= MAX_TAGS then
 					local a = math.floor(255 * phase_alpha * dist_fade + 0.5)
-					local scale = distance_scale(dist)
-					TAGS:draw_slot(slot_i, sx, sy, e.name, a, e.col, e.icon, scanning, tg, scale, e.rank)
+					TAGS:draw_slot(slot_i, sx, sy, e.header, e.name, a, e.col, e.icon, scanning, tg, C.card_scale, e.rank)
 				end
 			end
 		end
@@ -849,6 +1050,25 @@ local function actor_on_update()
 end
 
 -- --------------------------------------------------------------------------
+-- Save/load: persists xp_awarded only (tracked is transient reveal state,
+-- deliberately not saved -- an active scan/reveal just restarts clean after
+-- a load, same as it would after walking out of range and back). Declared
+-- `local` rather than a bare global specifically to avoid colliding with
+-- other scripts' own same-named save_state/load_state globals (e.g.
+-- haru_skills.script defines its own): RegisterScriptCallback is a proper
+-- multi-subscriber event bus (every mod's registered save_state fires, none
+-- overwrite each other), unlike this engine's single-slot native
+-- set_callback, so there's no need for -- and no benefit to -- a global here.
+-- --------------------------------------------------------------------------
+local function save_state(m_data)
+	m_data.ii_xp_awarded = xp_awarded
+end
+
+local function load_state(m_data)
+	xp_awarded = m_data.ii_xp_awarded or {}
+end
+
+-- --------------------------------------------------------------------------
 -- MCM live-apply + startup (on_mcm_load lives in ii_mcm.script)
 -- --------------------------------------------------------------------------
 function on_option_change()
@@ -860,4 +1080,6 @@ function on_game_start()
 	install_key_hook()
 	RegisterScriptCallback("actor_on_update", actor_on_update)
 	RegisterScriptCallback("on_option_change", on_option_change)
+	RegisterScriptCallback("save_state", save_state)
+	RegisterScriptCallback("load_state", load_state)
 end

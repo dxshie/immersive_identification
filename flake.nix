@@ -49,7 +49,7 @@
               while IFS= read -r -d "" f; do
                 echo "== $f =="
                 "${pkgs.libxml2}/bin/xmllint" --noout "$f" || status=1
-              done < <(find gamedata fomod "FactionID Neutralized" -name "*.xml" -print0)
+              done < <(find gamedata fomod "FactionID Neutralized" "Perception Skill Integration" -name "*.xml" -print0)
               if [ "$status" -eq 0 ]; then
                 echo "All XML valid."
               fi
@@ -79,7 +79,7 @@
               fi
               out="./package/immersive-identification-fomod-v''${version}.zip"
               rm -f "$out"
-              "${pkgs.p7zip}/bin/7z" a -tzip -x'!.gitkeep' "$out" fomod gamedata README.md "FactionID Neutralized"
+              "${pkgs.p7zip}/bin/7z" a -tzip -x'!.gitkeep' "$out" fomod gamedata README.md "FactionID Neutralized" "Perception Skill Integration"
               echo "built $out"
             '');
           };

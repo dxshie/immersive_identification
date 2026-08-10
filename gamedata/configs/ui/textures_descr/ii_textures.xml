@@ -20,4 +20,12 @@
 	<file name="ui\ii_spinner">
 		<texture id="ii_spinner" x="0" y="0" width="128" height="128" />
 	</file>
+
+	<!-- Soft feathered rounded-box (a signed-distance-field blur, not a hard
+	     edge like ii_white): the card's drop shadow, stretched larger than
+	     the plate behind it so it actually reads as a soft shadow instead of
+	     a second flat rectangle. -->
+	<file name="ui\ii_shadow">
+		<texture id="ii_shadow" x="0" y="0" width="64" height="64" />
+	</file>
 </w>
