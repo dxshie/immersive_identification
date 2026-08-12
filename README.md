@@ -70,6 +70,11 @@ Configuration Menu) is optional but recommended for configuring the key/timing.
 4. Re-pressing the key on an already-identified target restarts the reveal.
    Up to 5 identifications can be active at once (oldest is dropped first).
 
+Two UI styles are selectable in MCM: **Card** (the default, described above)
+and **Minimal** — just a faction-coloured dot with a small relation sign next
+to it (`-` red for hostile, `+` green for friendly, `o` tan for neutral), no
+card at all.
+
 The card's overall size is a flat multiplier you set in MCM (not
 distance-based — text stays a fixed size regardless, so this only scales the
 plate/icon/dot/line around it). Below a configurable cutoff, the card layout
@@ -77,8 +82,8 @@ stops making sense (illegible text, a sliver of a plate), so it's replaced
 with just the relation-coloured dot beside the target instead of trying to
 cram the full card into too little space.
 
-Everything is configurable in MCM: enable/disable, the key + modifier,
-relation colouring, scan/fade/hold durations, max/fade-out range, the
+Everything is configurable in MCM: enable/disable, the key + modifier, UI
+style, relation colouring, scan/fade/hold durations, max/fade-out range, the
 target-assist radius (pixels, plus a line-of-sight toggle), card scale, and
 binocular mode.
 
@@ -106,13 +111,15 @@ including across save/load. Toggle and tune the speed multiplier in MCM.
 
 ### Binocular mode
 
-Turn this on in MCM and identification changes from "press a key" to "raise
-the binoculars and hold still": the key stops working unless you're actively
-looking through the binoculars (not just holding them — has to be zoomed
-in), and while you are, aiming near a target and holding the aim steady for
-a moment (configurable, default 0.6s) identifies them automatically — no key
+Turn this on in MCM to add a second way to identify, alongside the normal
+key: while actively looking through raised binoculars (not just holding them
+— has to be zoomed in), aiming near a target and holding the aim steady for
+a moment (configurable, default 0.6s) identifies them automatically, no key
 press needed. Move the aim off them (or past the steady tolerance) to reset;
-holding steady on them again re-triggers it.
+holding steady on them again re-triggers it. The key itself always keeps
+working too, binoculars or not — unless you separately turn on "Require
+binoculars", which restricts the key (and the auto-trigger) to only work
+while actively looking through raised binoculars.
 
 ### Perception skill integration
 
@@ -120,14 +127,15 @@ If you have the **Skill System** mod (`haru_skills`) installed and check the
 optional "Skill System: Perception" component when installing, identifying
 targets gets faster the higher your perception skill level, and the first
 time you identify a given stalker grants it a little XP — the same "skill
-grows from using it" pattern the Skill System's own skills follow. Each
-target only pays out once, ever (including across save/load), so re-identifying
-the same stalker to refresh their card doesn't farm repeat XP. It shows up as
-a real named entry ("Perception", with its own icon) in the Skill System's
-own skill menu alongside Strength/Endurance/Survival/Scavenging, not just a
-hidden number. Toggle it and tune the speed bonus per level / XP per identify
-in MCM, under "Skill System (Perception)". No effect (and no XP grind)
-without both the Skill System mod and this component installed.
+grows from using it" pattern the Skill System's own skills follow. Looting a
+corpse you'd already identified grants a further bonus XP, once per corpse.
+Each reward only pays out once per target, ever (including across save/load),
+so re-identifying or re-looting doesn't farm repeat XP. It shows up as a real
+named entry ("Perception", with its own icon) in the Skill System's own skill
+menu alongside Strength/Endurance/Survival/Scavenging, not just a hidden
+number. Toggle it and tune the speed bonus per level / XP per identify / XP
+per loot in MCM, under "Skill System (Perception)". No effect (and no XP
+grind) without both the Skill System mod and this component installed.
 
 ## Development
 

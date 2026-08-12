@@ -97,4 +97,14 @@
 	<tag_rank>
 		<text font="letterica16" align="l" width="300" height="16" />
 	</tag_rank>
+
+	<!-- Minimal-style relation sign (-/+/o), shown centred on the faction-
+	     coloured node instead of the full card when ui_style is "minimal".
+	     Centre-aligned since it's a single glyph, not a line of text. -->
+	<tag_sign_sh>
+		<text font="letterica18" align="c" width="20" height="18" />
+	</tag_sign_sh>
+	<tag_sign>
+		<text font="letterica18" align="c" width="20" height="18" />
+	</tag_sign>
 </w>

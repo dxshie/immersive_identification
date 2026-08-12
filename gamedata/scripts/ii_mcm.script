@@ -17,6 +17,13 @@ function on_mcm_load()
 		end
 	end
 
+	local ui_style_content = {}
+	if ii_identify and ii_identify.UI_STYLE_LIST then
+		for idx, e in ipairs(ii_identify.UI_STYLE_LIST) do
+			ui_style_content[#ui_style_content + 1] = { idx, e.label }
+		end
+	end
+
 	-- Default DIK for the key-capture widget below: resolved here (not in
 	-- DEFAULTS, since DIK_keys isn't ready when ii_identify.script is first
 	-- parsed) from ii_identify.DEFAULT_KEY_NAME, the single source of truth.
@@ -60,6 +67,9 @@ function on_mcm_load()
 				{ id = "modifier_index", type = "list", val = 2, def = d.modifier_index, content = modifier_content,
 					text = "ui_mcm_ii_modifier", hint = "ii_modifier_desc" },
 
+				{ id = "ui_style", type = "list", val = 2, def = d.ui_style, content = ui_style_content,
+					text = "ui_mcm_ii_ui_style", hint = "ii_ui_style_desc" },
+
 				opt_check("color_by_relation"),
 				opt_track("scan_time", 0, 2, 0.05, 2),
 				opt_track("fade_time", 0.1, 2, 0.05, 2),
@@ -69,6 +79,7 @@ function on_mcm_load()
 				opt_track("fov_radius", 20, 400, 10),
 				opt_check("require_los"),
 				opt_check("binocular_mode"),
+				opt_check("require_binoculars"),
 				opt_track("steady_time", 0.2, 3, 0.1, 1),
 
 				opt_title("ui_mcm_ii_binoc_title"),
@@ -96,6 +107,7 @@ function on_mcm_load()
 				opt_check("perception_compat"),
 				opt_track("perception_scan_mult", 0, 0.1, 0.01, 2),
 				opt_track("perception_xp", 0, 100, 5),
+				opt_track("perception_loot_xp", 0, 100, 5),
 			}},
 		}
 	}

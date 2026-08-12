@@ -14,6 +14,9 @@
 	<string id="ui_mcm_ii_modifier"><text>Modifier</text></string>
 	<string id="ui_mcm_ii_modifier_desc"><text>Optional modifier held with the identify key.</text></string>
 
+	<string id="ui_mcm_ii_ui_style"><text>UI style</text></string>
+	<string id="ui_mcm_ii_ui_style_desc"><text>Card (full details) or Minimal (a faction-coloured dot with a relation sign).</text></string>
+
 	<string id="ui_mcm_ii_color_by_relation"><text>Colour by relation</text></string>
 	<string id="ui_mcm_ii_color_by_relation_desc"><text>Red enemy, green friend, tan neutral.</text></string>
 
@@ -39,7 +42,10 @@
 	<string id="ui_mcm_ii_require_los_desc"><text>Only pick targets you can actually see.</text></string>
 
 	<string id="ui_mcm_ii_binocular_mode"><text>Binocular mode</text></string>
-	<string id="ui_mcm_ii_binocular_mode_desc"><text>Identify only with binoculars raised; steady aim auto-identifies.</text></string>
+	<string id="ui_mcm_ii_binocular_mode_desc"><text>Also auto-identify on a steady aim through raised binoculars, alongside the normal key.</text></string>
+
+	<string id="ui_mcm_ii_require_binoculars"><text>Require binoculars</text></string>
+	<string id="ui_mcm_ii_require_binoculars_desc"><text>Identification only works while actively looking through raised binoculars.</text></string>
 
 	<string id="ui_mcm_ii_steady_time"><text>Steady-aim time (s)</text></string>
 	<string id="ui_mcm_ii_steady_time_desc"><text>How long to hold aim steady before auto-identifying.</text></string>
@@ -97,6 +103,9 @@
 	<string id="ui_mcm_ii_perception_xp"><text>Perception XP per identify</text></string>
 	<string id="ui_mcm_ii_perception_xp_desc"><text>Perception experience granted on a successful identify.</text></string>
 
+	<string id="ui_mcm_ii_perception_loot_xp"><text>Perception XP per loot</text></string>
+	<string id="ui_mcm_ii_perception_loot_xp_desc"><text>Bonus perception experience granted the first time you loot a corpse you'd already identified.</text></string>
+
 	<!-- List-content ids: MCM resolves each modifier_index dropdown entry as
 	     "<page>_<option>_lst_" + the bare label from ii_identify.MODIFIER_LIST,
 	     i.e. "ii_main_modifier_index_lst_none" for the "none" entry. -->
@@ -104,6 +113,9 @@
 	<string id="ii_main_modifier_index_lst_ctrl"><text>Ctrl</text></string>
 	<string id="ii_main_modifier_index_lst_shift"><text>Shift</text></string>
 	<string id="ii_main_modifier_index_lst_alt"><text>Alt</text></string>
+
+	<string id="ii_main_ui_style_lst_card"><text>Card</text></string>
+	<string id="ii_main_ui_style_lst_minimal"><text>Minimal</text></string>
 
 	<!-- Faction display names shown on the floating tag itself. -->
 	<string id="st_ii_faction_stalker"><text>Loner</text></string>

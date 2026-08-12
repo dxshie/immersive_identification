@@ -96,6 +96,14 @@ function game_object:section() end
 ---@return boolean
 function game_object:see(other) end
 
+--- The actor's current dual-inventory "talk partner" -- populated for both
+--- a live NPC dialogue/trade AND a dead body's loot screen (both open
+--- through the same CInventoryOwner talk-partner mechanism in this engine),
+--- nil once that screen closes. Only meaningful called on db.actor.
+--- script_game_object2.cpp:744-760, bound script_game_object_script3.cpp:679.
+---@return game_object|nil
+function game_object:get_talking_npc() end
+
 
 ---------------------------------------------------------------------------
 -- EXTENDED (verified via C++ source in this project, not yet used here)

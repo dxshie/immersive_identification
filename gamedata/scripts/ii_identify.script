@@ -20,6 +20,7 @@ DEFAULTS = {
 	enabled           = true,
 	key_dik           = 0,     -- captured DIK code; 0/nil means "unset, use DEFAULT_KEY_NAME"
 	modifier_index    = 1,     -- index into MODIFIER_LIST (1 = none)
+	ui_style          = 1,     -- index into UI_STYLE_LIST (1 = card, 2 = minimal)
 	color_by_relation = true,  -- tint the tag by relation to the actor instead of a flat colour
 	scan_time         = 0.35,  -- seconds: "scanning" pulse before the tag reveals
 	fade_time         = 0.45,  -- seconds: fade in / fade out
@@ -28,8 +29,10 @@ DEFAULTS = {
 	fade_dist         = 40,    -- metres: tag starts fading with distance beyond this
 	fov_radius        = 110,   -- virtual-space px (1024-wide): invisible target-assist radius
 	require_los       = true,  -- target-assist fallback only picks targets with clear line of sight
-	binocular_mode    = false, -- gate identify behind binoculars being actively raised, and
-	                           -- auto-trigger it on a steady aim instead of needing the key
+	binocular_mode    = false, -- auto-trigger identify on a steady aim through raised binoculars,
+	                           -- in addition to (not instead of) the normal key
+	require_binoculars = false, -- the key (and auto-trigger) only work while actively looking
+	                             -- through raised binoculars -- independent of binocular_mode
 	steady_time       = 0.6,   -- seconds: how long the aim must hold still (binocular mode) before auto-identifying
 	card_scale        = 1.0,   -- flat size multiplier for the whole card (manual, not distance-based)
 	mini_scale_cutoff = 0.4,   -- below this scale, show just the relation dot instead of the full card
@@ -42,6 +45,8 @@ DEFAULTS = {
 	perception_compat = true,  -- soft-integrate with the Skill System mod's "perception" skill, if present
 	perception_scan_mult = 0.04, -- scan time reduction per perception level (0.04 = 4% faster per level)
 	perception_xp        = 20,   -- perception XP granted per successful identify (skill-system side)
+	perception_loot_xp   = 20,   -- bonus perception XP granted the first time you loot a corpse you'd
+	                             -- already identified (skill-system side)
 	rank_penalty      = true,  -- higher-ranked stalkers take longer to identify (novice = baseline, legend = slowest)
 	rank_penalty_max  = 3.0,   -- scan time multiplier for the highest rank (legend), relative to a rookie
 	familiarity_boost = true,  -- once you've identified a stalker before, re-identifying them later is faster
@@ -75,6 +80,13 @@ MODIFIER_LIST = {
 	{ dik = "DIK_LMENU", alt_dik = "DIK_RMENU", label = "alt" },
 }
 
+-- Which visual language the tag uses. Referenced as ii_identify.UI_STYLE_LIST
+-- from ii_mcm.script, same cross-file pattern as MODIFIER_LIST above.
+UI_STYLE_LIST = {
+	{ label = "card" },
+	{ label = "minimal" },
+}
+
 -- Community id -> display-name string id. Anything not listed here falls
 -- back to a prettified version of the raw community id, so unknown/modded
 -- factions still show something reasonable instead of nothing.
@@ -100,6 +112,43 @@ local FACTION_NAMES = {
 local COL_ENEMY   = { 224, 76,  64  }
 local COL_FRIEND  = { 118, 206, 128 }
 local COL_NEUTRAL = { 214, 194, 140 }
+
+-- Minimal-style dot colour: distinct per faction (unlike the card's node,
+-- which is relation-coloured -- see relation_color() below) so the dot alone
+-- identifies WHO, leaving the sign (see relation_sign() below) to convey the
+-- relation. Anything not listed here falls back to COL_NEUTRAL, same
+-- "unknown/modded faction" fallback spirit as FACTION_NAMES above.
+-- Explicit colours below (stalker/bandit/dolg/freedom/killer/isg/greh/
+-- monolith) are per user request; the rest fill in the remaining factions
+-- distinctly enough to stay readable alongside them.
+local FACTION_COLOR = {
+	stalker  = { 220, 130, 40  },  -- loner orange
+	bandit   = { 170, 130, 80  },  -- bandit tan/brown
+	dolg     = { 195, 45,  45  },  -- duty red
+	freedom  = { 90,  170, 70  },  -- freedom green
+	csky     = { 120, 190, 230 },  -- clear sky pale blue
+	ecolog   = { 200, 220, 90  },  -- ecologist yellow-green
+	killer   = { 60,  110, 200 },  -- mercenary blue
+	military = { 120, 120, 70  },  -- military olive/grey
+	monolith = { 235, 235, 235 },  -- monolith near-white
+	renegade = { 170, 70,  50  },  -- renegade rust/copper
+	zombied  = { 150, 190, 60  },  -- zombified sickly green
+	greh     = { 185, 95,  35  },  -- sin burnt orange
+	trader   = { 220, 190, 60  },  -- trader gold
+	monster  = { 130, 100, 90  },  -- mutant muted grey-brown
+	isg      = { 60,  200, 190 },  -- UNISG turquoise
+	arena    = { 170, 70,  190 },  -- arena purple
+}
+
+-- Minimal-style sign colour, keyed by the glyph relation_sign() below
+-- returns -- always the true relation colour regardless of
+-- C.color_by_relation (that toggle only affects the card's own accent tint;
+-- the sign's whole purpose is showing relation clearly).
+local SIGN_COLOR = {
+	["-"] = COL_ENEMY,
+	["+"] = COL_FRIEND,
+	["o"] = COL_NEUTRAL,
+}
 
 -- Bones to anchor the tag to, best first (humanoid skeleton; monsters that
 -- lack all of these fall back to position()+offset in anchor_pos).
@@ -200,6 +249,10 @@ local function faction_label(comm)
 	return pretty
 end
 
+local function faction_color(comm)
+	return FACTION_COLOR[comm] or COL_NEUTRAL
+end
+
 -- The name shown on the tag: the NPC's own name where they have one (most
 -- humanoid stalkers), falling back to the faction label for generic mobs/
 -- monsters that carry no personal name.
@@ -246,6 +299,17 @@ local function relation_color(obj)
 	if rel == game_object.enemy then return COL_ENEMY end
 	if rel == game_object.friend then return COL_FRIEND end
 	return COL_NEUTRAL
+end
+
+-- Minimal-style relation sign -- unlike relation_color() above, always
+-- distinguishes hostile/friendly/neutral regardless of C.color_by_relation
+-- (that toggle only affects the card's own accent tint; the whole point of
+-- the sign in minimal style is showing relation clearly).
+local function relation_sign(obj)
+	local rel = safe_call(obj.relation, obj, db.actor)
+	if rel == game_object.enemy then return "-" end
+	if rel == game_object.friend then return "+" end
+	return "o"
 end
 
 -- --------------------------------------------------------------------------
@@ -305,11 +369,19 @@ end
 -- the crosshair on screen (not the nearest to the actor in world space)
 -- within fov_radius, so an approximate aim still finds someone -- you don't
 -- have to land a pixel-perfect hit on them.
+--
+-- Candidates already mid-identification (tracked[id] set) are kept in a
+-- separate "busy" runner-up rather than competing on screen distance: a
+-- target you've already triggered shouldn't out-rank some other eligible
+-- target just for sitting closer to the crosshair, since re-hitting it does
+-- nothing new (see try_identify()'s tracked[id] branch) -- the busy one is
+-- only ever returned when nothing else in the FOV circle qualifies at all.
 local function find_nearest_in_fov(max_dist)
 	if not db.actor or not level.iterate_nearest then return nil end
 	local apos = db.actor:position()
 	local actor_id = db.actor:id()
 	local best_obj, best_d = nil, C.fov_radius
+	local best_busy_obj, best_busy_d = nil, C.fov_radius
 
 	pcall(level.iterate_nearest, apos, max_dist, function(obj)
 		if obj and obj:id() ~= actor_id then
@@ -318,8 +390,12 @@ local function find_nearest_in_fov(max_dist)
 				local comm = safe_call(obj.character_community, obj)
 				if comm and comm ~= "" then
 					local d = screen_dist_to_center(obj:position())
-					if d and d < best_d and (not C.require_los or has_los(obj)) then
-						best_d, best_obj = d, obj
+					if d and (not C.require_los or has_los(obj)) then
+						if tracked[obj:id()] then
+							if d < best_busy_d then best_busy_d, best_busy_obj = d, obj end
+						elseif d < best_d then
+							best_d, best_obj = d, obj
+						end
 					end
 				end
 			end
@@ -327,7 +403,7 @@ local function find_nearest_in_fov(max_dist)
 		return false   -- keep scanning the full set within max_dist
 	end)
 
-	return best_obj
+	return best_obj or best_busy_obj
 end
 
 -- --------------------------------------------------------------------------
@@ -358,13 +434,24 @@ local function get_target_obj(max_dist)
 		return obj
 	end
 
+	local direct = nil
 	if level.ETraceTarget then
-		local a = accept(safe_call(level.get_target_obj, level.ETraceTarget.Weapon))
-		if a then return a end
+		direct = accept(safe_call(level.get_target_obj, level.ETraceTarget.Weapon))
 	end
-	local a2 = accept(safe_call(level.get_target_obj))
-	if a2 then return a2 end
-	return find_nearest_in_fov(max_dist)
+	if not direct then
+		direct = accept(safe_call(level.get_target_obj))
+	end
+
+	-- A direct hit that's already mid-identification shouldn't just restart
+	-- itself -- try the FOV fallback first, which prefers any other eligible
+	-- target in the ballpark over one already tracked (see
+	-- find_nearest_in_fov above), and only fall back to the busy direct hit
+	-- if nothing else is actually available.
+	if direct and not tracked[direct:id()] then return direct end
+
+	local nearby = find_nearest_in_fov(max_dist)
+	if nearby then return nearby end
+	return direct
 end
 
 -- Is the binoculars item currently equipped/held? `active_item()`/`section()`
@@ -567,14 +654,16 @@ end
 -- (already running regardless of this mod) independently re-checks every
 -- configured skill's experience against its requirement and levels it up,
 -- so this needs no level-up logic of its own.
--- Returns true if XP was actually granted -- the caller uses this to gate
--- xp_awarded (see below) so a target isn't burned as already-farmed if the
--- integration was off/absent at the time.
-local function award_perception_xp()
+-- Returns true if XP was actually granted -- callers use this to gate their
+-- own one-time-award table (xp_awarded/loot_xp_awarded below) so a target
+-- isn't burned as already-farmed if the integration was off/absent at the
+-- time. `amount` lets both the base identify reward and the loot bonus
+-- (below) share this same function instead of duplicating it.
+local function award_perception_xp(amount)
 	if not C.perception_compat then return false end
 	local lv = haru_skills and haru_skills.skills_levels and haru_skills.skills_levels["perception"]
 	if not lv or type(lv.experience) ~= "number" then return false end
-	lv.experience = lv.experience + C.perception_xp
+	lv.experience = lv.experience + amount
 	return true
 end
 
@@ -600,9 +689,48 @@ local xp_awarded = {}
 -- Also persisted via save_state/load_state.
 local remembered = {}
 
+-- Per-target one-time gate for the loot XP bonus below -- same rationale and
+-- persistence as xp_awarded, kept separate since the two rewards are earned
+-- independently (identify without ever looting, or loot a target identified
+-- in an earlier session) and shouldn't share one gate.
+local loot_xp_awarded = {}
+
+-- Bonus perception XP for looting a corpse you'd already identified.
+-- Detected by polling get_talking_npc() -- the actor's current dual-
+-- inventory partner -- once a frame rather than via callback.on_item_take:
+-- that callback is a single-slot-per-object registration (same conflict
+-- class as the binocular zoom slot, see is_binoc_active()'s comment), fires
+-- per item rather than per loot session, and doesn't say who the item came
+-- from anyway. Anomaly's trade and corpse-loot screens both open through
+-- this same "talk partner" mechanism (alive for trade, dead for loot), so
+-- watching it for a "was set, now cleared" transition is a plain read with
+-- no shared slot to fight over, and naturally fires once per loot session.
+local loot_partner_id = nil
+
+local function update_loot_xp()
+	local partner = safe_call(db.actor.get_talking_npc, db.actor)
+	if partner then
+		loot_partner_id = partner:id()
+		return
+	end
+	if not loot_partner_id then return end
+
+	local id = loot_partner_id
+	loot_partner_id = nil
+	if not remembered[id] or loot_xp_awarded[id] then return end
+
+	local corpse = level.object_by_id(id)
+	local alive = corpse and safe_call(corpse.alive, corpse)
+	if alive then return end   -- the partner session ended some other way (e.g. a live trade), not a loot
+
+	if award_perception_xp(C.perception_loot_xp) then
+		loot_xp_awarded[id] = true
+	end
+end
+
 local function try_identify()
 	if not C.enabled or not db.actor then return end
-	if C.binocular_mode and not is_binoc_active() then return end
+	if C.require_binoculars and not is_binoc_active() then return end
 
 	-- Binoculars boost identification regardless of binocular_mode: faster
 	-- reveal and a longer effective range. Captured once here (not read live
@@ -647,11 +775,25 @@ local function try_identify()
 	end
 
 	if tracked[id] then
-		tracked[id].t0 = tg   -- re-identify: restart the reveal instead of stacking
+		-- Re-identify while the card is still showing: restart the reveal
+		-- instead of stacking, and refresh every live-parameter-derived
+		-- field to this press's freshly computed values -- not just t0.
+		-- Without this, retriggering kept reusing scan_ms/etc. snapshotted
+		-- at the ORIGINAL identify, so e.g. the familiarity discount (which
+		-- only ever applies starting from the second identify, since
+		-- remembered[id] is set at the end of the first one) silently never
+		-- took effect until the card fully cleared and a new entry got
+		-- created from scratch.
+		tracked[id].t0 = tg
+		tracked[id].scan_ms = eff_scan_ms
+		tracked[id].max_dist = eff_max_dist
+		tracked[id].fade_dist = eff_fade_dist
+		tracked[id].fade_ms = FADE_MS
+		tracked[id].hold_ms = HOLD_MS
 		return
 	end
 
-	if not xp_awarded[id] and award_perception_xp() then
+	if not xp_awarded[id] and award_perception_xp(C.perception_xp) then
 		xp_awarded[id] = true
 	end
 	remembered[id] = true
@@ -665,6 +807,7 @@ local function try_identify()
 
 	tracked[id] = {
 		t0 = tg, col = relation_color(obj),
+		fcol = faction_color(comm), sign = relation_sign(obj),
 		header = faction_label(comm), name = display_name(obj, comm),
 		icon = faction_icon_id(comm), rank = rank_label(obj),
 		scan_ms = eff_scan_ms, max_dist = eff_max_dist, fade_dist = eff_fade_dist,
@@ -800,6 +943,8 @@ function IiTags:InitControls()
 		local name    = self.xml:InitTextWnd("tag_name:text", self)
 		local rank_sh = self.xml:InitTextWnd("tag_rank_sh:text", self)
 		local rank    = self.xml:InitTextWnd("tag_rank:text", self)
+		local sign_sh = self.xml:InitTextWnd("tag_sign_sh:text", self)
+		local sign    = self.xml:InitTextWnd("tag_sign:text", self)
 		local glow    = self.xml:InitStatic("tag_glow", self)
 		local node    = self.xml:InitStatic("tag_node", self)
 		local spinner = self.xml:InitStatic("tag_spinner", self)
@@ -808,6 +953,7 @@ function IiTags:InitControls()
 			shadow = shadow, line_sh = line_sh, line = line, plate = plate,
 			accent = accent, icon = icon, head_sh = head_sh, head = head,
 			name_sh = name_sh, name = name, rank_sh = rank_sh, rank = rank,
+			sign_sh = sign_sh, sign = sign,
 			glow = glow, node = node, spinner = spinner,
 		}
 		-- hidden starts unset (falsy) so this first hide_slot() call actually
@@ -819,11 +965,15 @@ function IiTags:InitControls()
 end
 
 -- The plate/accent/icon/text widgets, shared by hide_slot and draw_slot's
--- scanning/mini branches -- glow/node/spinner are deliberately excluded
--- since each caller shows or hides those three differently.
+-- scanning/mini/minimal branches -- glow/node/spinner are deliberately
+-- excluded since each caller shows or hides those three differently. sign/
+-- sign_sh are card-style-irrelevant like the rest of this list (hidden
+-- together with it); the minimal-style branch shows them back explicitly,
+-- same pattern as mini-mode already does for glow/node below.
 local CARD_WIDGET_KEYS = {
 	"shadow", "line_sh", "line", "plate", "accent", "icon",
 	"head_sh", "head", "name_sh", "name", "rank_sh", "rank",
+	"sign_sh", "sign",
 }
 
 local function hide_card_widgets(s)
@@ -889,6 +1039,21 @@ local function draw_shadowed_text(main, sh, x, y, alpha, r, g, b, shadow_a)
 	main:Show(true)
 end
 
+-- Minimal-style relation sign (-/+/o), centred on the same anchor point as
+-- the node dot. Text size is fixed, like head/name/rank in the card style --
+-- this engine only has 3 discrete font sizes (no continuous scaling), so
+-- only its position tracks hx,hy, not its size.
+local SIGN_W, SIGN_H = 20, 18
+
+local function draw_sign(s, hx, hy, alpha, sign_char)
+	local col = SIGN_COLOR[sign_char] or COL_NEUTRAL
+	s.sign:SetText(sign_char)
+	s.sign_sh:SetText(sign_char)
+	local shadow_a = math.floor(180 * alpha / 255)
+	draw_shadowed_text(s.sign, s.sign_sh, math.floor(hx - SIGN_W / 2), math.floor(hy - SIGN_H / 2),
+		alpha, col[1], col[2], col[3], shadow_a)
+end
+
 -- hx, hy: anchor screen position (1024x768 virtual space) -- the identify
 -- point on the NPC's body, and where the leader line starts. alpha: 0..255.
 -- scanning: true while the pre-reveal spinner is running (no card yet); tg:
@@ -918,7 +1083,7 @@ end
 -- card's anchor is close enough to plausibly collide with this one's. The
 -- leader line naturally gets longer to reach the raised card; no separate
 -- handling needed for it.
-function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning, tg, scale, rank, stack_offset)
+function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning, tg, scale, rank, stack_offset, fcol, sign)
 	local s = self.slots[i]
 	if not s then return end
 	s.hidden = false
@@ -958,6 +1123,16 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 	end
 
 	s.spinner:Show(false)
+
+	-- Minimal style: always just the faction-coloured dot + a relation sign,
+	-- regardless of scale -- a distinct, user-selected visual language, not
+	-- just Card style's own too-small-to-fit fallback below.
+	if C.ui_style == 2 then
+		hide_card_widgets(s)
+		draw_node_glow(s, hx, hy, scale, alpha, fcol[1], fcol[2], fcol[3])
+		draw_sign(s, hx, hy, alpha, sign)
+		return
+	end
 
 	-- Mini fallback: below the cutoff, the card doesn't fit any more, so just
 	-- show the relation dot -- the same node the leader line would otherwise
@@ -1223,6 +1398,7 @@ local function render(tg)
 				a.a = math.floor(255 * phase_alpha * dist_fade + 0.5)
 				a.col, a.icon, a.scanning = e.col, e.icon, scanning
 				a.scale, a.rank = C.card_scale, e.rank
+				a.fcol, a.sign = e.fcol, e.sign
 			end
 		end
 	end
@@ -1248,7 +1424,7 @@ local function render(tg)
 		slot_i = slot_i + 1
 		if slot_i <= MAX_TAGS then
 			TAGS:draw_slot(slot_i, ai.hx, ai.hy, ai.header, ai.name, ai.a, ai.col, ai.icon,
-				ai.scanning, tg, ai.scale, ai.rank, stack * STACK_STEP)
+				ai.scanning, tg, ai.scale, ai.rank, stack * STACK_STEP, ai.fcol, ai.sign)
 		end
 	end
 
@@ -1268,11 +1444,12 @@ local function actor_on_update()
 	if not ensure_tags() then return end
 	local tg = time_global()
 	update_binocular_scan(tg)
+	update_loot_xp()
 	render(tg)
 end
 
 -- --------------------------------------------------------------------------
--- Save/load: persists xp_awarded and remembered only (tracked is transient
+-- Save/load: persists xp_awarded, remembered, and loot_xp_awarded only (tracked is transient
 -- reveal state, deliberately not saved -- an active scan/reveal just
 -- restarts clean after a load, same as it would after walking out of range
 -- and back). Declared `local` rather than a bare global specifically to
@@ -1286,11 +1463,13 @@ end
 local function save_state(m_data)
 	m_data.ii_xp_awarded = xp_awarded
 	m_data.ii_remembered = remembered
+	m_data.ii_loot_xp_awarded = loot_xp_awarded
 end
 
 local function load_state(m_data)
 	xp_awarded = m_data.ii_xp_awarded or {}
 	remembered = m_data.ii_remembered or {}
+	loot_xp_awarded = m_data.ii_loot_xp_awarded or {}
 end
 
 -- --------------------------------------------------------------------------
