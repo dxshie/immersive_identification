@@ -27,6 +27,11 @@ DEFAULTS = {
 	hold_time         = 4.0,   -- seconds: tag stays fully visible
 	max_dist          = 50,    -- metres: identify only works within this range
 	fade_dist         = 40,    -- metres: tag starts fading with distance beyond this
+	fov_assist        = true,  -- master target-assist: when you don't land a direct hit, identify the
+	                           -- nearest eligible target within the on-screen FOV circle. Off = you must
+	                           -- aim directly at the target (direct raycast hit only), no circle fallback
+	fov_assist_binoc  = true,  -- whether FOV target-assist also applies while looking through raised
+	                           -- binoculars; independent of the master toggle for the binocular case
 	fov_radius        = 110,   -- virtual-space px (1024-wide): invisible target-assist radius
 	require_los       = true,  -- target-assist fallback only picks targets with clear line of sight
 	binocular_mode    = false, -- auto-trigger identify on a steady aim through raised binoculars,
@@ -316,34 +321,58 @@ local function rank_label(obj)
 	return pretty
 end
 
--- The target's currently-wielded weapon name, shown as an extra line on the
--- card when C.show_weapon is on. obj:best_weapon()
--- (src/xrGame/script_game_object_script2.cpp:217, SAFE_WRAP-bound to
--- CObjectHandler::best_weapon) returns the NPC's equipped weapon game_object,
--- or nil for the unarmed / monsters / mutants -- the same call the engine's
--- own trade and stalker-combat code use to find "the gun this NPC is
+-- Caliber string for a weapon section, e.g. "5.45x39", "9x18", "12x70".
+-- Weapon sections carry no explicit caliber field, but ammo_class points at
+-- the ammo section(s) the gun chambers (a comma-separated list, e.g.
+-- "ammo_5.45x39_fmj, ammo_5.45x39_ap"); the caliber is the NxM token baked
+-- into that ammo id. Best-effort: returns nil (no caliber shown) when there's
+-- no ammo_class or the token doesn't match the standard cartridge pattern
+-- (gauss/energy/grenade ammo, exotic naming), rather than guessing wrong.
+local function weapon_caliber(sec)
+	if not ini_sys or not sec then return nil end
+	local ac = safe_call(ini_sys.r_string, ini_sys, sec, "ammo_class")
+	if not ac or ac == "" then return nil end
+	local first = ac:match("^%s*([^,]+)")           -- first ammo section if it's a list
+	local cal = first and first:match("[%d%.]+x[%d%.]+")   -- e.g. 5.45x39 / 9x18 / 12x70
+	if cal and cal ~= "" then return cal end
+	return nil
+end
+
+-- The target's currently-wielded weapon name (with caliber appended when it
+-- can be derived), shown as an extra line on the card when C.show_weapon is on.
+-- obj:best_weapon() (src/xrGame/script_game_object_script2.cpp:217, SAFE_WRAP-
+-- bound to CObjectHandler::best_weapon) returns the NPC's equipped weapon
+-- game_object, or nil for the unarmed / monsters / mutants -- the same call the
+-- engine's own trade and stalker-combat code use to find "the gun this NPC is
 -- actually holding" (see this repo's axr_main-adjacent aaaa_script_fixes_mp
--- best_weapon() calls). Its section's "inv_name", run through
--- translate_string, is the exact readable name the inventory UI shows; if
--- that lookup fails (throws on a missing field -- swallowed by safe_call), a
--- prettified section id is the fallback. Returns nil (no line) rather than a
--- placeholder when there's no weapon to show.
+-- best_weapon() calls). Its section's "inv_name", run through translate_string,
+-- is the exact readable name the inventory UI shows; if that lookup fails
+-- (throws on a missing field -- swallowed by safe_call), a prettified section
+-- id is the fallback. Returns nil (no line) rather than a placeholder when
+-- there's no weapon to show.
 local function held_weapon_label(obj)
 	if not C.show_weapon then return nil end
 	local wpn = safe_call(obj.best_weapon, obj)
 	if not wpn then return nil end
 	local sec = safe_call(wpn.section, wpn)
 	if not sec or sec == "" then return nil end
+
+	local label
 	if ini_sys then
 		local inv = safe_call(ini_sys.r_string, ini_sys, sec, "inv_name")
 		if inv and inv ~= "" then
 			local txt = safe_call(game.translate_string, inv)
-			if txt and txt ~= "" and txt ~= inv then return txt end
+			if txt and txt ~= "" and txt ~= inv then label = txt end
 		end
 	end
-	local pretty = sec:gsub("^wpn_", ""):gsub("_", " ")
-	pretty = pretty:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b:lower() end)
-	return pretty
+	if not label then
+		label = sec:gsub("^wpn_", ""):gsub("_", " ")
+		label = label:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b:lower() end)
+	end
+
+	local cal = weapon_caliber(sec)
+	if cal then return label .. "  (" .. cal .. ")" end
+	return label
 end
 
 -- Faction patch texture id: the same "<community_id>_icon" convention the
@@ -537,7 +566,7 @@ end
 -- object behind them directly, bypassing find_nearest_in_fov() (and its LOS
 -- check) entirely -- so a direct hit is not on its own proof of visibility
 -- and needs the same has_los() gate applied to it.
-local function get_target_obj(max_dist)
+local function get_target_obj(max_dist, allow_fov)
 	local function accept(obj)
 		if not obj then return nil end
 		if C.require_los and not has_los(obj) then return nil end
@@ -559,8 +588,13 @@ local function get_target_obj(max_dist)
 	-- if nothing else is actually available.
 	if direct and not tracked[direct:id()] then return direct end
 
-	local nearby = find_nearest_in_fov(max_dist)
-	if nearby then return nearby end
+	-- FOV target-assist (fov_assist / fov_assist_binoc, decided per-context by
+	-- the caller). When disabled, identification is direct-hit only: you must
+	-- actually aim at the target, with no nearest-in-circle fallback.
+	if allow_fov then
+		local nearby = find_nearest_in_fov(max_dist)
+		if nearby then return nearby end
+	end
 	return direct
 end
 
@@ -881,18 +915,24 @@ end
 
 local function try_identify()
 	if not C.enabled or not db.actor then return end
-	if C.require_binoculars and not is_binoc_active() then return end
+	local binoc = is_binoc_active()
+	if C.require_binoculars and not binoc then return end
 
 	-- Binoculars boost identification regardless of binocular_mode: faster
 	-- reveal and a longer effective range. Captured once here (not read live
 	-- in render()) so a tag identified at boosted range doesn't immediately
 	-- fail the (unboosted) fade/grace distance checks the instant the player
 	-- lowers the binoculars mid-reveal.
-	local boosted = C.binoc_boost and is_binoc_active()
+	local boosted = C.binoc_boost and binoc
 	local eff_max_dist = boosted and (C.max_dist * C.binoc_range_mult) or C.max_dist
 	local eff_fade_dist = boosted and (C.fade_dist * C.binoc_range_mult) or C.fade_dist
 
-	local obj = get_target_obj(eff_max_dist)
+	-- FOV target-assist is context-sensitive: fov_assist_binoc governs it while
+	-- looking through raised binoculars, fov_assist otherwise.
+	local allow_fov = C.fov_assist
+	if binoc then allow_fov = C.fov_assist_binoc end
+
+	local obj = get_target_obj(eff_max_dist, allow_fov)
 	if not obj then return end
 	if obj:id() == db.actor:id() then return end
 

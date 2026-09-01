@@ -123,7 +123,10 @@ effect immediately rather than waiting for the current card to clear.
 
 1. Weapon-aligned trace: `level.get_target_obj(level.ETraceTarget.Weapon)` (500)
 2. Camera trace fallback: `level.get_target_obj()` (503)
-3. FOV fallback: `find_nearest_in_fov(max_dist)` (513)
+3. FOV fallback: `find_nearest_in_fov(max_dist)` — **only if FOV assist is enabled
+   for the current context**. `try_identify` passes `allow_fov`, which is
+   `fov_assist_binoc` while looking through raised binoculars and `fov_assist`
+   otherwise. With it off, identification is direct-hit only (tiers 1–2).
 
 Both raycasts are **LOS-gated** via `accept()` → `has_los()` because the engine's
 crosshair pick sees *through* semi-transparent geometry (fences/glass/foliage)
@@ -264,14 +267,16 @@ leaf page does), and `hint` ids must be passed **bare** because MCM auto-prepend
 | `modifier_index` | list | None | None/Ctrl/Shift/Alt | required held modifier |
 | `ui_style` | list | Card | Card/Minimal | card vs minimal dot |
 | `color_by_relation` | check | true | — | tint by relation vs flat neutral |
-| `show_weapon` | check | false | — | add held-weapon line (Card only) |
+| `show_weapon` | check | false | — | add held-weapon line, with caliber appended when derivable (Card only) |
 | `scan_time` | track | 0.35 | 0, 2, 0.05, 2 | base scan pulse (s) |
 | `fade_time` | track | 0.45 | 0.1, 2, 0.05, 2 | fade in/out (s) |
 | `hold_time` | track | 4.0 | 1, 15, 0.5, 1 | full-visible hold (s) |
 | `max_dist` | track | 50 | 10, 500, 10 | max identify range (m) |
 | `fade_dist` | track | 40 | 5, 500, 10 | distance where card fades (m) |
+| `fov_assist` | check | true | — | master FOV target-assist; off = direct-hit aim only |
 | `fov_radius` | track | 110 | 20, 400, 10 | target-assist radius (px) |
 | `require_los` | check | true | — | require line of sight |
+| `fov_assist_binoc` | check | true | — | FOV assist while looking through raised binoculars |
 | `binocular_mode` | check | false | — | steady-aim auto-identify via binocs |
 | `require_binoculars` | check | false | — | restrict identify to raised binocs |
 | `steady_time` | track | 0.6 | 0.2, 3, 0.1, 1 | steady-aim hold time (s) |

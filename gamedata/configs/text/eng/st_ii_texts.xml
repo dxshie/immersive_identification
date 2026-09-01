@@ -38,6 +38,9 @@
 	<string id="ui_mcm_ii_fade_dist"><text>Fade start range (m)</text></string>
 	<string id="ui_mcm_ii_fade_dist_desc"><text>Range at which the tag starts fading out.</text></string>
 
+	<string id="ui_mcm_ii_fov_assist"><text>FOV target assist</text></string>
+	<string id="ui_mcm_ii_fov_assist_desc"><text>When you don't land a direct hit, identify the nearest target within the on-screen assist circle. Turn off to require aiming directly at the target.</text></string>
+
 	<string id="ui_mcm_ii_fov_radius"><text>Target-assist radius (px)</text></string>
 	<string id="ui_mcm_ii_fov_radius_desc"><text>Aim tolerance for picking a target without a direct hit.</text></string>
 
@@ -52,6 +55,9 @@
 
 	<string id="ui_mcm_ii_steady_time"><text>Steady-aim time (s)</text></string>
 	<string id="ui_mcm_ii_steady_time_desc"><text>How long to hold aim steady before auto-identifying.</text></string>
+
+	<string id="ui_mcm_ii_fov_assist_binoc"><text>FOV assist with binoculars</text></string>
+	<string id="ui_mcm_ii_fov_assist_binoc_desc"><text>Whether FOV target assist also applies while looking through raised binoculars. Turn off to require a direct hit when using binoculars.</text></string>
 
 	<string id="ui_mcm_ii_binoc_boost"><text>Binoculars boost identification</text></string>
 	<string id="ui_mcm_ii_binoc_boost_desc"><text>Faster reveal and longer range with binoculars raised, any mode.</text></string>
