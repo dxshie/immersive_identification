@@ -32,6 +32,11 @@ DEFAULTS = {
 	                           -- aim directly at the target (direct raycast hit only), no circle fallback
 	fov_assist_binoc  = true,  -- whether FOV target-assist also applies while looking through raised
 	                           -- binoculars; independent of the master toggle for the binocular case
+	freeaim_assist    = false, -- bodycam / free-aim engines: centre the FOV target-assist on where the
+	                           -- weapon actually points instead of the fixed screen centre. Needs an
+	                           -- aim source that reflects free aim -- either level.ETraceTarget.Weapon
+	                           -- (absent on the tested bodycam build) or a bodycam.get_fire_ray() engine
+	                           -- binding (see SPEC "Free-aim support"). Inert / harmless without either
 	fov_radius        = 110,   -- virtual-space px (1024-wide): invisible target-assist radius
 	require_los       = true,  -- target-assist fallback only picks targets with clear line of sight
 	binocular_mode    = false, -- auto-trigger identify on a steady aim through raised binoculars,
@@ -59,6 +64,7 @@ DEFAULTS = {
 	night_penalty     = true,  -- identification is slower in the dark, ramping up over dusk and peaking across midnight (0:00)
 	night_penalty_max = 2.0,   -- scan time multiplier at the darkest point of the night
 	show_weapon       = false, -- also show the target's currently-wielded weapon as a line on the card
+	debug_log         = false, -- write aim/trace diagnostics to the game log on each identify attempt
 }
 
 -- Section name of the stock binoculars item (confirmed from this engine's
@@ -427,15 +433,207 @@ local function project_world(pos)
 end
 
 -- world2ui returns coordinates in the engine's fixed 1024x768 "virtual UI"
--- space regardless of actual resolution/aspect, so screen centre (where the
--- crosshair sits) is always exactly (512, 384) here.
+-- space regardless of actual resolution/aspect, so the screen centre (where the
+-- crosshair normally sits) is always exactly (512, 384) here.
 local UI_CX, UI_CY = 512, 384
 
-local function screen_dist_to_center(pos)
+-- Free-aim target-assist centre. On a normal engine the weapon points at the
+-- screen centre, so the FOV assist circle is centred on (512,384). On a bodycam
+-- / free-aim engine the barrel points OFF-centre, so the assist has to follow
+-- it. Two possible sources, in order of preference:
+--
+--   1. level.get_target_pos(ETraceTarget.Weapon) -- a world point along the
+--      rendered weapon barrel. Clean, but requires the ETraceTarget binding AND
+--      for that binding to actually reflect free aim. On the tested bodycam
+--      build NEITHER held: ETraceTarget is entirely absent, and even where it
+--      exists it traces screen centre (free aim is applied in the render /
+--      ballistic layer, not the logical weapon pick that Lua sees).
+--
+--   2. bodycam.get_fire_ray() -- the gameplay aim ray {pos,dir} from the actor's
+--      first-eye camera. Under bodycam the render camera (which world2ui and the
+--      screen-centre pick use) is a swayed OVERRIDE of the first-eye camera, so
+--      only the first-eye ray reflects where the player is actually aiming. This
+--      needs a small engine binding added to the bodycam module (see SPEC.md
+--      "Free-aim support"); it does NOT exist in the stock bodycam engine, so
+--      this path stays inert until it's compiled in. When present, we project a
+--      far point along the ray and world2ui it to get the reticle screen point.
+--
+-- Returns nil when neither source is available (caller falls back to centre).
+local FREEAIM_PROJECT_DIST = 100   -- metres along the fire ray to project for the reticle screen point
+
+local function freeaim_ray()
+	local bc = rawget(_G, "bodycam")
+	if not (bc and bc.get_fire_ray) then return nil end
+	local ok, r = pcall(bc.get_fire_ray)
+	if not ok or type(r) ~= "table" or r.valid == false or not r.dir_x then return nil end
+	return r.pos_x, r.pos_y, r.pos_z, r.dir_x, r.dir_y, r.dir_z
+end
+
+local function weapon_aim_ui()
+	if level and level.get_target_pos and level.ETraceTarget then
+		local wpos = safe_call(level.get_target_pos, level.ETraceTarget.Weapon)
+		if wpos and not (wpos.x == 0 and wpos.y == 0 and wpos.z == 0) then
+			local sx, sy = project_world(wpos)
+			if sx then return sx, sy end
+		end
+	end
+	local px, py, pz, dx, dy, dz = freeaim_ray()
+	if px then
+		local far = vector():set(px + dx * FREEAIM_PROJECT_DIST,
+		                         py + dy * FREEAIM_PROJECT_DIST,
+		                         pz + dz * FREEAIM_PROJECT_DIST)
+		return project_world(far)
+	end
+	return nil
+end
+
+-- The point the FOV target-assist circle is measured from this frame: the
+-- weapon's real aim point when free-aim assist is enabled and available,
+-- otherwise the fixed screen centre.
+local function aim_center()
+	if C.freeaim_assist then
+		local sx, sy = weapon_aim_ui()
+		if sx then return sx, sy end
+	end
+	return UI_CX, UI_CY
+end
+
+local function screen_dist_to(pos, cx, cy)
 	local sx, sy = project_world(pos)
 	if not sx then return nil end
-	local dx, dy = sx - UI_CX, sy - UI_CY
+	local dx, dy = sx - cx, sy - cy
 	return math.sqrt(dx * dx + dy * dy)
+end
+
+-- Bones sampled across the whole body so the FOV target-assist matches wherever
+-- you aim on an NPC, not just one anchor point (aiming at the legs/torso used to
+-- miss when only the head/chest anchor was tested). Humanoid bip01 rig; monsters
+-- and anything without these bones fall back to a vertical span at the origin.
+local BODY_BONES = {
+	"bip01_head", "bip01_neck", "bip01_spine2", "bip01_spine1", "bip01_spine",
+	"bip01_pelvis", "bip01_l_forearm", "bip01_r_forearm", "bip01_l_calf", "bip01_r_calf",
+}
+local _body_pt = vector()   -- scratch for the monster vertical-span fallback
+
+-- Smallest screen-space distance from (cx,cy) to any sampled point on obj's body.
+-- This is what makes "aim anywhere on the entity" work with a tight fov_radius:
+-- the target counts as hit if the aim point is near ANY body point, not just its
+-- single anchor. Returns nil if nothing projects on-screen.
+local function screen_dist_to_body(obj, cx, cy)
+	local base = obj:position()
+	local best, found = nil, false
+	for _, bone in ipairs(BODY_BONES) do
+		local p = safe_call(obj.bone_position, obj, bone)
+		if p and p:distance_to_sqr(base) < 16 then   -- sane bone (within 4 m of origin)
+			found = true
+			local d = screen_dist_to(p, cx, cy)
+			if d and (not best or d < best) then best = d end
+		end
+	end
+	if not found then   -- monster / non-bip01 rig: sample a vertical span at the origin
+		for _, lift in ipairs({ 0.3, 0.9, 1.5 }) do
+			local d = screen_dist_to(_body_pt:set(base.x, base.y + lift, base.z), cx, cy)
+			if d and (not best or d < best) then best = d end
+		end
+	end
+	return best
+end
+
+-- --------------------------------------------------------------------------
+-- Debug (MCM "Log aim debug"): on every identify attempt, dump the trace/aim
+-- state to the game log (printf -> xray_*.log) so free-aim problems can be
+-- diagnosed from real numbers instead of guessed at. Off by default; the whole
+-- block is skipped when C.debug_log is false, so it costs nothing in normal
+-- play. Key comparison: whether the WEAPON trace differs from the CAMERA trace,
+-- and whether the bodycam module exposes the free-aim offset.
+-- --------------------------------------------------------------------------
+local function dbg(msg)
+	if not C.debug_log or not printf then return end
+	printf("%s", "[ii] " .. msg)
+end
+
+local function fv(v)
+	if not v then return "nil" end
+	return string.format("(%.2f, %.2f, %.2f)", v.x or 0, v.y or 0, v.z or 0)
+end
+
+local function obj_desc(o)
+	if not o then return "nil" end
+	local nm = safe_call(o.character_name, o) or safe_call(o.name, o) or "?"
+	return tostring(nm) .. "#" .. tostring(o:id())
+end
+
+local function ui_of(pos)
+	if not pos then return "nil" end
+	local sx, sy = project_world(pos)
+	if not sx then return "offscreen" end
+	return string.format("(%.0f, %.0f)", sx, sy)
+end
+
+local function debug_dump_aim()
+	if not C.debug_log or not printf then return end
+	dbg("---- identify ----")
+	local dev = device and device()
+	if dev then dbg(string.format("cam_pos=%s cam_dir=%s fov=%.1f", fv(dev.cam_pos), fv(dev.cam_dir), dev.fov or -1)) end
+
+	local ET = level and level.ETraceTarget
+	if not ET then
+		dbg("level.ETraceTarget MISSING (no weapon-trace binding on this engine)")
+	else
+		dbg(string.format("obj  camera=%s  weapon=%s",
+			obj_desc(safe_call(level.get_target_obj, ET.Camera)),
+			obj_desc(safe_call(level.get_target_obj, ET.Weapon))))
+		if level.get_target_pos then
+			local cpos = safe_call(level.get_target_pos, ET.Camera)
+			local wpos = safe_call(level.get_target_pos, ET.Weapon)
+			dbg(string.format("pos  camera=%s ui=%s", fv(cpos), ui_of(cpos)))
+			dbg(string.format("pos  weapon=%s ui=%s", fv(wpos), ui_of(wpos)))
+		else
+			dbg("level.get_target_pos MISSING")
+		end
+	end
+
+	local cx, cy = aim_center()
+	dbg(string.format("aim_center=(%.0f, %.0f)  screen_center=(%d, %d)", cx, cy, UI_CX, UI_CY))
+
+	local bc = rawget(_G, "bodycam")
+	if not (bc and bc.get_state) then
+		dbg("bodycam module not present")
+	else
+		local ok, st = pcall(bc.get_state)
+		if not ok or type(st) ~= "table" then
+			dbg("bodycam.get_state() failed")
+		else
+			dbg(string.format("bodycam active=%s ads=%s mstate=%s",
+				tostring(st.active), tostring(st.ads), tostring(st.mstate)))
+			dbg(string.format("bodycam yaw=%s pitch=%s roll=%s",
+				tostring(st.camera_yaw), tostring(st.camera_pitch), tostring(st.camera_roll)))
+			dbg(string.format("bodycam vm_pos=(%s,%s,%s) vm_rot=(%s,%s,%s)",
+				tostring(st.vm_pos_x), tostring(st.vm_pos_y), tostring(st.vm_pos_z),
+				tostring(st.vm_rot_x), tostring(st.vm_rot_y), tostring(st.vm_rot_z)))
+		end
+	end
+
+	local bc2 = rawget(_G, "bodycam")
+	if bc2 and bc2.get_fire_ray then
+		local ok3, r = pcall(bc2.get_fire_ray)
+		if ok3 and type(r) == "table" and r.valid ~= false and r.dir_x then
+			local eye = vector():set(r.pos_x + r.dir_x * FREEAIM_PROJECT_DIST,
+			                         r.pos_y + r.dir_y * FREEAIM_PROJECT_DIST,
+			                         r.pos_z + r.dir_z * FREEAIM_PROJECT_DIST)
+			dbg(string.format("aim(eye)    dir=(%.2f,%.2f,%.2f) ui=%s", r.dir_x, r.dir_y, r.dir_z, ui_of(eye)))
+			if r.bar_dir_x then
+				local bar = vector():set(r.bar_pos_x + r.bar_dir_x * FREEAIM_PROJECT_DIST,
+				                         r.bar_pos_y + r.bar_dir_y * FREEAIM_PROJECT_DIST,
+				                         r.bar_pos_z + r.bar_dir_z * FREEAIM_PROJECT_DIST)
+				dbg(string.format("aim(barrel) dir=(%.2f,%.2f,%.2f) ui=%s", r.bar_dir_x, r.bar_dir_y, r.bar_dir_z, ui_of(bar)))
+			end
+		else
+			dbg("bodycam.get_fire_ray returned invalid (no controlled actor?)")
+		end
+	else
+		dbg("bodycam.get_fire_ray absent -- recompile engine with the binding (see SPEC 'Free-aim support')")
+	end
 end
 
 -- Geometric occlusion test.
@@ -458,6 +656,7 @@ end
 -- sight is `not query()`.
 local RAY_LOS_TOL = 0.3   -- metres: stop short of the camera
 local RQT_STATIC  = (rq_target and rq_target.rqtStatic) or 2   -- collide::rqtStatic
+local RQT_BOTH    = (rq_target and rq_target.rqtBoth) or 3     -- collide::rqtStatic|rqtObject
 local _los_ray    = nil   -- lazily-built reusable ray_pick (may be absent on old builds)
 local _los_dir    = vector()
 local function has_clear_ray(target_obj)
@@ -505,20 +704,23 @@ local function has_los(target_obj)
 end
 
 -- Fallback target search: the nearest identifiable, visible NPC/creature to
--- the crosshair on screen (not the nearest to the actor in world space)
--- within fov_radius, so an approximate aim still finds someone -- you don't
--- have to land a pixel-perfect hit on them.
+-- the aim point on screen (not the nearest to the actor in world space) within
+-- fov_radius, so an approximate aim still finds someone -- you don't have to
+-- land a pixel-perfect hit on them. The aim point is the screen centre on a
+-- normal engine, or the weapon's real (off-centre) barrel point on a bodycam /
+-- free-aim engine -- see aim_center().
 --
 -- Candidates already mid-identification (tracked[id] set) are kept in a
 -- separate "busy" runner-up rather than competing on screen distance: a
 -- target you've already triggered shouldn't out-rank some other eligible
--- target just for sitting closer to the crosshair, since re-hitting it does
+-- target just for sitting closer to the aim point, since re-hitting it does
 -- nothing new (see try_identify()'s tracked[id] branch) -- the busy one is
 -- only ever returned when nothing else in the FOV circle qualifies at all.
 local function find_nearest_in_fov(max_dist)
 	if not db.actor or not level.iterate_nearest then return nil end
 	local apos = db.actor:position()
 	local actor_id = db.actor:id()
+	local cx, cy = aim_center()   -- weapon aim point under free-aim, else screen centre
 	local best_obj, best_d = nil, C.fov_radius
 	local best_busy_obj, best_busy_d = nil, C.fov_radius
 
@@ -528,7 +730,10 @@ local function find_nearest_in_fov(max_dist)
 			if alive then
 				local comm = safe_call(obj.character_community, obj)
 				if comm and comm ~= "" then
-					local d = screen_dist_to_center(obj:position())
+					-- Distance to the NEAREST point on the whole body (head,
+					-- torso, pelvis, limbs), not a single anchor -- so aiming
+					-- anywhere on the entity counts, even with a tight fov_radius.
+					local d = screen_dist_to_body(obj, cx, cy)
 					if d and (not C.require_los or has_los(obj)) then
 						if tracked[obj:id()] then
 							if d < best_busy_d then best_busy_d, best_busy_obj = d, obj end
@@ -543,6 +748,89 @@ local function find_nearest_in_fov(max_dist)
 	end)
 
 	return best_obj or best_busy_obj
+end
+
+-- Debug: dump why find_nearest_in_fov accepts/rejects each nearby NPC. Mirrors
+-- its exact filter so the log shows, per candidate, screen position, distance
+-- from the aim point, LOS, and whether it falls inside fov_radius -- plus the
+-- gating flags. Defined here (after has_los / find_nearest_in_fov) so it can
+-- reuse them. Only runs when C.debug_log is on.
+local function debug_dump_candidates()
+	if not C.debug_log or not printf then return end
+	if not (db.actor and level.iterate_nearest) then return end
+	dbg(string.format("flags enabled=%s fov_assist=%s freeaim_assist=%s require_los=%s require_binoc=%s fov_radius=%.0f max_dist=%.0f",
+		tostring(C.enabled), tostring(C.fov_assist), tostring(C.freeaim_assist),
+		tostring(C.require_los), tostring(C.require_binoculars), C.fov_radius, C.max_dist))
+	local apos = db.actor:position()
+	local aid = db.actor:id()
+	local cx, cy = aim_center()
+	local n = 0
+	pcall(level.iterate_nearest, apos, C.max_dist, function(obj)
+		if n >= 8 then return true end
+		if obj and obj:id() ~= aid and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) then
+			local alive = safe_call(obj.alive, obj)
+			local comm = safe_call(obj.character_community, obj)
+			local sx, sy = project_world(anchor_pos(obj))
+			local d = screen_dist_to_body(obj, cx, cy)
+			local within = (d and d <= C.fov_radius)
+			local los = has_los(obj)
+			dbg(string.format("cand %s alive=%s comm=%s ui=%s dist=%s within=%s los=%s",
+				obj_desc(obj), tostring(alive), tostring(comm),
+				sx and string.format("(%.0f,%.0f)", sx, sy) or "offscreen",
+				d and string.format("%.0f", d) or "n/a",
+				within and "YES" or "no", tostring(los)))
+			n = n + 1
+		end
+		return false
+	end)
+	if n == 0 then dbg("cand (none nearby)") end
+end
+
+-- Free-aim direct hit: cast a ray along the actual aim ray (bodycam.get_fire_ray
+-- via freeaim_ray) and return the stalker/monster it strikes. This is the "point
+-- at it and identify" path that doesn't depend on FOV target-assist -- needed
+-- because on a bodycam engine there's no weapon-trace binding and the camera
+-- trace uses the swayed render centre, not where you aim. rqtBoth so static
+-- geometry blocks the ray (no identifying through walls); returns nil (letting
+-- the caller fall through to the camera trace / FOV assist) when the aim ray or
+-- ray_pick is unavailable, the ray hits geometry first, or it hits a non-NPC.
+local _aim_ray = nil
+local _aim_pos = vector()
+local _aim_dir = vector()
+local function freeaim_target(max_dist)
+	local px, py, pz, dx, dy, dz = freeaim_ray()
+	if not (px and py and pz and dx and dy and dz) then return nil end
+	if not rawget(_G, "ray_pick") then
+		dbg("freeaim_target: ray_pick binding absent on this engine")
+		return nil
+	end
+	local ok, obj = pcall(function()
+		if not _aim_ray then _aim_ray = ray_pick() end
+		_aim_ray:set_flags(RQT_BOTH)
+		-- The ray starts at the eye, INSIDE the actor's own collision capsule,
+		-- so without this it hits the player (dashie#0) first. Ignore the actor
+		-- so the trace passes through to the real target behind it.
+		if db.actor then _aim_ray:set_ignore_object(db.actor) end
+		_aim_ray:set_position(_aim_pos:set(px, py, pz))
+		_aim_ray:set_direction(_aim_dir:set(dx, dy, dz))
+		_aim_ray:set_range(max_dist)
+		if _aim_ray:query() then return _aim_ray:get_object() end
+		return nil
+	end)
+	if not ok or not obj then
+		dbg("freeaim_target: ray hit no object (geometry/miss) ok=" .. tostring(ok))
+		return nil
+	end
+	-- Belt-and-suspenders: if set_ignore_object didn't take, drop the actor so
+	-- get_target_obj falls through to the FOV assist instead of self-selecting.
+	if db.actor and obj:id() == db.actor:id() then
+		dbg("freeaim_target: hit the actor (ignored)")
+		return nil
+	end
+	local is_npc = safe_call(IsStalker, obj) or safe_call(IsMonster, obj)
+	dbg(string.format("freeaim_target: hit %s npc=%s", obj_desc(obj), tostring(is_npc)))
+	if not is_npc then return nil end
+	return obj
 end
 
 -- --------------------------------------------------------------------------
@@ -571,6 +859,16 @@ local function get_target_obj(max_dist, allow_fov)
 		if not obj then return nil end
 		if C.require_los and not has_los(obj) then return nil end
 		return obj
+	end
+
+	-- Free-aim direct hit: raycast along the real aim ray. Tried FIRST when
+	-- free-aim assist is on, because under bodycam the camera trace below uses
+	-- the swayed render centre (not where you point), so it must not win over an
+	-- actual aim-ray hit. Independent of allow_fov -- directly aiming at a target
+	-- identifies it even with FOV target-assist turned off.
+	if C.freeaim_assist then
+		local fa = accept(freeaim_target(max_dist))
+		if fa and not tracked[fa:id()] then return fa end
 	end
 
 	local direct = nil
@@ -915,6 +1213,8 @@ end
 
 local function try_identify()
 	if not C.enabled or not db.actor then return end
+	debug_dump_aim()
+	debug_dump_candidates()
 	local binoc = is_binoc_active()
 	if C.require_binoculars and not binoc then return end
 

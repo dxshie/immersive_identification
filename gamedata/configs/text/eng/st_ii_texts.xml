@@ -41,6 +41,9 @@
 	<string id="ui_mcm_ii_fov_assist"><text>FOV target assist</text></string>
 	<string id="ui_mcm_ii_fov_assist_desc"><text>When you don't land a direct hit, identify the nearest target within the on-screen assist circle. Turn off to require aiming directly at the target.</text></string>
 
+	<string id="ui_mcm_ii_freeaim_assist"><text>Free-aim target assist</text></string>
+	<string id="ui_mcm_ii_freeaim_assist_desc"><text>For bodycam / free-aim engines: center the assist circle on where the weapon actually points instead of the screen center. Leave off on a normal engine.</text></string>
+
 	<string id="ui_mcm_ii_fov_radius"><text>Target-assist radius (px)</text></string>
 	<string id="ui_mcm_ii_fov_radius_desc"><text>Aim tolerance for picking a target without a direct hit.</text></string>
 
@@ -122,6 +125,10 @@
 
 	<string id="ui_mcm_ii_perception_loot_xp"><text>Perception XP per loot</text></string>
 	<string id="ui_mcm_ii_perception_loot_xp_desc"><text>Bonus perception experience granted the first time you loot a corpse you'd already identified.</text></string>
+
+	<string id="ui_mcm_ii_debug_title"><text>Debug</text></string>
+	<string id="ui_mcm_ii_debug_log"><text>Log aim debug</text></string>
+	<string id="ui_mcm_ii_debug_log_desc"><text>Write aim/trace diagnostics to the game log (xray_*.log) on each identify attempt. For troubleshooting free-aim target acquisition. Leave off normally.</text></string>
 
 	<!-- List-content ids: MCM resolves each modifier_index dropdown entry as
 	     "<page>_<option>_lst_" + the bare label from ii_identify.MODIFIER_LIST,

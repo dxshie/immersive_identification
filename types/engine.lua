@@ -234,6 +234,23 @@ level = {}
 ---@return game_object|nil
 function level.get_target_obj(trace_target) end
 
+--- World point the given trace source is aimed at: `origin + dir * range` from
+--- that source's SPickParam.barrel_matrix. For ETraceTarget.Weapon this is a
+--- point along the actual rendered weapon barrel (includes free-aim / bodycam
+--- offset), not the camera centre. Returns (0,0,0) when no such HUD item is
+--- attached (e.g. no weapon in hand). level_script.cpp `g_get_target_pos`,
+--- bound alongside get_target_obj. Confirmed on themrdemonized/xray-monolith
+--- and asuparabekon/xray-monolith-bodycam (branch bodycam-mt).
+---@param trace_target integer? one of level.ETraceTarget.*
+---@return Fvector
+function level.get_target_pos(trace_target) end
+
+--- Distance to what the given trace source is aimed at. Bound alongside
+--- get_target_obj / get_target_pos.
+---@param trace_target integer? one of level.ETraceTarget.*
+---@return number
+function level.get_target_dist(trace_target) end
+
 --- Iterates CGameObjects within `radius` of `pos`, nearest-to-farthest by
 --- *world* distance to `pos` (not screen distance to anything). `fn`
 --- returning true stops iteration early. level_script.cpp:2117-2137.
@@ -321,6 +338,12 @@ function IsStalker(obj) end
 ---@param obj game_object
 ---@return boolean
 function IsMonster(obj) end
+
+--- Stock Lua-side global (gamedata/scripts/_g.script): C-printf-style logging
+--- to the engine log (xray_*.log), flushed. Extra args fill %s/%d/... in `fmt`.
+---@param fmt string
+---@param ... any
+function printf(fmt, ...) end
 
 ---------------------------------------------------------------------------
 -- game (stock Lua-side global table, not this repo's C++ -- confirmed

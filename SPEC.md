@@ -148,12 +148,22 @@ Both layers **fail open** (return visible) if their engine call errors or the
 `ray_pick` binding is absent, so LOS gating degrades gracefully rather than
 blocking all identification.
 
-`find_nearest_in_fov` (440-468) iterates `level.iterate_nearest`; a candidate
-must be non-actor, `IsStalker` or `IsMonster`, alive, have a non-empty
+`find_nearest_in_fov` iterates `level.iterate_nearest`; a candidate must be
+non-actor, `IsStalker` or `IsMonster`, alive, have a non-empty
 `character_community`, and (if `require_los`) pass LOS. It selects the candidate
-**nearest to screen center** (crosshair at virtual 512,384) within `fov_radius`,
-not nearest in world space. Already-tracked targets are held as a runner-up and
-only returned if nothing else qualifies.
+**nearest to the aim point** within `fov_radius`, not nearest in world space.
+Already-tracked targets are held as a runner-up and only returned if nothing
+else qualifies.
+
+The aim point comes from `aim_center()`: the fixed screen center (512,384) by
+default, or — when `freeaim_assist` is on — the projection of
+`level.get_target_pos(ETraceTarget.Weapon)` (a world point along the actual
+rendered weapon barrel, so it follows a **bodycam/free-aim** engine's off-center
+barrel) via `weapon_aim_ui()`. It falls back to screen center whenever the
+weapon-aim point is unavailable (no weapon in hand → `(0,0,0)`, the
+`get_target_pos` binding is absent, or the point is off-screen). The direct-hit
+tiers already trace `ETraceTarget.Weapon`, so they follow free aim regardless of
+this toggle; `freeaim_assist` only redirects the FOV-assist circle.
 
 ### 3.4 Scan-time computation
 
@@ -274,6 +284,7 @@ leaf page does), and `hint` ids must be passed **bare** because MCM auto-prepend
 | `max_dist` | track | 50 | 10, 500, 10 | max identify range (m) |
 | `fade_dist` | track | 40 | 5, 500, 10 | distance where card fades (m) |
 | `fov_assist` | check | true | — | master FOV target-assist; off = direct-hit aim only |
+| `freeaim_assist` | check | false | — | bodycam/free-aim: center assist on weapon barrel, not screen center |
 | `fov_radius` | track | 110 | 20, 400, 10 | target-assist radius (px) |
 | `require_los` | check | true | — | require line of sight |
 | `fov_assist_binoc` | check | true | — | FOV assist while looking through raised binoculars |
@@ -423,7 +434,63 @@ Without this component (and the host mod) there is no XP and no effect.
 
 ---
 
-## 10. Known repo drift (flagged during analysis)
+## 10. Free-aim support (bodycam engine)
+
+The `freeaim_assist` setting makes the FOV target-assist circle follow where the
+weapon actually points on a free-aim / bodycam engine
+(`asuparabekon/xray-monolith-bodycam`) instead of the fixed screen center.
+
+**The hard constraint: the free-aim direction must come from the engine.** In-game
+diagnosis (via the `debug_log` MCM option) established that on the tested bodycam
+build **neither** ordinary Lua source works:
+
+- `level.ETraceTarget` / `level.get_target_pos(Weapon)` — **absent** on that build;
+  and even where present it traces screen center, because free aim is applied in
+  the render/ballistic layer, not the logical weapon pick the script sees.
+- `bodycam.get_state()` — exposes only the **camera's** orientation
+  (`camera_yaw ≈ atan2(cam_dir.x, cam_dir.z)`, `camera_pitch ≈ asin(cam_dir.y)`)
+  and a ~zero `vm_rot`. None of it encodes the weapon's offset from center.
+
+So the aim direction is **C++-internal only**. The key insight (from in-game
+diagnosis): under bodycam the **render camera** — what `world2ui` and the
+screen-center pick use, and what `device().cam_dir` returns — is a *swayed
+override* of the actor's true gameplay camera. The weapon barrel pick
+(`PP.defs.dir`) is the cosmetic swaying weapon-model direction, ~40° off view and
+useless as an aim source (confirmed: it projects off-screen while aiming at an
+on-screen target). The real aim is the actor's **first-eye camera**
+(`CActor::cam_FirstEye()`), which the render camera is derived from —
+`HudItem::Ray()` itself remaps the pick through `cam_FirstEye()` for this reason.
+
+`ii_identify.script` gets it through an optional engine binding it probes at
+runtime:
+
+```
+bodycam.get_fire_ray() -> {
+  valid=bool,
+  pos_x/y/z, dir_x/y/z,          -- PRIMARY: first-eye (gameplay aim) ray, unit dir
+  bar_pos_x/y/z, bar_dir_x/y/z   -- diagnostic: cosmetic weapon-barrel ray
+}
+```
+
+`freeaim_ray()` reads the primary (eye) ray; `weapon_aim_ui()` projects a point
+`pos + dir * FREEAIM_PROJECT_DIST` (100 m) through `world2ui` — i.e. where the
+gameplay aim lands on the *render* screen, which is the reticle position — and
+`aim_center()` feeds it to `find_nearest_in_fov`. The whole path is guarded by
+`rawget(_G,"bodycam")` and stays inert (falls back to screen center) until the
+binding exists — safe on every engine.
+
+**The binding does not ship with the stock bodycam engine and must be compiled
+in.** Implemented in `src/xrGame/bodycam_script.cpp` (added to the `bodycam`
+luabind module) as a pure, side-effect-free read of `actor->cam_FirstEye()`'s
+`vPosition`/`vDirection` for the primary ray, plus the main-hand weapon's
+`GetPick().defs` for the diagnostic barrel ray. Both dirs unit-length;
+`valid=false` when there is no controlled actor.
+
+Verify with `debug_log` on: the `[ii] aim(eye) ... ui=(x,y)` line should show an
+on-screen coordinate that tracks the target as you free-aim, while `aim(barrel)`
+is the off-screen cosmetic one.
+
+## 11. Known repo drift (flagged during analysis)
 
 - **`README.md`** — verify its optional-component list matches the two components
   currently in `ModuleConfig.xml` (FactionID Neutralized, Perception Skill
