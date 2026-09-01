@@ -51,6 +51,9 @@ DEFAULTS = {
 	rank_penalty_max  = 3.0,   -- scan time multiplier for the highest rank (legend), relative to a rookie
 	familiarity_boost = true,  -- once you've identified a stalker before, re-identifying them later is faster
 	familiarity_scan_mult = 0.6, -- scan time multiplier for a previously-identified target
+	night_penalty     = true,  -- identification is slower in the dark, ramping up over dusk and peaking across midnight (0:00)
+	night_penalty_max = 2.0,   -- scan time multiplier at the darkest point of the night
+	show_weapon       = false, -- also show the target's currently-wielded weapon as a line on the card
 }
 
 -- Section name of the stock binoculars item (confirmed from this engine's
@@ -59,6 +62,34 @@ DEFAULTS = {
 -- as a substring too, not just exact-equal, in case a modpack ships a
 -- differently-sectioned binoculars variant that still follows this naming.
 local BINOC_SECTION = "wpn_binoc_inv"
+
+-- --------------------------------------------------------------------------
+-- PiP (picture-in-picture scope) compatibility gate
+-- --------------------------------------------------------------------------
+-- is_svp_active()/svp_ui_markers_begin/add/commit() only exist when the
+-- engine build itself has the True PiP feature (xray-monolith-pip, or a
+-- fork built on it) -- stock xray-monolith and vanilla Anomaly builds don't
+-- register them at all. Checked once via rawget(_G, ...), the same
+-- existence-check idiom this engine's own PiP-aware scripts use (e.g.
+-- zzz_extra_scope_features.script's svp_optic_api_* lookups), so referencing
+-- a name that doesn't exist never errors -- it's just nil, same as any other
+-- undefined global. Checked once at load rather than per-call: unlike
+-- haru_skills (a separate Lua script whose load order isn't guaranteed
+-- relative to this one), these are C++-registered engine globals, already
+-- present before any Lua runs at all.
+local PIP_AVAILABLE = rawget(_G, "is_svp_active") ~= nil
+	and rawget(_G, "svp_ui_markers_begin") ~= nil
+	and rawget(_G, "svp_ui_markers_add") ~= nil
+	and rawget(_G, "svp_ui_markers_commit") ~= nil
+
+-- Marker size in the shader's lens-UV space (0..1 of the disc radius, see
+-- svp_ui_markers_add()'s C++-side comment) -- a flat constant rather than an
+-- MCM slider for now, since this whole feature is still an in-progress
+-- engine patch. PIP_MARKER_LIFT floats the marker above the head instead of
+-- sitting on it (metres, on top of anchor_pos()'s own ANCHOR_LIFT), separate
+-- from the main HUD's anchor so the normal card/dot isn't affected by it.
+local PIP_MARKER_RADIUS = 0.03
+local PIP_MARKER_LIFT = 0.22
 
 -- Fallback key when key_dik hasn't been captured yet (fresh install, or MCM
 -- absent). Resolved lazily via DIK_keys (not ready when this file is
@@ -285,6 +316,36 @@ local function rank_label(obj)
 	return pretty
 end
 
+-- The target's currently-wielded weapon name, shown as an extra line on the
+-- card when C.show_weapon is on. obj:best_weapon()
+-- (src/xrGame/script_game_object_script2.cpp:217, SAFE_WRAP-bound to
+-- CObjectHandler::best_weapon) returns the NPC's equipped weapon game_object,
+-- or nil for the unarmed / monsters / mutants -- the same call the engine's
+-- own trade and stalker-combat code use to find "the gun this NPC is
+-- actually holding" (see this repo's axr_main-adjacent aaaa_script_fixes_mp
+-- best_weapon() calls). Its section's "inv_name", run through
+-- translate_string, is the exact readable name the inventory UI shows; if
+-- that lookup fails (throws on a missing field -- swallowed by safe_call), a
+-- prettified section id is the fallback. Returns nil (no line) rather than a
+-- placeholder when there's no weapon to show.
+local function held_weapon_label(obj)
+	if not C.show_weapon then return nil end
+	local wpn = safe_call(obj.best_weapon, obj)
+	if not wpn then return nil end
+	local sec = safe_call(wpn.section, wpn)
+	if not sec or sec == "" then return nil end
+	if ini_sys then
+		local inv = safe_call(ini_sys.r_string, ini_sys, sec, "inv_name")
+		if inv and inv ~= "" then
+			local txt = safe_call(game.translate_string, inv)
+			if txt and txt ~= "" and txt ~= inv then return txt end
+		end
+	end
+	local pretty = sec:gsub("^wpn_", ""):gsub("_", " ")
+	pretty = pretty:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b:lower() end)
+	return pretty
+end
+
 -- Faction patch texture id: the same "<community_id>_icon" convention the
 -- game's own character/relations UI uses (src/xrGame/ui/UICharacterInfo.cpp),
 -- so this reuses whatever emblem art already ships with the game/modpack
@@ -348,21 +409,70 @@ local function screen_dist_to_center(pos)
 	return math.sqrt(dx * dx + dy * dy)
 end
 
+-- Geometric occlusion test.
+--
+-- db.actor:see() below is smoothed/cached with a short grace window on losing
+-- sight -- so an NPC that just stepped behind a wall (or one the AI still
+-- "remembers") keeps reading visible for a beat, which is exactly how occluded
+-- targets were still getting identified. A fresh, instantaneous raycast against
+-- STATIC world geometry closes that gap. ray_pick / rq_target confirmed in
+-- xray-monolith src/xrGame/level_script.cpp (class_<CRayPick>("ray_pick"),
+-- enum rq_target).
+--
+-- Cast from the target's anchor point (chest/head, already lifted clear of the
+-- floor) toward the active camera, stopping RAY_LOS_TOL short so near-eye
+-- geometry can't false-trigger. rqtStatic only, so other NPCs / the actor never
+-- self-block -- the trade-off is that anything with solid static collision
+-- blocks even when you can see through it (chain-link fences, some foliage);
+-- acceptable for the far more common "behind a building/wall" case. query()
+-- returns true when the ray HIT something (i.e. occluded), so a clear line of
+-- sight is `not query()`.
+local RAY_LOS_TOL = 0.3   -- metres: stop short of the camera
+local RQT_STATIC  = (rq_target and rq_target.rqtStatic) or 2   -- collide::rqtStatic
+local _los_ray    = nil   -- lazily-built reusable ray_pick (may be absent on old builds)
+local _los_dir    = vector()
+local function has_clear_ray(target_obj)
+	local dev = device and device()
+	if not dev or not dev.cam_pos then return true end   -- fail open
+	local origin = anchor_pos(target_obj)
+	if not origin then return true end
+
+	local dir  = _los_dir:set(dev.cam_pos):sub(origin)   -- cam - origin
+	local dist = dir:magnitude()
+	if dist <= RAY_LOS_TOL then return true end          -- essentially point-blank
+	dir:normalize()
+
+	local ok, blocked = pcall(function()
+		if not _los_ray then
+			if not rawget(_G, "ray_pick") then return nil end
+			_los_ray = ray_pick()
+		end
+		_los_ray:set_flags(RQT_STATIC)
+		_los_ray:set_position(origin)
+		_los_ray:set_direction(dir)
+		_los_ray:set_range(dist - RAY_LOS_TOL)
+		return _los_ray:query()
+	end)
+	if not ok or blocked == nil then return true end     -- fail open: API absent or errored
+	return not blocked
+end
+
 -- Line-of-sight check: screen-space proximity alone doesn't prove visibility
 -- (an NPC behind a building can still project near the crosshair), and
 -- neither does a raw raycast hit (see get_target_obj() below) -- so every
--- candidate is gated through this instead. Uses the engine's own visibility
--- primitive, `obj:see(other)` (src/xrGame/script_game_object_script2.cpp:138
--- -> CheckObjectVisibility -> CActorMemory::visible_now(), a real camera-
--- driven per-triangle occlusion raycast, the same one autoaim and PDA marker
--- gating use). It's a smoothed/cached read (short grace window on losing
--- sight), not an instantaneous ray -- fine for a deliberate keypress, and
--- arguably closer to "can the player actually perceive this" anyway.
+-- candidate is gated through this instead. Two layers, both must pass: the
+-- engine's own visibility primitive `obj:see(other)`
+-- (src/xrGame/script_game_object_script2.cpp:138 -> CheckObjectVisibility ->
+-- CActorMemory::visible_now(), a real camera-driven per-triangle occlusion
+-- raycast, the same one autoaim and PDA marker gating use) for "can the player
+-- actually perceive this" (darkness, stealth), AND has_clear_ray() as a hard
+-- geometric backstop for see()'s grace-window leak through solid geometry.
 local function has_los(target_obj)
 	if not db.actor then return true end
 	local ok, visible = pcall(db.actor.see, db.actor, target_obj)
 	if not ok then return true end   -- fail open: don't block selection if the check itself errors
-	return visible and true or false
+	if not visible then return false end
+	return has_clear_ray(target_obj)
 end
 
 -- Fallback target search: the nearest identifiable, visible NPC/creature to
@@ -384,7 +494,7 @@ local function find_nearest_in_fov(max_dist)
 	local best_busy_obj, best_busy_d = nil, C.fov_radius
 
 	pcall(level.iterate_nearest, apos, max_dist, function(obj)
-		if obj and obj:id() ~= actor_id then
+		if obj and obj:id() ~= actor_id and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) then
 			local alive = safe_call(obj.alive, obj)
 			if alive then
 				local comm = safe_call(obj.character_community, obj)
@@ -561,6 +671,47 @@ local function rank_scan_mult(obj)
 	local w = RANK_WEIGHT[rid]
 	if not w then return 1 end
 	return 1 + (C.rank_penalty_max - 1) * w
+end
+
+-- --------------------------------------------------------------------------
+-- Night penalty: harder to make someone out in the dark.
+-- --------------------------------------------------------------------------
+-- In-game hour as a fractional 0..24 value (hours + minutes/60), or nil if
+-- the time API isn't ready yet. level.get_time_hours()/get_time_minutes()
+-- (src/xrGame/level_script.cpp:300/308, bound :2514-2515) return the current
+-- world clock, the same one the HUD watch and A-Life day/night cycle read.
+local function game_hour()
+	if not (level and level.get_time_hours) then return nil end
+	local h = safe_call(level.get_time_hours)
+	if not h then return nil end
+	local m = safe_call(level.get_time_minutes) or 0
+	return h + m / 60
+end
+
+-- Darkness, 0 (full daylight) .. 1 (deepest night): lit through the day, dark
+-- deep at night, with linear dusk/dawn ramps between. Deliberately peaks
+-- across midnight -- the 23:00..04:00 plateau returns a flat 1, so 0:00 sits
+-- squarely in the slowest-to-identify window (per the request). The ramps
+-- make it "get harder as it gets dark" rather than flipping on at a hard
+-- cutoff. Fails open to 0 (no penalty) if the clock can't be read.
+local DUSK_START, NIGHT_START = 19.0, 23.0   -- 0 -> 1 over dusk
+local NIGHT_END, DAWN_END     = 4.0, 8.0     -- 1 -> 0 over dawn
+
+local function darkness_factor()
+	local h = game_hour()
+	if not h then return 0 end
+	if h >= NIGHT_START or h < NIGHT_END then return 1 end          -- deep night, incl. midnight
+	if h >= DAWN_END and h < DUSK_START then return 0 end            -- broad daylight
+	if h < DAWN_END then return 1 - (h - NIGHT_END) / (DAWN_END - NIGHT_END) end  -- dawn
+	return (h - DUSK_START) / (NIGHT_START - DUSK_START)             -- dusk
+end
+
+-- Scan-time multiplier from ambient darkness (1 at noon, up to
+-- night_penalty_max in the dead of night), scaled by darkness_factor above so
+-- the slowdown eases in over dusk instead of snapping on.
+local function night_scan_mult()
+	if not C.night_penalty then return 1 end
+	return 1 + (C.night_penalty_max - 1) * darkness_factor()
 end
 
 -- --------------------------------------------------------------------------
@@ -755,15 +906,17 @@ local function try_identify()
 	if not dist or dist > eff_max_dist then return end
 
 	-- Target-side difficulty first (how far away, how accomplished the
-	-- stalker is), then actor-side mitigation on top: distance penalty scales
-	-- against eff_max_dist (already widened when boosted, mitigating the
-	-- penalty for free), rank penalty scales with the target's own rank, the
-	-- flat binoc_scan_mult speed boost applies next, then the actor's
+	-- stalker is), then the ambient darkness, then actor-side mitigation on
+	-- top: distance penalty scales against eff_max_dist (already widened when
+	-- boosted, mitigating the penalty for free), rank penalty scales with the
+	-- target's own rank, the night penalty scales with how dark it currently
+	-- is, the flat binoc_scan_mult speed boost applies next, then the actor's
 	-- perception skill level (if the Skill System integration is present)
 	-- shaves a further fraction off, and finally familiarity (below) discounts
 	-- a target you've identified before.
 	local eff_scan_ms = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max_dist))
 	eff_scan_ms = math.floor(eff_scan_ms * rank_scan_mult(obj))
+	eff_scan_ms = math.floor(eff_scan_ms * night_scan_mult())
 	if boosted then eff_scan_ms = math.floor(eff_scan_ms * C.binoc_scan_mult) end
 	eff_scan_ms = math.floor(eff_scan_ms * perception_scan_mult())
 
@@ -810,6 +963,7 @@ local function try_identify()
 		fcol = faction_color(comm), sign = relation_sign(obj),
 		header = faction_label(comm), name = display_name(obj, comm),
 		icon = faction_icon_id(comm), rank = rank_label(obj),
+		weap = held_weapon_label(obj),
 		scan_ms = eff_scan_ms, max_dist = eff_max_dist, fade_dist = eff_fade_dist,
 		-- Snapshotted like scan_ms/max_dist/fade_dist above: FADE_MS/HOLD_MS
 		-- can change live via MCM mid-reveal, and without this snapshot an
@@ -943,6 +1097,8 @@ function IiTags:InitControls()
 		local name    = self.xml:InitTextWnd("tag_name:text", self)
 		local rank_sh = self.xml:InitTextWnd("tag_rank_sh:text", self)
 		local rank    = self.xml:InitTextWnd("tag_rank:text", self)
+		local weap_sh = self.xml:InitTextWnd("tag_weap_sh:text", self)
+		local weap    = self.xml:InitTextWnd("tag_weap:text", self)
 		local sign_sh = self.xml:InitTextWnd("tag_sign_sh:text", self)
 		local sign    = self.xml:InitTextWnd("tag_sign:text", self)
 		local glow    = self.xml:InitStatic("tag_glow", self)
@@ -953,6 +1109,7 @@ function IiTags:InitControls()
 			shadow = shadow, line_sh = line_sh, line = line, plate = plate,
 			accent = accent, icon = icon, head_sh = head_sh, head = head,
 			name_sh = name_sh, name = name, rank_sh = rank_sh, rank = rank,
+			weap_sh = weap_sh, weap = weap,
 			sign_sh = sign_sh, sign = sign,
 			glow = glow, node = node, spinner = spinner,
 		}
@@ -973,7 +1130,7 @@ end
 local CARD_WIDGET_KEYS = {
 	"shadow", "line_sh", "line", "plate", "accent", "icon",
 	"head_sh", "head", "name_sh", "name", "rank_sh", "rank",
-	"sign_sh", "sign",
+	"weap_sh", "weap", "sign_sh", "sign",
 }
 
 local function hide_card_widgets(s)
@@ -1083,7 +1240,7 @@ end
 -- card's anchor is close enough to plausibly collide with this one's. The
 -- leader line naturally gets longer to reach the raised card; no separate
 -- handling needed for it.
-function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning, tg, scale, rank, stack_offset, fcol, sign)
+function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning, tg, scale, rank, stack_offset, fcol, sign, weap)
 	local s = self.slots[i]
 	if not s then return end
 	s.hidden = false
@@ -1152,6 +1309,7 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 	end
 
 	local has_rank = rank and rank ~= ""
+	local has_weap = weap and weap ~= ""
 	local pad, accent_w = 8, 3
 	local iw = 16 * scale
 	local lead = 5 * scale
@@ -1162,7 +1320,7 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 	-- caching IQM uses -- this runs once per tracked target per frame
 	-- otherwise, so it adds up.
 	local text_w = s.text_w
-	if header ~= s.last_head or name ~= s.last_name or rank ~= s.last_rank then
+	if header ~= s.last_head or name ~= s.last_name or rank ~= s.last_rank or weap ~= s.last_weap then
 		s.head:SetText(header); s.head_sh:SetText(header)
 		s.name:SetText(name); s.name_sh:SetText(name)
 		s.head:AdjustWidthToText(); s.head_sh:AdjustWidthToText()
@@ -1173,33 +1331,41 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 			s.rank:AdjustWidthToText(); s.rank_sh:AdjustWidthToText()
 			text_w = math.max(text_w, s.rank:GetWidth())
 		end
-		s.text_w, s.last_head, s.last_name, s.last_rank = text_w, header, name, rank
+		if has_weap then
+			s.weap:SetText(weap); s.weap_sh:SetText(weap)
+			s.weap:AdjustWidthToText(); s.weap_sh:AdjustWidthToText()
+			text_w = math.max(text_w, s.weap:GetWidth())
+		end
+		s.text_w, s.last_head, s.last_name, s.last_rank, s.last_weap = text_w, header, name, rank, weap
 	end
 
 	local cw = math.floor(accent_w + lead + ispan + text_w + pad + 0.5)
 
 	-- Vertical rhythm: fixed padding/leading and fixed line heights matching
-	-- each widget's own XML-declared font size (letterica16 for header/rank,
-	-- letterica18 for name -- ii_tags.xml) -- text itself is a fixed size,
-	-- same as it's always been (see this function's header comment); a
+	-- each widget's own XML-declared font size (letterica16 for header/rank/
+	-- weapon, letterica18 for name -- ii_tags.xml) -- text itself is a fixed
+	-- size, same as it's always been (see this function's header comment); a
 	-- dynamic-per-distance font size was tried and removed (see git
 	-- history), so this no longer varies with `scale` at all. Only the
 	-- plate/icon/accent bar around this text block still scale with
 	-- `scale`, so the card as a whole still grows/shrinks up close.
 	-- GAP_AFTER_HEADER (space below the faction line, before the name) and
-	-- GAP_AFTER_NAME (space below the name, before the rank -- or before the
-	-- plate's bottom edge, in the no-rank case) are two distinct requested
-	-- values, not a single shared line gap.
+	-- GAP_AFTER_NAME (space below the name, before the first sub-line -- or
+	-- before the plate's bottom edge, when there are none) are two distinct
+	-- requested values, not a single shared line gap.
 	local PAD_TOP, PAD_BOTTOM = 7, 7
 	local GAP_AFTER_HEADER, GAP_AFTER_NAME = 3, 5
-	local head_h, name_h, rank_h = 16, 18, 16
+	local head_h, name_h, rank_h, weap_h = 16, 18, 16, 16
 
-	local ch
-	if has_rank then
-		ch = PAD_TOP + head_h + GAP_AFTER_HEADER + name_h + GAP_AFTER_NAME + rank_h + PAD_BOTTOM
-	else
-		ch = PAD_TOP + head_h + GAP_AFTER_HEADER + name_h + GAP_AFTER_NAME
-	end
+	-- Header + name always; then zero or more muted sub-lines below the name
+	-- (rank, then weapon), each preceded by GAP_AFTER_NAME. With no sub-lines,
+	-- that trailing GAP_AFTER_NAME doubles as the bottom padding (the original
+	-- no-rank behaviour); with at least one, an explicit PAD_BOTTOM closes the
+	-- plate off below the last of them.
+	local ch = PAD_TOP + head_h + GAP_AFTER_HEADER + name_h
+	if has_rank then ch = ch + GAP_AFTER_NAME + rank_h end
+	if has_weap then ch = ch + GAP_AFTER_NAME + weap_h end
+	ch = ch + ((has_rank or has_weap) and PAD_BOTTOM or GAP_AFTER_NAME)
 
 	-- place the card up and to one side of the anchor; flip to the left near
 	-- the right edge of the (1024-wide virtual) screen. stack_offset (see
@@ -1252,17 +1418,35 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 	local shadow_a = math.floor(180 * alpha / 255)
 	local head_y = math.floor(cy + PAD_TOP)
 	local name_y = math.floor(head_y + head_h + GAP_AFTER_HEADER)
-	local rank_y = math.floor(name_y + name_h + GAP_AFTER_NAME)
 
 	draw_shadowed_text(s.head, s.head_sh, txo, head_y, alpha, r, g, b, shadow_a)
 	draw_shadowed_text(s.name, s.name_sh, txo, name_y, alpha, 235, 230, 220, shadow_a)
 
+	-- Muted sub-lines stacked below the name (rank first, then the held
+	-- weapon), each pushed down GAP_AFTER_NAME + its own height from the line
+	-- above it. sub_y walks down as each is placed; a hidden line contributes
+	-- nothing, so the weapon line closes straight up under the name when the
+	-- target has no rank -- matching the ch calc above.
+	local sub_y = name_y + name_h
 	if has_rank then
+		sub_y = sub_y + GAP_AFTER_NAME
 		-- muted: secondary to the name, so its own (lower) alpha rather than the shared one
-		draw_shadowed_text(s.rank, s.rank_sh, txo, rank_y, math.floor(200 * alpha / 255), 210, 205, 195, shadow_a)
+		draw_shadowed_text(s.rank, s.rank_sh, txo, math.floor(sub_y), math.floor(200 * alpha / 255), 210, 205, 195, shadow_a)
+		sub_y = sub_y + rank_h
 	else
 		s.rank_sh:Show(false)
 		s.rank:Show(false)
+	end
+
+	if has_weap then
+		sub_y = sub_y + GAP_AFTER_NAME
+		-- steel-grey and dimmer still than the rank line, so the weapon reads
+		-- as an equipment note rather than competing with the name/rank identity.
+		draw_shadowed_text(s.weap, s.weap_sh, txo, math.floor(sub_y), math.floor(185 * alpha / 255), 165, 180, 195, shadow_a)
+		sub_y = sub_y + weap_h
+	else
+		s.weap_sh:Show(false)
+		s.weap:Show(false)
 	end
 
 	-- node + its glow halo at the anchor point on the body (shared with the
@@ -1338,6 +1522,23 @@ local function render(tg)
 	if not TAGS then return end   -- only ever called after ensure_tags() succeeds, but don't assume it
 	local apos = db.actor and db.actor:position()
 
+	-- While a true PiP scope is actively raised, the normal card/dot (always
+	-- projected through the MAIN camera) would be positioned against the
+	-- wrong picture -- the magnified disc shows a different, narrower view
+	-- via its own SVP camera entirely. So this path replaces the on-screen
+	-- HUD with in-scope markers instead of drawing both (a misplaced main-
+	-- view card floating next to a correctly placed in-scope dot would just
+	-- read as broken, not additive). See svp_ui_markers_add()'s own comment
+	-- for why the marker's position is submitted as a world point rather
+	-- than pre-projected here: the render thread projects it fresh through
+	-- this frame's own SVP camera, so there's no cross-thread staleness.
+	local pip_active = PIP_AVAILABLE and is_svp_active()
+	-- Unconditional on PIP_AVAILABLE (not pip_active): runs every frame the
+	-- engine supports it, scoped or not, so lowering the scope mid-reveal
+	-- still publishes one more (empty) snapshot instead of leaving the last
+	-- scoped frame's markers published indefinitely.
+	if PIP_AVAILABLE then svp_ui_markers_begin() end
+
 	-- First pass: resolve which targets are actually on-screen and drawable
 	-- this frame (unchanged logic from before), collecting them instead of
 	-- drawing immediately, so the second pass below can see every card's
@@ -1392,6 +1593,25 @@ local function render(tg)
 
 			local sx, sy = project_world(pos)
 			if sx and dist <= max_dist * 1.15 then
+				-- Fill = faction colour, ring = relation colour -- same
+				-- two-signal split as the Minimal HUD style's dot+sign,
+				-- adapted to what a flat shader shape can actually convey
+				-- (see scope_custom_markers.h). While scanning, the shader
+				-- draws a rotating spinner arc instead of fill+ring (there's
+				-- no reveal to colour yet, same as the main HUD's spinner
+				-- being plain white until the tag actually reveals) -- fill
+				-- colour/alpha there only carries the spinner's own alpha
+				-- (0.9, matching the HUD spinner's fixed GetARGB(230,...)),
+				-- not phase_alpha, which is still 0 for the whole scan.
+				if pip_active then
+					local col, fcol = e.col, e.fcol
+					local alpha = scanning and (0.9 * dist_fade) or (phase_alpha * dist_fade)
+					svp_ui_markers_add(pos.x, pos.y + PIP_MARKER_LIFT, pos.z,
+						fcol[1] / 255, fcol[2] / 255, fcol[3] / 255,
+						alpha, PIP_MARKER_RADIUS,
+						col[1] / 255, col[2] / 255, col[3] / 255, scanning)
+				end
+
 				active_n = active_n + 1
 				local a = active_pool[active_n]
 				a.hx, a.hy, a.header, a.name = sx, sy, e.header, e.name
@@ -1399,8 +1619,20 @@ local function render(tg)
 				a.col, a.icon, a.scanning = e.col, e.icon, scanning
 				a.scale, a.rank = C.card_scale, e.rank
 				a.fcol, a.sign = e.fcol, e.sign
+				a.weap = e.weap
 			end
 		end
+	end
+
+	-- Snapshot published every frame PIP_AVAILABLE (even with zero markers,
+	-- and even when not currently scoped -- see begin() above): without
+	-- this, the last scoped frame's markers would otherwise linger
+	-- published forever once tracked drains out, or once the scope lowers.
+	if PIP_AVAILABLE then svp_ui_markers_commit() end
+
+	if pip_active then
+		for i = 1, MAX_TAGS do TAGS:hide_slot(i) end
+		return
 	end
 
 	-- Second pass: for each active card, count how many EARLIER cards in
@@ -1424,7 +1656,7 @@ local function render(tg)
 		slot_i = slot_i + 1
 		if slot_i <= MAX_TAGS then
 			TAGS:draw_slot(slot_i, ai.hx, ai.hy, ai.header, ai.name, ai.a, ai.col, ai.icon,
-				ai.scanning, tg, ai.scale, ai.rank, stack * STACK_STEP, ai.fcol, ai.sign)
+				ai.scanning, tg, ai.scale, ai.rank, stack * STACK_STEP, ai.fcol, ai.sign, ai.weap)
 		end
 	end
 

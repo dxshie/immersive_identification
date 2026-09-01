@@ -20,6 +20,9 @@
 	<string id="ui_mcm_ii_color_by_relation"><text>Colour by relation</text></string>
 	<string id="ui_mcm_ii_color_by_relation_desc"><text>Red enemy, green friend, tan neutral.</text></string>
 
+	<string id="ui_mcm_ii_show_weapon"><text>Show held weapon</text></string>
+	<string id="ui_mcm_ii_show_weapon_desc"><text>Also show the target's currently-wielded weapon as a line on the card (Card style only).</text></string>
+
 	<string id="ui_mcm_ii_scan_time"><text>Scan delay (s)</text></string>
 	<string id="ui_mcm_ii_scan_time_desc"><text>How long the scan pulses before the tag reveals.</text></string>
 
@@ -83,6 +86,14 @@
 
 	<string id="ui_mcm_ii_rank_penalty_max"><text>Max rank slowdown</text></string>
 	<string id="ui_mcm_ii_rank_penalty_max_desc"><text>Scan time multiplier for the highest rank (legend), vs. a rookie.</text></string>
+
+	<string id="ui_mcm_ii_night_penalty_title"><text>Night Penalty</text></string>
+
+	<string id="ui_mcm_ii_night_penalty"><text>Darkness slows identification</text></string>
+	<string id="ui_mcm_ii_night_penalty_desc"><text>Targets are harder to make out in the dark; the slowdown ramps up over dusk and peaks in the dead of night (around 0:00).</text></string>
+
+	<string id="ui_mcm_ii_night_penalty_max"><text>Max darkness slowdown</text></string>
+	<string id="ui_mcm_ii_night_penalty_max_desc"><text>Scan time multiplier at the darkest point of the night, vs. broad daylight.</text></string>
 
 	<string id="ui_mcm_ii_familiarity_title"><text>Familiarity</text></string>
 

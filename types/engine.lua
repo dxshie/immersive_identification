@@ -246,6 +246,16 @@ function level.iterate_nearest(pos, radius, fn) end
 ---@return game_object|nil
 function level.object_by_id(id) end
 
+--- Current in-game hour, 0..23. level_script.cpp:300 `get_time_hours`, bound
+--- :2514. The same world clock the HUD watch and day/night cycle read.
+---@return integer
+function level.get_time_hours() end
+
+--- Current in-game minute, 0..59. level_script.cpp:308 `get_time_minutes`,
+--- bound :2515.
+---@return integer
+function level.get_time_minutes() end
+
 --- Projects a world position into the engine's fixed 1024x768 virtual UI
 --- space. `x < -9000` (or a nil return, depending on build) signals
 --- off-screen/behind-camera. level_script.cpp:1769, bound :2800.
@@ -254,6 +264,63 @@ function level.object_by_id(id) end
 ---@param allow_offscreen boolean? default false
 ---@return Fvector2|nil
 function level.world2ui(pos, hud, allow_offscreen) end
+
+---------------------------------------------------------------------------
+-- ray_pick / rq_target (geometric raycast against the collision world)
+---------------------------------------------------------------------------
+-- src/xrGame/level_script.cpp: class_<CRayPick>("ray_pick") and the
+-- enum_exporter<collide::rq_target> bound as the global "rq_target". Used here
+-- by has_clear_ray() in ii_identify.script for a hard line-of-sight test that
+-- db.actor:see() (a smoothed/cached memory read) can't provide.
+--
+-- Collision target flags -- what the ray is allowed to hit. Integer values are
+-- the canonical X-Ray collide::rq_target enum (rqtStatic == 2).
+---@class RqTarget
+---@field rqtNone integer 0
+---@field rqtObject integer 1  -- dynamic objects (NPCs, actor, physics)
+---@field rqtStatic integer 2  -- static level geometry (walls/buildings)
+---@field rqtShape integer 4
+---@field rqtObstacle integer 8
+---@field rqtBoth integer      -- rqtObject | rqtStatic
+---@field rqtDyn integer
+rq_target = {}
+
+---@class RayPick
+local RayPick = {}
+---@param pos Fvector ray origin
+function RayPick:set_position(pos) end
+---@param dir Fvector normalized direction
+function RayPick:set_direction(dir) end
+---@param range number max distance along `dir` to test
+function RayPick:set_range(range) end
+---@param flags integer one of rq_target.* (collide::rq_target)
+function RayPick:set_flags(flags) end
+---@param obj game_object object excluded from the trace
+function RayPick:set_ignore_object(obj) end
+--- Runs the trace. Returns true if the ray HIT something within range
+--- (i.e. the line is occluded) -- clear line of sight is `not query()`.
+---@return boolean
+function RayPick:query() end
+---@return game_object|nil
+function RayPick:get_object() end
+---@return number
+function RayPick:get_distance() end
+
+--- Constructs a reusable ray. Also accepts (pos, dir, range, flags, ignore).
+---@return RayPick
+function ray_pick() end
+
+---------------------------------------------------------------------------
+-- utils_obj (stock Lua-side globals, gamedata/scripts/utils_obj.script --
+-- clsid-based object-class checks, not this repo's C++)
+---------------------------------------------------------------------------
+---@param obj game_object
+---@return boolean
+function IsStalker(obj) end
+
+---@param obj game_object
+---@return boolean
+function IsMonster(obj) end
 
 ---------------------------------------------------------------------------
 -- game (stock Lua-side global table, not this repo's C++ -- confirmed
@@ -279,6 +346,26 @@ function game.world2ui(pos, hud, allow_offscreen) end
 ---@class DbApi
 ---@field actor game_object|nil
 db = {}
+
+---------------------------------------------------------------------------
+-- ini_sys -- the global system.ltx CScriptIniFile (stock global; every
+-- item/weapon/etc. section and its fields live here). Only the one reader
+-- this mod calls is stubbed. src/xrServerEntities/script_ini_file_script.cpp.
+---------------------------------------------------------------------------
+---@class CScriptIniFile
+ini_sys = {}
+
+--- Reads a string field from a section. Throws (SAFE-guard at call sites)
+--- if the section/field is missing. script_ini_file_script.cpp:196.
+---@param section string
+---@param field string
+---@return string
+function ini_sys:r_string(section, field) end
+
+--- True if the given section exists. script_ini_file_script.cpp:189.
+---@param section string
+---@return boolean
+function ini_sys:section_exist(section) end
 
 ---------------------------------------------------------------------------
 -- MCM (Mod Configuration Menu) -- optional, only present if MCM is
@@ -419,3 +506,49 @@ function CUIStatic:SetFont(font) end
 
 ---@return CGameFont
 function CUIStatic:GetFont() end
+
+---------------------------------------------------------------------------
+-- PiP (picture-in-picture scope), fork-specific -- optional, soft dependency
+---------------------------------------------------------------------------
+-- Only registered on an xray-monolith-pip engine build (or a fork built on
+-- it, e.g. the "bodycam" fork) -- absent on stock xray-monolith and vanilla
+-- Anomaly, same soft-dependency situation as haru_skills in mod.lua. Every
+-- real call in ii_identify.script is gated behind PIP_AVAILABLE (a rawget(_G,
+-- ...) existence check) precisely because these can be nil at runtime.
+-- src/xrGame/console_registrator_script.cpp (xray-monolith-pip).
+
+--- True while a real PiP scope is actively rendering via the second
+--- viewport (reflex/iron/non-PiP sights never set it).
+---@return boolean
+function is_svp_active() end
+
+--- Clears the current frame's pending UI-marker list, staged on the script/
+--- logic thread. Call once per frame before any svp_ui_markers_add() calls.
+function svp_ui_markers_begin() end
+
+--- Stages one marker for this frame's PiP overlay, up to
+--- CSecondVPParams::svp_ui_marker_max (8). Drawn as a filled disc (r/g/b/a)
+--- with a ring around it (ring_r/g/b, same alpha as the fill) -- two colour
+--- signals in one shape, since the shader has no text/icon capability to
+--- show them separately. All colour components are 0..1, not 0..255.
+--- Silently dropped past the cap.
+---@param wx number
+---@param wy number
+---@param wz number
+---@param r number
+---@param g number
+---@param b number
+---@param a number
+---@param radius number
+---@param ring_r number
+---@param ring_g number
+---@param ring_b number
+---@param scanning boolean true draws a rotating spinner arc instead of fill+ring (fill's a is still used as the spinner's own alpha)
+function svp_ui_markers_add(wx, wy, wz, r, g, b, a, radius, ring_r, ring_g, ring_b, scanning) end
+
+--- Publishes the markers staged since the last svp_ui_markers_begin() as one
+--- atomic snapshot for the render thread to project through its own,
+--- same-frame SVP camera -- call once per frame after the last add(), even
+--- if zero markers were staged (an empty publish is what clears a stale
+--- marker list once the last target stops qualifying).
+function svp_ui_markers_commit() end

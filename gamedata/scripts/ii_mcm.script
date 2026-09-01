@@ -71,6 +71,7 @@ function on_mcm_load()
 					text = "ui_mcm_ii_ui_style", hint = "ii_ui_style_desc" },
 
 				opt_check("color_by_relation"),
+				opt_check("show_weapon"),
 				opt_track("scan_time", 0, 2, 0.05, 2),
 				opt_track("fade_time", 0.1, 2, 0.05, 2),
 				opt_track("hold_time", 1, 15, 0.5, 1),
@@ -98,6 +99,10 @@ function on_mcm_load()
 				opt_title("ui_mcm_ii_rank_penalty_title"),
 				opt_check("rank_penalty"),
 				opt_track("rank_penalty_max", 1, 6, 0.1, 1),
+
+				opt_title("ui_mcm_ii_night_penalty_title"),
+				opt_check("night_penalty"),
+				opt_track("night_penalty_max", 1, 6, 0.1, 1),
 
 				opt_title("ui_mcm_ii_familiarity_title"),
 				opt_check("familiarity_boost"),

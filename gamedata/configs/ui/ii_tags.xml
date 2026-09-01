@@ -98,6 +98,17 @@
 		<text font="letterica16" align="l" width="300" height="16" />
 	</tag_rank>
 
+	<!-- Weapon: an optional line under the rank, steel-grey, showing the
+	     target's currently-wielded weapon (obj:best_weapon() inv_name) when the
+	     show_weapon option is on. Hidden entirely for the unarmed / monsters,
+	     and only ever drawn in Card style. -->
+	<tag_weap_sh>
+		<text font="letterica16" align="l" width="300" height="16" />
+	</tag_weap_sh>
+	<tag_weap>
+		<text font="letterica16" align="l" width="300" height="16" />
+	</tag_weap>
+
 	<!-- Minimal-style relation sign (-/+/o), shown centred on the faction-
 	     coloured node instead of the full card when ui_style is "minimal".
 	     Centre-aligned since it's a single glyph, not a line of text. -->
