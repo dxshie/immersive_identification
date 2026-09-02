@@ -19,12 +19,33 @@ configurable duration, then fades out.
 It replaces static HUD faction indicators (e.g. the FactionID mod) with a
 diegetic, in-world label that tracks the target as it and the camera move.
 
-Two visual styles:
+Three visual styles:
 
 - **Card** (`ui_style = 1`): dark plate + faction icon + text lines + a leader
   line connecting to a colored dot on the target's chest.
 - **Minimal** (`ui_style = 2`): just a faction-colored dot plus a relation glyph
   (`-` enemy / `+` friend / `o` neutral).
+- **Bodycam** (`ui_style = 3`): an unfilled faction-colored rectangle outline
+  locked to the target's **head bone**, auto-scaled with distance so it stays a
+  constant real-world size around the head (a bounding box with padding). Four
+  thin `ii_white` strips per edge (`draw_head_box`), with the target **name** and
+  **weapon/caliber** (`e.weap`, includes caliber) stacked as shadowed text just to
+  the right of the box (reusing the card's `tag_name`/`tag_weap` widgets). The box
+  covers the head or the full body per **`box_area`** (`area_box_for`, shared with
+  redaction). The head box is the **screen bounding box of the head's four
+  projected corners** (`screen_box`: `center ± cam_right*BOX_HALF_W ±
+  cam_top*BOX_HALF_H`), perspective-correct at any screen position — a
+  single-axis extent shortcut mis-sizes/mis-centres near the screen edges (the
+  "slips off at the corners" bug). The centre is `bip01_head` lifted `HEAD_LIFT`
+  (0.09 m) to the face (the bone sits at the skull base, so an unlifted box rides
+  low over the neck). Distance scaling falls out of the projection (no `UI_KX`
+  squeeze). Pairs naturally with **Auto-identify** below.
+
+Optionally, **Auto-identify** (`auto_identify`, default off) continuously reveals
+every visible target in range without a keypress: a throttled
+`level.iterate_nearest` sweep (`update_auto_identify`) hands each alive,
+community-tagged, LOS-visible target to the shared `identify_target` commit path.
+Line of sight is always required for it. Works with any style.
 
 Identification difficulty is expressed **entirely as reveal delay** (scan time),
 not as pass/fail. **There is no RNG anywhere** — the outcome is fully
@@ -202,18 +223,21 @@ community, and is within `eff_max_dist`.
 
 `IiTags : CUIScriptWnd` (1019), rect 1024×768, parses `ii_tags.xml` via
 `CScriptXmlInit`. `InitControls` (1025-1073) builds `MAX_TAGS` slots of widgets in
-draw order (shadow → line → plate → accent → icon → text → node/glow → spinner).
+draw order (shadow → line → plate → accent → icon → text → node/glow → spinner →
+bodycam box edges).
 
 - **World-to-screen:** `anchor_pos(obj)` (379-390) picks the first of
   `ANCHOR_BONES` (`bip01_head`, `bip01_spine2/1`, `bip01_spine`) within 3m and
   lifts by `ANCHOR_LIFT = 0.12`; monsters fall back to `position().y + 1.3`.
   `project_world` (392-398) calls `game/level.world2ui`, rejecting `x < -9000`
   (off-screen/behind).
-- **`draw_slot`** (1194-1441) branches: scanning spinner only → minimal
-  (node+glow+glyph) → mini fallback below `mini_scale_cutoff` (node+glow) → full
-  card (measured text, plate, accent, icon, shadowed text lines, node/glow, and a
-  leader line rotated via `atan2`/`SetHeading` from node to the card's nearest
-  bottom corner).
+- **`draw_slot`** branches: scanning spinner only → **bodycam** (head-outline
+  box, `ui_style==3`) → minimal (node+glow+glyph, `ui_style==2`) → mini fallback
+  below `mini_scale_cutoff` (node+glow) → full card (measured text, plate, accent,
+  icon, shadowed text lines, node/glow, and a leader line rotated via
+  `atan2`/`SetHeading` from node to the card's nearest bottom corner). The bodycam
+  box's centre/extents (`box_cx/cy/hw/hh`) are precomputed per target in `render`
+  (via `head_center` + `head_box_extents`) since `draw_slot` has no world access.
 - **Aspect correction** `UI_KX` (200): `(h/w)/(768/1024)`; the X of any
   KX-distorted static (node, glow, line) is pre-corrected so circles stay round
   and angles stay true under the engine's anisotropic virtual→screen stretch. The
@@ -262,11 +286,27 @@ defaults, the modifier dropdown, and the UI-style dropdown are read from
 default is resolved here (not in `DEFAULTS`) because `DIK_keys` isn't populated
 when `ii_identify.script` is first parsed (27-31).
 
+**Presets:** the leaf page carries a `presets = { "ii_card", "ii_minimal",
+"ii_bodycam", "ii_immersive" }` list, which makes MCM show a preset dropdown at
+the top of the page. Names resolve from `ui_mcm_prst_<id>` strings; **values live
+in LTX**, not Lua — MCM reads `configs/presets/includes.ltx` (which we ship with a
+wildcard `#include "presets_*.ltx"` so other mods coexist) → `presets_ii.ltx`,
+whose `[<preset_id>]` sections key options by their storage path (`ii/main/<id>`,
+values by type: check→bool, track/list→number). A preset only overrides the
+options it lists. Adding an option to a preset = one LTX line; no code change.
+
 **Tree:** root node `id="ii"` (no `sh`) → one leaf page `id="main"` (`sh=true`)
-holding a `gr` of options. Section headers are `type="slide"` pseudo-entries. Two
-MCM traps are encoded in comments: the top node must **not** carry `sh` (only the
-leaf page does), and `hint` ids must be passed **bare** because MCM auto-prepends
-`ui_mcm_`.
+holding a `gr` of options, grouped by `type="slide"` section headers: **General**
+(enable/key/instant/scan-fade-hold/hide-unseen/range), **UI Style** (style, box
+area, show name/faction/weapon, colour-by-relation, card size), **Targeting**
+(FOV assist, free-aim, LOS, auto-identify), **Binoculars**, **Redaction**, then
+the scan-time modifier sections and Debug. Three MCM traps encoded in comments:
+the top node must **not** carry `sh` (only the leaf page does); an option's
+**`hint` is the BARE base id** (`"ii_<id>"`) — MCM resolves its caption from
+`ui_mcm_<hint>` and its **hover tooltip** from `ui_mcm_<hint>_desc`, so passing a
+`_desc`-suffixed hint mis-renders the label and kills the tooltip; and `text` is
+only read for slide headers, not option captions. The `opt_check/opt_track/
+opt_list` helpers set `hint = "ii_" .. id` mechanically.
 
 ### Setting inventory
 
@@ -275,9 +315,14 @@ leaf page does), and `hint` ids must be passed **bare** because MCM auto-prepend
 | `enabled` | check | true | — | master on/off |
 | `key_dik` | key_bind | `DIK_X` | — | identify key |
 | `modifier_index` | list | None | None/Ctrl/Shift/Alt | required held modifier |
-| `ui_style` | list | Card | Card/Minimal | card vs minimal dot |
+| `ui_style` | list | Card | Card/Minimal/Bodycam | card vs minimal dot vs head-outline box |
+| `box_area` | list | Head | Head/Body | bodycam outline rectangle region |
+| `box_thickness` | track | 2 | 1, 6, 0.5, 1 | bodycam outline edge thickness (px) |
+| `show_name` | check | true | — | show name line (all text styles) |
+| `show_faction` | check | true | — | show faction line (all text styles) |
+| `show_weapon` | check | true | — | show weapon+caliber line (all text styles) |
+| `auto_identify` | check | false | — | continuously identify all visible in-range targets, no keypress (LOS always required) |
 | `color_by_relation` | check | true | — | tint by relation vs flat neutral |
-| `show_weapon` | check | false | — | add held-weapon line, with caliber appended when derivable (Card only) |
 | `scan_time` | track | 0.35 | 0, 2, 0.05, 2 | base scan pulse (s) |
 | `fade_time` | track | 0.45 | 0.1, 2, 0.05, 2 | fade in/out (s) |
 | `hold_time` | track | 4.0 | 1, 15, 0.5, 1 | full-visible hold (s) |
@@ -325,7 +370,9 @@ Image widgets: `tag_shadow` (80×40, ii_shadow), `tag_plate` (80×40, ii_white,
 charcoal 24/22/19), `tag_accent` (3×26, relation bar), `tag_icon` (20×20, swapped
 to `<community>_icon` at runtime), `tag_line`/`tag_line_sh` (64×2, leader line),
 `tag_glow` (40×40, ii_dot), `tag_node` (10×10, ii_node, baked black ring),
-`tag_spinner` (20×20, ii_spinner). Text widgets (each with a `_sh` shadow twin):
+`tag_spinner` (20×20, ii_spinner), `tag_box_top`/`tag_box_bottom`/`tag_box_left`/
+`tag_box_right` (thin ii_white strips forming the Bodycam head-outline box, sized
+per frame). Text widgets (each with a `_sh` shadow twin):
 `tag_head` (letterica16, faction), `tag_name` (letterica18, personal name),
 `tag_rank` (letterica16, hidden for monsters), `tag_weap` (letterica16),
 `tag_sign` (letterica18, centered relation glyph for Minimal style).
@@ -490,7 +537,128 @@ Verify with `debug_log` on: the `[ii] aim(eye) ... ui=(x,y)` line should show an
 on-screen coordinate that tracks the target as you free-aim, while `aim(barrel)`
 is the off-screen cosmetic one.
 
-## 11. Known repo drift (flagged during analysis)
+## 11. Redaction (dead-body head effect, engine)
+
+The **Bodycam** style (`ui_style = 3`, §1) and **`auto_identify`** are pure Lua
+and work on any engine build. **Redaction** needs the custom bodycam exe. It is
+**fully decoupled from identification** — its own subsystem, no tag/box/identify
+involvement:
+
+- **`redact_dead`** (toggle) — draw an effect over **every visible dead body in
+  range**, no identify needed, persistent while visible, any UI style.
+- **`redact_style`** (list) — `glitch` / `pixelate` / `black` (§ shader below).
+- **`redact_area`** (list) — `head` (head/face box) or `body` (full-body box,
+  centred `BODY_CENTER_LIFT` above the origin with body-sized extents). `redact_box_for`
+  dispatches; both use the same `box_extents` projection with different metres.
+- **`redact_strength`** — master intensity.
+- **`redact_padding`** — extra margin around the region as a fraction of its size
+  (`add_glitch_box` expands `hw/hh` by `1 + redact_padding`), distance-independent.
+  The bodycam outline has the equivalent **`box_padding`** applied in `render`.
+
+**Behavior.** `feed_glitch` runs every frame: when `redact_dead` is on it builds a
+list of head boxes for the currently-visible corpses (`update_corpse_membership`
+throttles the `level.iterate_nearest` + `db.actor:see` membership sweep; ids are
+cached and the head boxes re-projected every frame so they track the settling
+ragdoll) and submits them in one atomic batch. Cleared when nothing qualifies, a
+PiP scope is up, or the mod is disabled. Up to `GLITCH_MAX` (16) corpses at once.
+(Identification's own dead handling is unchanged: a tag is dropped the instant its
+target dies, `render`'s `remove = not alive`.)
+
+**Hiding tags out of sight** (`hide_unseen`, default on, all styles): `render`
+gates each active tag on `tag_visible(obj)` (a cheap cached `db.actor:see`) so an
+occluded/off-screen target's tag is hidden instead of floating on the wall until
+its timer expires; the `tracked` entry persists, so it reappears on re-sight.
+
+`hide_unseen` uses `tag_visible` = `db.actor:see` **AND** `has_clear_ray` (a
+fresh geometric static-ray) — `see` alone lags behind cover via its grace window,
+so the ray gives the near-instant drop; a `HIDE_GRACE_MS` (150) debounce rides
+out a one-frame ray flicker. **Full-body box** (`body_box_for`, used by both the
+bodycam outline and redaction) is the screen-space bounding box of the projected
+ragdoll bones (`BODY_BOX_BONES`) — so it tracks the physics ragdoll, unlike
+`obj:position()` which stays at the last-alive spot; falls back to a vertical
+origin span for non-bip01 rigs. Bodycam outline thickness is `box_thickness` (px,
+fixed not distance-scaled), drawn with butted (non-overlapping) corners and
+UI_KX-corrected vertical edges (`draw_head_box`).
+
+**Actor-death teardown**: `teardown_ui()` hides all tag slots, clears `tracked`,
+drops cached corpses, and clears the engine redaction. Driven two ways: an
+`actor_on_before_death` callback fires it at the **moment of death** (the death
+screen can freeze `actor_on_update` with the last frame's tags still drawn, so
+the poll alone leaves them on the death screen), plus `actor_on_update` polls
+`db.actor:alive()` as a backstop. Idempotent.
+
+**Lua → engine contract** (guarded by `rawget(_G,"bodycam")`, inert on a stock
+exe — the box still shows, just no distortion). Multi-rect, SVP-marker style:
+
+```
+bodycam.glitch_begin()                 -- start a frame's list
+bodycam.glitch_add(x0, y0, x1, y1)     -- one head box, NORMALISED [0,1], top-left origin
+bodycam.glitch_commit(intensity)       -- publish atomically (intensity 0 / empty list clears)
+-- legacy single-rect wrappers kept: set_glitch_rect(...), clear_glitch()
+```
+
+`glitch_submit()` converts each box's 1024×768 virtual-space centre/extents to
+`[0,1]` (divide by 1024/768, since that virtual space maps across the whole
+screen); `intensity` = `redact_strength`.
+
+**Effect variant** (`redact_style`, MCM list → engine mode via `bodycam.glitch_set_mode`,
+a separate binding so older exes degrade to glitch): `0` glitch, `1` pixelate
+(mosaic censor), `2` black box. Passed to the shader in `glitch_count.y`. (The
+engine binding names stay `glitch_*` — internal plumbing, unchanged by the
+mod-facing "redaction" rename.)
+
+**Shader** (ships as gamedata, this repo): `gamedata/shaders/r3/ii_glitch.ps` —
+loaded at runtime by filename, DX11 path (`getShaderPath()` returns `"r3\\"`).
+Samples the scene RT via the shared `s_image`/`smp_base`; **loops** the rect array
+and, inside the first box a pixel hits, applies the mode's effect (glitch = banded
+tear + chromatic aberration + dropout + scanline/noise; pixelate = quantise box UV
+to cells and resample; black = solid), feathered at the edges, scene untouched
+elsewhere. Reads `float4 glitch_params (intensity,time,…)`, `float4 glitch_count
+(.x = n, .y = mode)`, and `float4 glitch_rects[16]` set from C++ (rect array via
+`set_ca`).
+
+**Engine side (custom exe — staged, applied against the fork).** Modeled on the
+fork's SVP `draw_scope` region-pass, itself a variant of the stock
+`phase_fakescope` (`rendertarget_phase_nightvision.cpp`) + its `CBlender_fakescope`
+(`blender_nightvision.cpp`, binds scene RT `r2_RT_generic0` → `s_image`):
+1. `CBlender_glitch` binding `s_image` + selecting `ii_glitch.ps`; `ref_shader
+   s_glitch` created in `r4_rendertarget.cpp` (`s_glitch.create(b_glitch,
+   "r3\\ii_glitch")`).
+2. `CRenderTarget::phase_glitch()` — bind `dx10_msaa ? rt_Generic : rt_Color`,
+   draw the **fullscreen** `g_combine` quad, `set_c("glitch_rect"/"glitch_params",
+   …)`, then `CopyResource` back into `rt_Generic_0`. **No scissor**: the pass is
+   fullscreen and the region restriction lives in `ii_glitch.ps` (it returns the
+   scene untouched outside `glitch_rect`), because `CopyResource` copies the whole
+   RT back — a scissored draw would leave the area outside the box stale and
+   corrupt the scene on copy-back. Inject in `r4_rendertarget_phase_combine.cpp`
+   **after SMAA and TAA** (`phase_ssfx_taa`), immediately before the final
+   `combine_2` pass, gated on `g_ii_glitch_active && !svp_pass_now`. Placement is
+   load-bearing: running it *before* TAA (with the nightvision/fakescope FX) let
+   TAA's temporal history rectification clamp the churning glitch out as an
+   artifact (a stable overlay like fakescope survives, a per-frame glitch does
+   not). After TAA, `rt_Generic_0` holds the finished post-AA scene that
+   `combine_2` samples (`s_image = r2_RT_generic0`, `blender_combine.cpp`), so the
+   distortion survives straight to screen.
+3. Shared state as `ENGINE_API` globals in `xrEngine` (`xr_ioc_cmd.cpp`):
+   `g_glitch_rect` (Fvector4, normalised), `g_glitch_intensity`,
+   `g_glitch_active`; `bodycam_script.cpp` writes them, the R4 renderer `extern`s
+   and reads them (same cross-module channel as `ps_r2_sun_shafts_min`).
+4. `bodycam.set_glitch_rect`/`clear_glitch` added to `Bodycam::script_register`'s
+   `module(L,"bodycam")[…]`; that `script_register(L)` is called from
+   `script_engine_export.cpp`. New `.cpp` files → `xrGame.vcxproj` /
+   `xrRender_R4.vcxproj`; game exe target is `AnomalyDX11` (`xrEngine.vcxproj`).
+   `set_glitch_rect` stores the rect + sets `g_glitch_active=true`; renderer
+   multiplies the `[0,1]` rect by `Device.dwWidth/dwHeight` for the scissor and
+   passes the `[0,1]` rect straight to the shader.
+
+Engine changes **applied** to the fork (branch `freeaim-identify-binding`), 7
+files + the shader: `xr_ioc_cmd.cpp` (globals), `bodycam_script.cpp` (binding),
+`blender_nightvision.{h,cpp}` (`CBlender_ii_glitch`), `r4_rendertarget.{h,cpp}`
+(member/create/delete), `r4_rendertarget_phase_combine.cpp` (`phase_glitch` +
+call). Needs an `AnomalyDX11` rebuild (MSBuild). Step-by-step notes:
+`docs/engine-glitch-patch.md`.
+
+## 12. Known repo drift (flagged during analysis)
 
 - **`README.md`** — verify its optional-component list matches the two components
   currently in `ModuleConfig.xml` (FactionID Neutralized, Perception Skill

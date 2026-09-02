@@ -70,6 +70,24 @@
 		<texture r="255" g="255" b="255" a="230">ii_spinner</texture>
 	</tag_spinner>
 
+	<!-- Bodycam style: four thin ii_white strips forming an unfilled rectangle
+	     outline locked to the target's head bone (see draw_head_box). Each edge
+	     is sized/positioned/tinted per frame, so stretch="1" is required (same
+	     tmNative trap as tag_glow above). Tinted the faction colour at runtime;
+	     the r/g/b/a here are just the neutral default before the first draw. -->
+	<tag_box_top width="64" height="2" stretch="1">
+		<texture r="255" g="255" b="255" a="255">ii_white</texture>
+	</tag_box_top>
+	<tag_box_bottom width="64" height="2" stretch="1">
+		<texture r="255" g="255" b="255" a="255">ii_white</texture>
+	</tag_box_bottom>
+	<tag_box_left width="2" height="64" stretch="1">
+		<texture r="255" g="255" b="255" a="255">ii_white</texture>
+	</tag_box_left>
+	<tag_box_right width="2" height="64" stretch="1">
+		<texture r="255" g="255" b="255" a="255">ii_white</texture>
+	</tag_box_right>
+
 	<!-- Header line: the target's faction, small and tinted the relation
 	     colour, the secondary/context line, same role as IQM's card_head. -->
 	<tag_head_sh>

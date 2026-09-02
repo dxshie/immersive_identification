@@ -1,0 +1,56 @@
+; Immersive Identification -- MCM presets.
+;
+; Each [section] is a preset id (listed in ii_mcm.script's `presets` field and
+; named by a ui_mcm_prst_<id> string). Keys are the option STORAGE PATHS
+; (ii/main/<option_id>, i.e. what ui_mcm.get("ii/main/...") reads); values are
+; read by option type (check -> bool, track/list -> number). A preset only
+; changes the options it lists; everything else keeps its current value.
+
+[ii_card]
+ii/main/ui_style          = 1
+ii/main/show_name         = true
+ii/main/show_faction      = true
+ii/main/show_weapon       = true
+ii/main/color_by_relation = true
+ii/main/instant_identify  = false
+ii/main/scan_time         = 0.35
+ii/main/hold_time         = 4.0
+ii/main/auto_identify     = false
+ii/main/redact_dead       = false
+
+[ii_minimal]
+ii/main/ui_style          = 2
+ii/main/instant_identify  = false
+ii/main/auto_identify     = false
+ii/main/redact_dead       = false
+
+[ii_bodycam]
+ii/main/ui_style          = 3
+ii/main/box_area          = 2
+ii/main/box_thickness     = 2
+ii/main/box_padding       = 0.2
+ii/main/box_opacity       = 0.85
+ii/main/show_name         = true
+ii/main/show_faction      = true
+ii/main/show_weapon       = true
+ii/main/instant_identify  = true
+ii/main/hide_unseen       = true
+ii/main/auto_identify     = true
+ii/main/redact_dead       = true
+ii/main/redact_area       = 2
+ii/main/redact_style      = 1
+ii/main/redact_strength   = 1.0
+
+[ii_immersive]
+ii/main/ui_style          = 1
+ii/main/instant_identify  = false
+ii/main/scan_time         = 0.6
+ii/main/hold_time         = 3.0
+ii/main/fov_assist        = false
+ii/main/freeaim_assist    = false
+ii/main/require_los       = true
+ii/main/auto_identify     = false
+ii/main/dist_penalty      = true
+ii/main/rank_penalty      = true
+ii/main/night_penalty     = true
+ii/main/redact_dead       = false

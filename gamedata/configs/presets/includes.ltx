@@ -1,0 +1,9 @@
+; Immersive Identification -- MCM preset include hook.
+;
+; MCM (ui_mcm.script) reads preset sections from ini_file("presets\includes.ltx").
+; No base game / MCM file ships here, so we create it -- but with a WILDCARD
+; include rather than our sections inline, so any other mod can drop its own
+; presets_<mod>.ltx in this folder and coexist instead of clobbering this file
+; (same convention the base game uses, e.g. #include "materials_*"). Our own
+; presets live in presets_ii.ltx alongside this file.
+#include "presets_*.ltx"
