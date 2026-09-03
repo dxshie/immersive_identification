@@ -22,6 +22,7 @@
               pkgs.libxml2 # xmllint -- validate gamedata/**/*.xml and fomod/*.xml
               pkgs.lua-language-server # reads .luarc.json + types/ in this repo
               pkgs.lua5_1 # `lua` / `luac` -- Lua 5.1, matching this engine's embedded runtime
+              pkgs.stylua # format the .script (Lua) sources; config in stylua.toml
               pkgs.p7zip # `7z` -- build the FOMOD zip for distribution
             ];
 
@@ -29,6 +30,8 @@
               echo "immersive-identification dev shell"
               echo "  nix run .#check-xml           # validate every XML file in the repo"
               echo "  nix run .#check-lua           # full Lua diagnostics via lua-language-server"
+              echo "  nix run .#format              # StyLua-format every .script (Lua) source"
+              echo "  nix run .#check-format        # verify .script formatting (CI-friendly)"
               echo "  nix run .#package             # build immersive-identification-fomod-v<VERSION>.zip"
               echo "  luac -p gamedata/scripts/*.script   # Lua 5.1 syntax check"
               echo "  lua-language-server --version # point your editor's LSP client at this repo"
@@ -65,6 +68,30 @@
                 --check="$(pwd)" \
                 --checklevel=Warning \
                 --check_format=pretty
+            '');
+          };
+
+          # StyLua globs *.lua by default; this engine's sources are *.script
+          # (Lua 5.1), so both apps collect them explicitly. Config: stylua.toml.
+          format = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "format" ''
+              set -euo pipefail
+              find gamedata "FactionID Neutralized" "Perception Skill Integration" \
+                -name "*.script" -print0 \
+                | xargs -0 -r "${pkgs.stylua}/bin/stylua"
+              echo "Formatted all .script files."
+            '');
+          };
+
+          check-format = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "check-format" ''
+              set -euo pipefail
+              find gamedata "FactionID Neutralized" "Perception Skill Integration" \
+                -name "*.script" -print0 \
+                | xargs -0 -r "${pkgs.stylua}/bin/stylua" --check
+              echo "All .script files are formatted."
             '');
           };
 

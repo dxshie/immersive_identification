@@ -18,6 +18,7 @@
 ---@field UI_STYLE_LIST { label: string }[]
 ---@field REDACT_STYLE_LIST { label: string }[]
 ---@field REDACT_AREA_LIST { label: string }[]
+---@field BOX_COLOR_SOURCE_LIST { label: string }[]
 ---@field DEFAULT_KEY_NAME string DIK_keys field name, e.g. "DIK_X"
 ii_identify = {}
 

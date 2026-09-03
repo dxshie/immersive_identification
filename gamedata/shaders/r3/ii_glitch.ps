@@ -26,10 +26,24 @@
 #include "common.h"
 
 #define II_GLITCH_MAX 16   // keep in sync with xr_ioc_cmd.cpp / bodycam_script.cpp
+// Depth mask cutoff as a FRACTION of the box's (centre) depth, not a fixed
+// metric margin. rectDepth is the body CENTRE; its front-facing surfaces (near
+// shoulder/face, worse at an angle or full-body) sit some way in front of that,
+// so a fixed margin wrongly excluded them and the body drew over the effect.
+// Relative to distance the body's depth spread is small but the viewmodel is
+// dramatically nearer, so "exclude anything closer than DEPTH_FRAC * rectDepth"
+// keeps the whole body at any range/angle while still cutting the gun/hands.
+// Lower = includes more of the body (but risks keeping a very-near occluder);
+// higher = cuts foreground harder. Runtime-loaded, tune freely.
+#define GLITCH_DEPTH_FRAC 0.55
 
 float4 glitch_params;
 float4 glitch_count;
 float4 glitch_rects[II_GLITCH_MAX];
+float4 glitch_depths[II_GLITCH_MAX];   // .x = box view-space depth (m); 0 = no depth test
+// s_position (view-space position g-buffer, .z = linear depth) and screen_res
+// come from common.h -- used to skip pixels nearer than the corpse (the
+// viewmodel / foreground geometry), so the effect never draws over the gun/hands.
 
 // cheap hash -> [0,1)
 float ii_hash(float2 p)
@@ -38,50 +52,79 @@ float ii_hash(float2 p)
 }
 
 // ---- mode 0: animated glitch (returns raw effect colour; main feathers it) ----
+// Blocky + twitchy datamosh look: a coarse 2D block grid (not thin rows) shoves
+// and jumps per-block, reshuffling fast with occasional bursts, over chunky hard
+// scanlines. Tune the BLOCKS_*/SCANLINES/rate constants here (runtime-loaded, no
+// rebuild) -- lower counts = bigger blocks/scanlines.
 float3 ii_glitch(float2 uv, float2 luv, float2 span, float intensity, float t)
 {
-	const float BANDS      = 14.0;
-	const float TEAR       = 0.45;
-	const float VJIT       = 0.06;
-	const float CHROMA     = 0.010;
-	const float NOISE      = 0.30;
-	const float SCANDARK   = 0.45;
-	const float DROP_RATE  = 0.80;
+	const float BLOCKS_X  = 6.0;    // columns of blocks (2D chunkiness, not just rows)
+	const float BLOCKS_Y  = 9.0;    // rows of blocks (chunky bands)
+	const float SCANLINES = 7.0;    // chunky hard scanlines across the box (fewer = bigger)
+	const float TEAR      = 0.55;   // max horizontal block shove, fraction of box width
+	const float VJUMP     = 0.10;   // max vertical block jump, fraction of box height
+	const float CHROMA    = 0.014;  // RGB split, fraction of box width
+	const float NOISE     = 0.35;   // per-block noise (chunky, not per-pixel sparkle)
+	const float SCANDARK  = 0.5;    // scanline darkening depth
 
-	float band   = floor(luv.y * BANDS);
-	float bucket = floor(t * 15.0);
-	float r      = ii_hash(float2(band, bucket));
-	float active = step(0.45, ii_hash(float2(bucket, band)));
+	// Twitchy time: fast reshuffle (~22/s) + a sporadic strong "burst" tick.
+	float bucket = floor(t * 22.0);
+	float burst  = step(0.7, ii_hash(float2(bucket, 9.0)));   // ~30% of ticks
 
-	float shove = (r - 0.5) * 2.0 * TEAR * intensity * active;
-	float vjit  = (ii_hash(float2(bucket, 3.0)) - 0.5) * VJIT * intensity;
+	float bx = floor(luv.x * BLOCKS_X);   // block column
+	float by = floor(luv.y * BLOCKS_Y);   // block row
 
-	float2 duv = clamp(float2(uv.x + shove * span.x, uv.y + vjit * span.y), 0.0, 1.0);
+	// Per-row horizontal tear, gated per row (more rows tear during a burst).
+	float r      = ii_hash(float2(by, bucket));
+	float active = step(0.45 - 0.25 * burst, ii_hash(float2(bucket, by + 1.0)));
+	float shove  = (r - 0.5) * 2.0 * TEAR * intensity * active;
 
-	float ca = CHROMA * span.x * (1.0 + abs(shove) * 4.0) * intensity;
+	// Occasional per-block vertical jump (2D twitch), only some blocks.
+	float vjump = (ii_hash(float2(bx * 3.1 + by, bucket)) - 0.5) * VJUMP * intensity
+	            * step(0.82, ii_hash(float2(bucket, bx + by * 2.0)));
+
+	float2 duv = clamp(float2(uv.x + shove * span.x, uv.y + vjump * span.y), 0.0, 1.0);
+
+	// Chromatic aberration, stronger on active shoves and during bursts.
+	float ca = CHROMA * span.x * (1.0 + abs(shove) * 5.0 + burst) * intensity;
 	float3 col;
 	col.r = s_image.Sample(smp_base, clamp(duv + float2(ca, 0.0), 0.0, 1.0)).r;
 	col.g = s_image.Sample(smp_base, duv).g;
 	col.b = s_image.Sample(smp_base, clamp(duv - float2(ca, 0.0), 0.0, 1.0)).b;
 
-	float drop = step(DROP_RATE, ii_hash(float2(band + 5.0, bucket)));
+	// Dropout on whole 2D blocks (chunky) -- crush + invert.
+	float drop = step(0.82 - 0.15 * burst, ii_hash(float2(bx + by * 7.0 + 5.0, bucket)));
 	col = lerp(col, 1.0 - col, drop * 0.6 * intensity);
-	col *= lerp(1.0, 0.2, drop * intensity);
+	col *= lerp(1.0, 0.15, drop * intensity);
 
-	float scan  = 1.0 - SCANDARK * intensity * (0.5 + 0.5 * sin(luv.y * BANDS * 6.2831 + t * 40.0));
-	float noise = ii_hash(uv * float2(1920.0, 1080.0) + frac(t) * 100.0);
+	// Chunky hard scanlines (sharp on/off bands, not a fine sine) + per-block noise.
+	float scan  = 1.0 - SCANDARK * intensity * step(0.5, frac(luv.y * SCANLINES + t * 2.0));
+	float noise = ii_hash(float2(bx, by) + bucket);
 	col *= scan;
 	col += (noise - 0.5) * NOISE * intensity;
 
-	return lerp(col, col * float3(0.75, 1.05, 1.15), 0.35 * intensity);
+	// Cold digital tint.
+	return lerp(col, col * float3(0.7, 1.05, 1.2), 0.4 * intensity);
 }
 
 // ---- mode 1: pixelate (mosaic censor of the head region) ----
-float3 ii_pixelate(float2 rect_xy, float2 span, float2 luv)
+// uv = the current (body) pixel; rectDepth = the box's view depth. Unlike the
+// per-pixel depth mask in main() (which stops the effect drawing ON the gun),
+// pixelate RESAMPLES the scene at each cell centre -- so a cell whose centre
+// lands on the viewmodel/foreground would pull the gun's colour into a mosaic
+// block over the body. Guard that: if the cell centre is nearer than the corpse,
+// sample the current body pixel instead, so the gun never smears into the censor.
+float3 ii_pixelate(float2 uv, float2 rect_xy, float2 span, float2 luv, float rectDepth)
 {
 	const float CELLS = 10.0;   // blocks across the box, each axis
 	float2 cell = (floor(luv * CELLS) + 0.5) / CELLS;      // cell centre, 0..1 box space
 	float2 suv  = clamp(rect_xy + cell * span, 0.0, 1.0);  // -> scene UV
+	if (rectDepth > 0.0)
+	{
+		float cellZ = s_position.Load(int3(suv * screen_res.xy, 0), 0).z;
+		if (cellZ > 0.001 && cellZ < rectDepth * GLITCH_DEPTH_FRAC)
+			suv = uv;   // cell landed on a nearer surface -> keep the real body pixel
+	}
 	return s_image.Sample(smp_base, suv).rgb;
 }
 
@@ -106,6 +149,18 @@ float4 main(p_screen I, float4 pos2d : SV_POSITION) : SV_Target
 		float2 luv  = (uv - rect.xy) / span;
 		if (luv.x >= 0.0 && luv.x <= 1.0 && luv.y >= 0.0 && luv.y <= 1.0)
 		{
+			// Depth mask: if a nearer surface occupies this pixel (the viewmodel
+			// gun/hands, or foreground geometry between the camera and the corpse),
+			// skip it so the effect never paints over the gun. `continue` rather
+			// than bail, so an overlapping rect at a different depth can still win.
+			float rectDepth = glitch_depths[i].x;
+			if (rectDepth > 0.0)
+			{
+				float sceneZ = s_position.Load(int3(uv * screen_res.xy, 0), 0).z;
+				if (sceneZ > 0.001 && sceneZ < rectDepth * GLITCH_DEPTH_FRAC)
+					continue;
+			}
+
 			// Feather the box edges so it isn't a hard rectangle.
 			float edge = smoothstep(0.0, 0.08, luv.x) * smoothstep(0.0, 0.08, 1.0 - luv.x)
 			           * smoothstep(0.0, 0.08, luv.y) * smoothstep(0.0, 0.08, 1.0 - luv.y);
@@ -113,7 +168,7 @@ float4 main(p_screen I, float4 pos2d : SV_POSITION) : SV_Target
 			float3 effect;
 			float  blend;
 			if (mode == 2)        { effect = float3(0.0, 0.0, 0.0);              blend = edge * intensity; }
-			else if (mode == 1)   { effect = ii_pixelate(rect.xy, span, luv);   blend = edge * intensity; }
+			else if (mode == 1)   { effect = ii_pixelate(uv, rect.xy, span, luv, rectDepth); blend = edge * intensity; }
 			else                  { effect = ii_glitch(uv, luv, span, intensity, t); blend = edge; }
 
 			return float4(lerp(scene, effect, blend), 1.0);

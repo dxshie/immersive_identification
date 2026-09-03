@@ -3,62 +3,46 @@
 
 HUD = nil
 
-function activate_hud()
-end
+function activate_hud() end
 
 function deactivate_hud()
-    HUD = nil
+	HUD = nil
 end
 
-function on_screen_resolution_changed()
-end
+function on_screen_resolution_changed() end
 
-function actor_on_net_destroy()
-end
+function actor_on_net_destroy() end
 
-function actor_on_first_update()
-end
+function actor_on_first_update() end
 
-function loadsettings()
-end
+function loadsettings() end
 
 function on_mcm_load()
-    return nil
+	return nil
 end
 
 function identify(obj)
-    return false
+	return false
 end
 
-function displayFaction(obj)
-end
+function displayFaction(obj) end
 
-function display(faction, name, rank)
-end
+function display(faction, name, rank) end
 
-function clear()
-end
+function clear() end
 
-function target_enter(obj)
-end
+function target_enter(obj) end
 
-function target_exit(obj)
-end
+function target_exit(obj) end
 
-function target_tick(obj)
-end
+function target_tick(obj) end
 
-function actor_on_update()
-end
+function actor_on_update() end
 
-function npc_on_death_callback(npc, who)
-end
+function npc_on_death_callback(npc, who) end
 
-function npc_on_net_destroy(npc)
-end
+function npc_on_net_destroy(npc) end
 
-function GUI_on_show(gui, context)
-end
+function GUI_on_show(gui, context) end
 
-function on_game_start()
-end
+function on_game_start() end

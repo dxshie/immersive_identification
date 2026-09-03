@@ -5,95 +5,114 @@
 --  world space (not a HUD element), fades to full, holds, then fades out.
 -- ======================================================================
 
-local MAX_TAGS = 12   -- most identifications tracked/drawn at once (raised from 5
-                      -- so the auto-identify option, which reveals every visible
-                      -- target at once, isn't constantly evicting the oldest tag)
+local MAX_TAGS = 12 -- most identifications tracked/drawn at once (raised from 5
+-- so the auto-identify option, which reveals every visible
+-- target at once, isn't constantly evicting the oldest tag)
 
 -- render()'s per-frame scratch list of on-screen cards, reused instead of
 -- allocated fresh every call -- tracked is capped at MAX_TAGS (see
 -- try_identify), so this pool never needs to grow past it.
 local active_pool = {}
-for i = 1, MAX_TAGS do active_pool[i] = {} end
+for i = 1, MAX_TAGS do
+	active_pool[i] = {}
+end
 
 -- Defaults, also the fallback when MCM is absent. Keys match the MCM option
 -- ids under the "ii" menu (see ii_mcm.script). Declared non-local so the menu
 -- file can read it as ii_identify.DEFAULTS (single source of truth).
 DEFAULTS = {
-	enabled           = true,
-	key_dik           = 0,     -- captured DIK code; 0/nil means "unset, use DEFAULT_KEY_NAME"
-	modifier_index    = 1,     -- index into MODIFIER_LIST (1 = none)
-	ui_style          = 1,     -- index into UI_STYLE_LIST (1 = card, 2 = minimal, 3 = bodycam)
-	box_area          = 1,     -- bodycam style: index into REDACT_AREA_LIST (1 = head/face box,
-	                           -- 2 = full-body box) for the outline rectangle
-	box_thickness     = 2,     -- bodycam outline edge thickness in virtual px (not distance-scaled)
-	box_padding       = 0.2,   -- bodycam outline: extra margin around the model as a fraction of the
-	                           -- box size (0 = tight, 0.2 = 20% larger each side), distance-independent
-	box_opacity       = 1.0,   -- bodycam outline rectangle opacity 0..1 (multiplies the fade alpha;
-	                           -- the name/faction/weapon text is unaffected)
-	auto_identify     = false, -- continuously identify every visible target in range without a
-	                           -- keypress (LOS-gated). Off by default; pairs well with the
-	                           -- bodycam head-box style but works with any style
+	enabled = true,
+	key_dik = 0, -- captured DIK code; 0/nil means "unset, use DEFAULT_KEY_NAME"
+	modifier_index = 1, -- index into MODIFIER_LIST (1 = none)
+	ui_style = 1, -- index into UI_STYLE_LIST (1 = card, 2 = minimal, 3 = bodycam)
+	box_area = 1, -- bodycam style: index into REDACT_AREA_LIST (1 = head/face box,
+	-- 2 = full-body box) for the outline rectangle
+	box_color_source = 1, -- bodycam box colour: index into BOX_COLOR_SOURCE_LIST
+	-- (1 = faction colour, 2 = relationship colour red/green/grey)
+	box_thickness = 2, -- bodycam outline edge thickness in virtual px (not distance-scaled)
+	box_padding = 0.2, -- bodycam outline: extra margin around the model as a fraction of the
+	-- box size (0 = tight, 0.2 = 20% larger each side), distance-independent
+	box_opacity = 1.0, -- bodycam outline rectangle opacity 0..1 (multiplies the fade alpha;
+	-- the name/faction/weapon text is unaffected)
+	auto_identify = false, -- continuously identify every visible target in range without a
+	-- keypress (LOS-gated). Off by default; pairs well with the
+	-- bodycam head-box style but works with any style
 	-- Redaction: an engine post-process drawn over the head of every visible dead
 	-- body in range. Fully independent of identification -- no need to aim at or
 	-- identify a body, works in any UI style. Needs the custom bodycam exe's
 	-- multi-rect glitch binding; fully inert on a stock exe.
-	redact_dead       = false, -- master toggle: redact visible dead bodies
-	redact_style      = 1,     -- index into REDACT_STYLE_LIST (1 = glitch, 2 = pixelate, 3 = black)
-	redact_area       = 1,     -- index into REDACT_AREA_LIST (1 = head/face only, 2 = full body)
-	redact_strength   = 1.0,   -- master intensity 0..1 of the redaction effect
-	redact_padding    = 0.15,  -- extra margin around the redacted region as a fraction of its size
-	                           -- (0 = tight, 0.15 = 15% larger each side), distance-independent
-	color_by_relation = true,  -- tint the tag by relation to the actor instead of a flat colour
-	show_name         = true,  -- show the target's name line (all text styles: card + bodycam)
-	show_faction      = true,  -- show the target's faction line (all text styles: card + bodycam)
-	instant_identify  = false, -- skip the scan wait/spinner entirely: the tag reveals immediately on
-	                           -- identify (bypasses scan_time and all the scan-time multipliers)
-	scan_time         = 0.35,  -- seconds: "scanning" pulse before the tag reveals
-	fade_time         = 0.45,  -- seconds: fade in / fade out
-	hold_time         = 4.0,   -- seconds: tag stays fully visible
-	max_dist          = 50,    -- metres: identify only works within this range
-	fade_dist         = 40,    -- metres: tag starts fading with distance beyond this
-	fov_assist        = true,  -- master target-assist: when you don't land a direct hit, identify the
-	                           -- nearest eligible target within the on-screen FOV circle. Off = you must
-	                           -- aim directly at the target (direct raycast hit only), no circle fallback
-	fov_assist_binoc  = true,  -- whether FOV target-assist also applies while looking through raised
-	                           -- binoculars; independent of the master toggle for the binocular case
-	freeaim_assist    = false, -- bodycam / free-aim engines: centre the FOV target-assist on where the
-	                           -- weapon actually points instead of the fixed screen centre. Needs an
-	                           -- aim source that reflects free aim -- either level.ETraceTarget.Weapon
-	                           -- (absent on the tested bodycam build) or a bodycam.get_fire_ray() engine
-	                           -- binding (see SPEC "Free-aim support"). Inert / harmless without either
-	fov_radius        = 110,   -- virtual-space px (1024-wide): invisible target-assist radius
-	require_los       = true,  -- target-assist fallback only picks targets with clear line of sight
-	hide_unseen       = true,  -- hide an active tag/card/box while its target is out of sight (occluded
-	                           -- or off-screen), instead of leaving it floating until its timer expires;
-	                           -- it reappears if the target comes back into view within the reveal window
-	binocular_mode    = false, -- auto-trigger identify on a steady aim through raised binoculars,
-	                           -- in addition to (not instead of) the normal key
+	redact_dead = false, -- master toggle: redact visible dead bodies
+	redact_style = 1, -- index into REDACT_STYLE_LIST (1 = glitch, 2 = pixelate, 3 = black)
+	redact_area = 1, -- index into REDACT_AREA_LIST (1 = head/face only, 2 = full body)
+	redact_strength = 1.0, -- master intensity 0..1 of the redaction effect
+	redact_padding = 0.15, -- extra margin around the redacted region as a fraction of its size
+	-- (0 = tight, 0.15 = 15% larger each side), distance-independent
+	color_by_relation = true, -- tint the tag by relation to the actor instead of a flat colour
+	show_name = true, -- show the target's name line (all text styles: card + bodycam)
+	show_faction = true, -- show the target's faction line (all text styles: card + bodycam)
+	instant_identify = false, -- skip the scan wait/spinner entirely: the tag reveals immediately on
+	-- identify (bypasses scan_time and all the scan-time multipliers)
+	scan_time = 0.35, -- seconds: "scanning" pulse before the tag reveals
+	fade_time = 0.45, -- seconds: fade in / fade out
+	hold_time = 4.0, -- seconds: tag stays fully visible
+	max_dist = 50, -- metres: identify only works within this range
+	fade_dist = 40, -- metres: tag starts fading with distance beyond this
+	fov_assist = true, -- master target-assist: when you don't land a direct hit, identify the
+	-- nearest eligible target within the on-screen FOV circle. Off = you must
+	-- aim directly at the target (direct raycast hit only), no circle fallback
+	fov_assist_binoc = true, -- whether FOV target-assist also applies while looking through raised
+	-- binoculars; independent of the master toggle for the binocular case
+	freeaim_assist = false, -- bodycam / free-aim engines: centre the FOV target-assist on where the
+	-- weapon actually points instead of the fixed screen centre. Needs an
+	-- aim source that reflects free aim -- either level.ETraceTarget.Weapon
+	-- (absent on the tested bodycam build) or a bodycam.get_fire_ray() engine
+	-- binding (see SPEC "Free-aim support"). Inert / harmless without either
+	fov_radius = 110, -- virtual-space px (1024-wide): invisible target-assist radius
+	require_los = true, -- target-assist fallback only picks targets with clear line of sight
+	hide_unseen = true, -- hide an active tag/card/box while its target is out of sight (occluded
+	-- or off-screen), instead of leaving it floating until its timer expires;
+	-- it reappears if the target comes back into view within the reveal window
+	pip_markers = true, -- draw identification markers INSIDE a PiP scope (needs a PiP engine); off =
+	-- behave as if there were no PiP support (normal HUD, no in-scope markers)
+	pip_redact = true, -- draw the dead-body redaction INSIDE a PiP scope (independent of pip_markers;
+	-- the main-view redaction is unaffected either way)
+	pip_hide_main = false, -- while a PiP scope is up, suppress ALL main-view drawing (HUD tags +
+	-- main-pass redaction), leaving only the in-scope UI
+	ads_hide_main = false, -- while aiming down sight, suppress ALL main-view drawing (HUD tags +
+	-- main-pass redaction) -- e.g. a clean sight picture; in-scope UI (if any) still draws
+	binocular_mode = false, -- auto-trigger identify on a steady aim through raised binoculars,
+	-- in addition to (not instead of) the normal key
 	require_binoculars = false, -- the key (and auto-trigger) only work while actively looking
-	                             -- through raised binoculars -- independent of binocular_mode
-	steady_time       = 0.6,   -- seconds: how long the aim must hold still (binocular mode) before auto-identifying
-	card_scale        = 1.0,   -- flat size multiplier for the whole card (manual, not distance-based)
-	mini_scale_cutoff = 0.4,   -- below this scale, show just the relation dot instead of the full card
-	binoc_boost       = true,  -- binoculars speed up + extend identify range, independent of binocular_mode
-	binoc_scan_mult   = 0.4,   -- scan_time multiplier while binoculars are raised (lower = faster reveal)
-	binoc_range_mult  = 2.5,   -- max_dist/fade_dist multiplier while binoculars are raised
-	dist_penalty      = true,  -- further targets take longer to scan/identify (binoc_range_mult mitigates
-	                           -- this for free -- see distance_scan_mult()'s comment)
-	dist_penalty_max  = 5.0,   -- scan time multiplier right at the (current, possibly boosted) max range
-	perception_compat = true,  -- soft-integrate with the Skill System mod's "perception" skill, if present
+	-- through raised binoculars -- independent of binocular_mode
+	steady_time = 0.6, -- seconds: how long the aim must hold still (binocular mode) before auto-identifying
+	card_scale = 1.0, -- flat size multiplier for the whole card (manual, not distance-based)
+	mini_scale_cutoff = 0.4, -- below this scale, show just the relation dot instead of the full card
+	binoc_boost = true, -- binoculars speed up + extend identify range, independent of binocular_mode
+	binoc_scan_mult = 0.4, -- scan_time multiplier while binoculars are raised (lower = faster reveal)
+	binoc_range_mult = 2.5, -- max_dist/fade_dist multiplier while binoculars are raised
+	ads_mode = false, -- auto-trigger identify on a steady ADS (aim-down-sight) aim, like binocular_mode
+	ads_boost = true, -- aiming down sight speeds up + extends identify range, independent of ads_mode
+	ads_scan_mult = 0.6, -- scan_time multiplier while aiming down sight (gentler than binoculars)
+	ads_range_mult = 1.6, -- max_dist/fade_dist multiplier while aiming down sight (the x1 base)
+	ads_zoom_scaling = true, -- scale the ADS range multiplier by the scope's magnification (x2/x4/...),
+	-- so a higher-power optic reaches further. Works on PiP (engine magnification binding) and
+	-- non-PiP engines (recovered from the main-camera FOV) -- see scope_magnification()
+	dist_penalty = true, -- further targets take longer to scan/identify (binoc_range_mult mitigates
+	-- this for free -- see distance_scan_mult()'s comment)
+	dist_penalty_max = 5.0, -- scan time multiplier right at the (current, possibly boosted) max range
+	perception_compat = true, -- soft-integrate with the Skill System mod's "perception" skill, if present
 	perception_scan_mult = 0.04, -- scan time reduction per perception level (0.04 = 4% faster per level)
-	perception_xp        = 20,   -- perception XP granted per successful identify (skill-system side)
-	perception_loot_xp   = 20,   -- bonus perception XP granted the first time you loot a corpse you'd
-	                             -- already identified (skill-system side)
-	rank_penalty      = true,  -- higher-ranked stalkers take longer to identify (novice = baseline, legend = slowest)
-	rank_penalty_max  = 3.0,   -- scan time multiplier for the highest rank (legend), relative to a rookie
-	familiarity_boost = true,  -- once you've identified a stalker before, re-identifying them later is faster
+	perception_xp = 20, -- perception XP granted per successful identify (skill-system side)
+	perception_loot_xp = 20, -- bonus perception XP granted the first time you loot a corpse you'd
+	-- already identified (skill-system side)
+	rank_penalty = true, -- higher-ranked stalkers take longer to identify (novice = baseline, legend = slowest)
+	rank_penalty_max = 3.0, -- scan time multiplier for the highest rank (legend), relative to a rookie
+	familiarity_boost = true, -- once you've identified a stalker before, re-identifying them later is faster
 	familiarity_scan_mult = 0.6, -- scan time multiplier for a previously-identified target
-	night_penalty     = true,  -- identification is slower in the dark, ramping up over dusk and peaking across midnight (0:00)
-	night_penalty_max = 2.0,   -- scan time multiplier at the darkest point of the night
-	show_weapon       = true,  -- show the target's currently-wielded weapon + caliber line (card + bodycam)
-	debug_log         = false, -- write aim/trace diagnostics to the game log on each identify attempt
+	night_penalty = true, -- identification is slower in the dark, ramping up over dusk and peaking across midnight (0:00)
+	night_penalty_max = 2.0, -- scan time multiplier at the darkest point of the night
+	show_weapon = true, -- show the target's currently-wielded weapon + caliber line (card + bodycam)
+	debug_log = false, -- write aim/trace diagnostics to the game log on each identify attempt
 }
 
 -- Section name of the stock binoculars item (confirmed from this engine's
@@ -176,30 +195,38 @@ REDACT_AREA_LIST = {
 	{ label = "body" },
 }
 
+-- What the bodycam outline box's colour represents. 1 = faction colour (who they
+-- are), 2 = relationship colour (red enemy / green friendly / grey neutral).
+-- Referenced as ii_identify.BOX_COLOR_SOURCE_LIST from ii_mcm.script.
+BOX_COLOR_SOURCE_LIST = {
+	{ label = "faction" },
+	{ label = "relation" },
+}
+
 -- Community id -> display-name string id. Anything not listed here falls
 -- back to a prettified version of the raw community id, so unknown/modded
 -- factions still show something reasonable instead of nothing.
 local FACTION_NAMES = {
-	stalker    = "st_ii_faction_stalker",
-	bandit     = "st_ii_faction_bandit",
-	dolg       = "st_ii_faction_dolg",
-	freedom    = "st_ii_faction_freedom",
-	csky       = "st_ii_faction_csky",
-	ecolog     = "st_ii_faction_ecolog",
-	killer     = "st_ii_faction_killer",
-	military   = "st_ii_faction_military",
-	monolith   = "st_ii_faction_monolith",
-	renegade   = "st_ii_faction_renegade",
-	zombied    = "st_ii_faction_zombied",
-	greh       = "st_ii_faction_greh",
-	trader     = "st_ii_faction_trader",
-	monster    = "st_ii_faction_monster",
-	isg        = "st_ii_faction_isg",
-	arena      = "st_ii_faction_arena",
+	stalker = "st_ii_faction_stalker",
+	bandit = "st_ii_faction_bandit",
+	dolg = "st_ii_faction_dolg",
+	freedom = "st_ii_faction_freedom",
+	csky = "st_ii_faction_csky",
+	ecolog = "st_ii_faction_ecolog",
+	killer = "st_ii_faction_killer",
+	military = "st_ii_faction_military",
+	monolith = "st_ii_faction_monolith",
+	renegade = "st_ii_faction_renegade",
+	zombied = "st_ii_faction_zombied",
+	greh = "st_ii_faction_greh",
+	trader = "st_ii_faction_trader",
+	monster = "st_ii_faction_monster",
+	isg = "st_ii_faction_isg",
+	arena = "st_ii_faction_arena",
 }
 
-local COL_ENEMY   = { 224, 76,  64  }
-local COL_FRIEND  = { 118, 206, 128 }
+local COL_ENEMY = { 224, 76, 64 }
+local COL_FRIEND = { 118, 206, 128 }
 local COL_NEUTRAL = { 214, 194, 140 }
 
 -- Minimal-style dot colour: distinct per faction (unlike the card's node,
@@ -211,22 +238,22 @@ local COL_NEUTRAL = { 214, 194, 140 }
 -- monolith) are per user request; the rest fill in the remaining factions
 -- distinctly enough to stay readable alongside them.
 local FACTION_COLOR = {
-	stalker  = { 220, 130, 40  },  -- loner orange
-	bandit   = { 170, 130, 80  },  -- bandit tan/brown
-	dolg     = { 195, 45,  45  },  -- duty red
-	freedom  = { 90,  170, 70  },  -- freedom green
-	csky     = { 120, 190, 230 },  -- clear sky pale blue
-	ecolog   = { 200, 220, 90  },  -- ecologist yellow-green
-	killer   = { 60,  110, 200 },  -- mercenary blue
-	military = { 120, 120, 70  },  -- military olive/grey
-	monolith = { 235, 235, 235 },  -- monolith near-white
-	renegade = { 170, 70,  50  },  -- renegade rust/copper
-	zombied  = { 150, 190, 60  },  -- zombified sickly green
-	greh     = { 185, 95,  35  },  -- sin burnt orange
-	trader   = { 220, 190, 60  },  -- trader gold
-	monster  = { 130, 100, 90  },  -- mutant muted grey-brown
-	isg      = { 60,  200, 190 },  -- UNISG turquoise
-	arena    = { 170, 70,  190 },  -- arena purple
+	stalker = { 220, 130, 40 }, -- loner orange
+	bandit = { 170, 130, 80 }, -- bandit tan/brown
+	dolg = { 195, 45, 45 }, -- duty red
+	freedom = { 90, 170, 70 }, -- freedom green
+	csky = { 120, 190, 230 }, -- clear sky pale blue
+	ecolog = { 200, 220, 90 }, -- ecologist yellow-green
+	killer = { 60, 110, 200 }, -- mercenary blue
+	military = { 120, 120, 70 }, -- military olive/grey
+	monolith = { 235, 235, 235 }, -- monolith near-white
+	renegade = { 170, 70, 50 }, -- renegade rust/copper
+	zombied = { 150, 190, 60 }, -- zombified sickly green
+	greh = { 185, 95, 35 }, -- sin burnt orange
+	trader = { 220, 190, 60 }, -- trader gold
+	monster = { 130, 100, 90 }, -- mutant muted grey-brown
+	isg = { 60, 200, 190 }, -- UNISG turquoise
+	arena = { 170, 70, 190 }, -- arena purple
 }
 
 -- Minimal-style sign colour, keyed by the glyph relation_sign() below
@@ -242,12 +269,12 @@ local SIGN_COLOR = {
 -- Bones to anchor the tag to, best first (humanoid skeleton; monsters that
 -- lack all of these fall back to position()+offset in anchor_pos).
 local ANCHOR_BONES = { "bip01_head", "bip01_spine2", "bip01_spine1", "bip01_spine" }
-local ANCHOR_LIFT = 0.12   -- metres above the matched bone
+local ANCHOR_LIFT = 0.12 -- metres above the matched bone
 
-local C          = {}     -- live config (DEFAULTS overlaid with MCM values)
-local tracked    = {}     -- [obj_id] = { id, t0, col, name, icon }
+local C = {} -- live config (DEFAULTS overlaid with MCM values)
+local tracked = {} -- [obj_id] = { id, t0, col, name, icon }
 ---@type IiTags|nil
-local TAGS       = nil    -- the IiTags dialog instance
+local TAGS = nil -- the IiTags dialog instance
 local SCAN_MS, FADE_MS, HOLD_MS = 350, 450, 4000
 
 -- Aspect-correction factor the engine applies to rotated (SetHeading) statics:
@@ -261,8 +288,12 @@ local _prev_on_key_press = nil
 
 local _p = vector2()
 local _s = vector2()
-local function P(x, y) return _p:set(x, y) end
-local function S(x, y) return _s:set(x, y) end
+local function P(x, y)
+	return _p:set(x, y)
+end
+local function S(x, y)
+	return _s:set(x, y)
+end
 
 local _scratch = vector()
 
@@ -276,7 +307,9 @@ local function read_config()
 			-- Option storage path mirrors the menu shape in ii_mcm.script: the
 			-- single "main" page nests options under "ii/main/<key>".
 			local got = ui_mcm.get("ii/main/" .. key)
-			if got ~= nil then v = got end
+			if got ~= nil then
+				v = got
+			end
 		end
 		C[key] = v
 	end
@@ -296,7 +329,9 @@ end
 -- code the player last clicked into the box); 0/nil means "never captured
 -- one", so fall back to the compiled-in default key.
 local function active_dik()
-	if C.key_dik and C.key_dik ~= 0 then return C.key_dik end
+	if C.key_dik and C.key_dik ~= 0 then
+		return C.key_dik
+	end
 	return DIK_keys and DIK_keys[DEFAULT_KEY_NAME]
 end
 
@@ -304,14 +339,18 @@ end
 -- boolean), so 0 is truthy under plain Lua "if" semantics -- compare
 -- explicitly rather than trusting truthiness.
 local function key_down(dik)
-	if not dik or not key_state then return false end
+	if not dik or not key_state then
+		return false
+	end
 	local v = key_state(dik)
 	return v ~= nil and v ~= false and v ~= 0
 end
 
 local function modifiers_ok()
 	local e = MODIFIER_LIST[C.modifier_index] or MODIFIER_LIST[1]
-	if not e or not e.dik or not DIK_keys then return true end
+	if not e or not e.dik or not DIK_keys then
+		return true
+	end
 	return key_down(DIK_keys[e.dik]) or (e.alt_dik and key_down(DIK_keys[e.alt_dik])) or false
 end
 
@@ -320,7 +359,9 @@ end
 -- throughout this file down to a single expression at each call site.
 local function safe_call(fn, ...)
 	local ok, v = pcall(fn, ...)
-	if ok then return v end
+	if ok then
+		return v
+	end
 	return nil
 end
 
@@ -331,10 +372,14 @@ local function faction_label(comm)
 	local sid = FACTION_NAMES[comm]
 	if sid then
 		local txt = safe_call(game.translate_string, sid)
-		if txt and txt ~= sid then return txt end
+		if txt and txt ~= sid then
+			return txt
+		end
 	end
 	local pretty = comm:gsub("_", " ")
-	pretty = pretty:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b:lower() end)
+	pretty = pretty:gsub("(%a)([%w']*)", function(a, b)
+		return a:upper() .. b:lower()
+	end)
 	return pretty
 end
 
@@ -349,7 +394,9 @@ local function display_name(obj, comm)
 	local name = safe_call(obj.character_name, obj)
 	if name and name ~= "" then
 		local txt = safe_call(game.translate_string, name)
-		if txt and txt ~= "" and txt ~= name then return txt end
+		if txt and txt ~= "" and txt ~= name then
+			return txt
+		end
 		return name
 	end
 	return faction_label(comm)
@@ -366,11 +413,17 @@ end
 -- so it matches the game's own terminology instead of inventing new labels.
 local function rank_label(obj)
 	local rid = safe_call(obj.rank_name, obj)
-	if not rid or rid == "" then return nil end
+	if not rid or rid == "" then
+		return nil
+	end
 	local txt = safe_call(game.translate_string, "st_rank_" .. rid)
-	if txt and txt ~= "" and txt ~= ("st_rank_" .. rid) then return txt end
+	if txt and txt ~= "" and txt ~= ("st_rank_" .. rid) then
+		return txt
+	end
 	local pretty = rid:gsub("_", " ")
-	pretty = pretty:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b:lower() end)
+	pretty = pretty:gsub("(%a)([%w']*)", function(a, b)
+		return a:upper() .. b:lower()
+	end)
 	return pretty
 end
 
@@ -382,12 +435,18 @@ end
 -- no ammo_class or the token doesn't match the standard cartridge pattern
 -- (gauss/energy/grenade ammo, exotic naming), rather than guessing wrong.
 local function weapon_caliber(sec)
-	if not ini_sys or not sec then return nil end
+	if not ini_sys or not sec then
+		return nil
+	end
 	local ac = safe_call(ini_sys.r_string, ini_sys, sec, "ammo_class")
-	if not ac or ac == "" then return nil end
-	local first = ac:match("^%s*([^,]+)")           -- first ammo section if it's a list
-	local cal = first and first:match("[%d%.]+x[%d%.]+")   -- e.g. 5.45x39 / 9x18 / 12x70
-	if cal and cal ~= "" then return cal end
+	if not ac or ac == "" then
+		return nil
+	end
+	local first = ac:match("^%s*([^,]+)") -- first ammo section if it's a list
+	local cal = first and first:match("[%d%.]+x[%d%.]+") -- e.g. 5.45x39 / 9x18 / 12x70
+	if cal and cal ~= "" then
+		return cal
+	end
 	return nil
 end
 
@@ -404,27 +463,39 @@ end
 -- id is the fallback. Returns nil (no line) rather than a placeholder when
 -- there's no weapon to show.
 local function held_weapon_label(obj)
-	if not C.show_weapon then return nil end
+	if not C.show_weapon then
+		return nil
+	end
 	local wpn = safe_call(obj.best_weapon, obj)
-	if not wpn then return nil end
+	if not wpn then
+		return nil
+	end
 	local sec = safe_call(wpn.section, wpn)
-	if not sec or sec == "" then return nil end
+	if not sec or sec == "" then
+		return nil
+	end
 
 	local label
 	if ini_sys then
 		local inv = safe_call(ini_sys.r_string, ini_sys, sec, "inv_name")
 		if inv and inv ~= "" then
 			local txt = safe_call(game.translate_string, inv)
-			if txt and txt ~= "" and txt ~= inv then label = txt end
+			if txt and txt ~= "" and txt ~= inv then
+				label = txt
+			end
 		end
 	end
 	if not label then
 		label = sec:gsub("^wpn_", ""):gsub("_", " ")
-		label = label:gsub("(%a)([%w']*)", function(a, b) return a:upper() .. b:lower() end)
+		label = label:gsub("(%a)([%w']*)", function(a, b)
+			return a:upper() .. b:lower()
+		end)
 	end
 
 	local cal = weapon_caliber(sec)
-	if cal then return label .. "  (" .. cal .. ")" end
+	if cal then
+		return label .. "  (" .. cal .. ")"
+	end
 	return label
 end
 
@@ -437,10 +508,16 @@ local function faction_icon_id(comm)
 end
 
 local function relation_color(obj)
-	if not C.color_by_relation then return COL_NEUTRAL end
+	if not C.color_by_relation then
+		return COL_NEUTRAL
+	end
 	local rel = safe_call(obj.relation, obj, db.actor)
-	if rel == game_object.enemy then return COL_ENEMY end
-	if rel == game_object.friend then return COL_FRIEND end
+	if rel == game_object.enemy then
+		return COL_ENEMY
+	end
+	if rel == game_object.friend then
+		return COL_FRIEND
+	end
 	return COL_NEUTRAL
 end
 
@@ -450,8 +527,12 @@ end
 -- the sign in minimal style is showing relation clearly).
 local function relation_sign(obj)
 	local rel = safe_call(obj.relation, obj, db.actor)
-	if rel == game_object.enemy then return "-" end
-	if rel == game_object.friend then return "+" end
+	if rel == game_object.enemy then
+		return "-"
+	end
+	if rel == game_object.friend then
+		return "+"
+	end
 	return "o"
 end
 
@@ -473,10 +554,29 @@ end
 
 local function project_world(pos)
 	local w2u = (game and game.world2ui) or (level and level.world2ui)
-	if not w2u then return nil end
+	if not w2u then
+		return nil
+	end
 	local ui = w2u(_scratch:set(pos), false, false)
-	if not ui or ui.x < -9000 then return nil end
+	if not ui or ui.x < -9000 then
+		return nil
+	end
 	return ui.x, ui.y
+end
+
+-- View-space depth (metres along the view axis) of a world point: the projection
+-- of (pos - cam_pos) onto the camera forward. Matches the engine's s_position.z,
+-- so the redaction shader can skip anything nearer than this (the viewmodel /
+-- foreground) -- see glitch_submit + ii_glitch.ps. 0 (no test) if unavailable.
+local function view_depth(pos)
+	local dev = device and device()
+	local cp = dev and dev.cam_pos
+	local cd = dev and dev.cam_dir
+	if not cp or not cd then
+		return 0
+	end
+	local d = (pos.x - cp.x) * cd.x + (pos.y - cp.y) * cd.y + (pos.z - cp.z) * cd.z
+	return d > 0 and d or 0
 end
 
 -- world2ui returns coordinates in the engine's fixed 1024x768 "virtual UI"
@@ -491,7 +591,7 @@ local UI_CX, UI_CY = 512, 384
 -- face centre -- a box centred straight on it rides low over the neck/chest, so
 -- lift it up to the middle of the head. Returns nil for monsters/rigs without a
 -- bip01_head bone -- caller falls back to anchor_pos() for those.
-local HEAD_LIFT = 0.09   -- metres of world-up from bip01_head to the face centre
+local HEAD_LIFT = 0.09 -- metres of world-up from bip01_head to the face centre
 local function head_center(obj)
 	local base = obj:position()
 	local p = safe_call(obj.bone_position, obj, "bip01_head")
@@ -526,25 +626,43 @@ local function screen_box(center, hw_m, hh_m)
 	local dev = device and device()
 	local cr = dev and dev.cam_right
 	local ct = dev and dev.cam_top
-	if not cr or not ct then return nil end
+	if not cr or not ct then
+		return nil
+	end
 	local minx, miny, maxx, maxy
 	for sx = -1, 1, 2 do
 		for sy = -1, 1, 2 do
-			local px, py = project_world(_box_c:set(
-				center.x + cr.x * hw_m * sx + ct.x * hh_m * sy,
-				center.y + cr.y * hw_m * sx + ct.y * hh_m * sy,
-				center.z + cr.z * hw_m * sx + ct.z * hh_m * sy))
-			if not px then return nil end
-			if not minx then minx, miny, maxx, maxy = px, py, px, py
+			local px, py = project_world(
+				_box_c:set(
+					center.x + cr.x * hw_m * sx + ct.x * hh_m * sy,
+					center.y + cr.y * hw_m * sx + ct.y * hh_m * sy,
+					center.z + cr.z * hw_m * sx + ct.z * hh_m * sy
+				)
+			)
+			if not px then
+				return nil
+			end
+			if not minx then
+				minx, miny, maxx, maxy = px, py, px, py
 			else
-				if px < minx then minx = px elseif px > maxx then maxx = px end
-				if py < miny then miny = py elseif py > maxy then maxy = py end
+				if px < minx then
+					minx = px
+				elseif px > maxx then
+					maxx = px
+				end
+				if py < miny then
+					miny = py
+				elseif py > maxy then
+					maxy = py
+				end
 			end
 		end
 	end
 	local hw, hh = (maxx - minx) * 0.5, (maxy - miny) * 0.5
-	if hw < 1 or hh < 1 then return nil end
-	return (minx + maxx) * 0.5, (miny + maxy) * 0.5, hw, hh
+	if hw < 1 or hh < 1 then
+		return nil
+	end
+	return (minx + maxx) * 0.5, (miny + maxy) * 0.5, hw, hh, view_depth(center)
 end
 
 -- Engine glitch post-process binding: distorts the real scene inside a LIST of
@@ -555,36 +673,75 @@ end
 -- (top-left origin); the engine passes them straight to the shader as box UVs.
 -- Our box extents are in world2ui's fixed 1024x768 virtual space, which maps
 -- across the whole screen, so dividing by 1024/768 gives [0,1].
-local GLITCH_MAX = 16   -- must match II_GLITCH_MAX in the engine + shader
+local GLITCH_MAX = 16 -- must match II_GLITCH_MAX in the engine + shader
 
 local function glitch_binding()
 	local bc = rawget(_G, "bodycam")
-	if bc and bc.glitch_begin and bc.glitch_add and bc.glitch_commit then return bc end
+	if bc and bc.glitch_begin and bc.glitch_add and bc.glitch_commit then
+		return bc
+	end
 	return nil
 end
 
--- Submit a list of head boxes (each {cx,cy,hw,hh} in 1024x768 virtual space) as
--- one atomic frame. intensity 0 (or an empty list) clears the effect.
-local function glitch_submit(boxes, n, intensity)
+-- Submit a list of head boxes (each {cx,cy,hw,hh,depth} in 1024x768 virtual
+-- space + metres) as one atomic frame. intensity 0 (or an empty list) clears the
+-- effect. depth is the box's view-space depth; the engine skips pixels nearer
+-- than it (the viewmodel / foreground) so the effect never covers the gun/hands.
+-- main_off: suppress the MAIN-pass redaction (but keep the in-scope pass) by
+-- submitting each box's main-camera rect off-screen -- the main glitch shader
+-- finds no pixels in a rect outside [0,1], while the engine still reprojects the
+-- WORLD box for the scope pass. Used by pip_hide_main / ads_hide_main.
+local function glitch_submit(boxes, n, intensity, main_off)
 	local bc = glitch_binding()
-	if not bc then return end
+	if not bc then
+		return
+	end
 	-- Redaction style (glitch/pixelate/black); guarded so an older exe without
 	-- this binding just keeps mode 0 (glitch). List index -> 0-based engine mode.
 	if bc.glitch_set_mode then
 		pcall(bc.glitch_set_mode, (C.redact_style or 1) - 1)
 	end
+	-- pip_redact (MCM) gates the in-scope redaction: when off, zero the world
+	-- extents so the engine's SVP pass skips it (main-pass redaction still uses
+	-- the screen rect above, unaffected).
+	local in_scope = C.pip_redact ~= false
 	pcall(bc.glitch_begin)
 	for i = 1, n do
 		local b = boxes[i]
-		pcall(bc.glitch_add, (b.cx - b.hw) / 1024, (b.cy - b.hh) / 768,
-			(b.cx + b.hw) / 1024, (b.cy + b.hh) / 768)
+		-- Main-camera normalised rect + view depth (main pass), then the box's
+		-- WORLD centre + world half-extents (metres) which the engine reprojects
+		-- through the scope camera for the in-scope pass. glitch_add ignores the
+		-- world args on an older exe (5-arg binding) -- pcall + arg drop.
+		local mx0, my0, mx1, my1
+		if main_off then
+			mx0, my0, mx1, my1 = 2.0, 2.0, 2.001, 2.001 -- off-screen: no main-pass draw
+		else
+			mx0, my0 = (b.cx - b.hw) / 1024, (b.cy - b.hh) / 768
+			mx1, my1 = (b.cx + b.hw) / 1024, (b.cy + b.hh) / 768
+		end
+		pcall(
+			bc.glitch_add,
+			mx0,
+			my0,
+			mx1,
+			my1,
+			b.depth or 0,
+			in_scope and (b.wcx or 0) or 0,
+			in_scope and (b.wcy or 0) or 0,
+			in_scope and (b.wcz or 0) or 0,
+			in_scope and (b.whw or 0) or 0,
+			in_scope and (b.whh or 0) or 0
+		)
 	end
 	pcall(bc.glitch_commit, (n > 0) and intensity or 0.0)
 end
 
 local function glitch_clear()
 	local bc = glitch_binding()
-	if bc then pcall(bc.glitch_begin); pcall(bc.glitch_commit, 0.0) end
+	if bc then
+		pcall(bc.glitch_begin)
+		pcall(bc.glitch_commit, 0.0)
+	end
 end
 
 -- Tracks the glitch on/off edge so the debug log only fires on the transition
@@ -613,13 +770,17 @@ local _glitch_dbg_active = false
 --      far point along the ray and world2ui it to get the reticle screen point.
 --
 -- Returns nil when neither source is available (caller falls back to centre).
-local FREEAIM_PROJECT_DIST = 100   -- metres along the fire ray to project for the reticle screen point
+local FREEAIM_PROJECT_DIST = 100 -- metres along the fire ray to project for the reticle screen point
 
 local function freeaim_ray()
 	local bc = rawget(_G, "bodycam")
-	if not (bc and bc.get_fire_ray) then return nil end
+	if not (bc and bc.get_fire_ray) then
+		return nil
+	end
 	local ok, r = pcall(bc.get_fire_ray)
-	if not ok or type(r) ~= "table" or r.valid == false or not r.dir_x then return nil end
+	if not ok or type(r) ~= "table" or r.valid == false or not r.dir_x then
+		return nil
+	end
 	return r.pos_x, r.pos_y, r.pos_z, r.dir_x, r.dir_y, r.dir_z
 end
 
@@ -628,14 +789,15 @@ local function weapon_aim_ui()
 		local wpos = safe_call(level.get_target_pos, level.ETraceTarget.Weapon)
 		if wpos and not (wpos.x == 0 and wpos.y == 0 and wpos.z == 0) then
 			local sx, sy = project_world(wpos)
-			if sx then return sx, sy end
+			if sx then
+				return sx, sy
+			end
 		end
 	end
 	local px, py, pz, dx, dy, dz = freeaim_ray()
 	if px then
-		local far = vector():set(px + dx * FREEAIM_PROJECT_DIST,
-		                         py + dy * FREEAIM_PROJECT_DIST,
-		                         pz + dz * FREEAIM_PROJECT_DIST)
+		local far =
+			vector():set(px + dx * FREEAIM_PROJECT_DIST, py + dy * FREEAIM_PROJECT_DIST, pz + dz * FREEAIM_PROJECT_DIST)
 		return project_world(far)
 	end
 	return nil
@@ -647,14 +809,18 @@ end
 local function aim_center()
 	if C.freeaim_assist then
 		local sx, sy = weapon_aim_ui()
-		if sx then return sx, sy end
+		if sx then
+			return sx, sy
+		end
 	end
 	return UI_CX, UI_CY
 end
 
 local function screen_dist_to(pos, cx, cy)
 	local sx, sy = project_world(pos)
-	if not sx then return nil end
+	if not sx then
+		return nil
+	end
 	local dx, dy = sx - cx, sy - cy
 	return math.sqrt(dx * dx + dy * dy)
 end
@@ -664,10 +830,18 @@ end
 -- miss when only the head/chest anchor was tested). Humanoid bip01 rig; monsters
 -- and anything without these bones fall back to a vertical span at the origin.
 local BODY_BONES = {
-	"bip01_head", "bip01_neck", "bip01_spine2", "bip01_spine1", "bip01_spine",
-	"bip01_pelvis", "bip01_l_forearm", "bip01_r_forearm", "bip01_l_calf", "bip01_r_calf",
+	"bip01_head",
+	"bip01_neck",
+	"bip01_spine2",
+	"bip01_spine1",
+	"bip01_spine",
+	"bip01_pelvis",
+	"bip01_l_forearm",
+	"bip01_r_forearm",
+	"bip01_l_calf",
+	"bip01_r_calf",
 }
-local _body_pt = vector()   -- scratch for the monster vertical-span fallback
+local _body_pt = vector() -- scratch for the monster vertical-span fallback
 
 -- Smallest screen-space distance from (cx,cy) to any sampled point on obj's body.
 -- This is what makes "aim anywhere on the entity" work with a tight fov_radius:
@@ -678,16 +852,20 @@ local function screen_dist_to_body(obj, cx, cy)
 	local best, found = nil, false
 	for _, bone in ipairs(BODY_BONES) do
 		local p = safe_call(obj.bone_position, obj, bone)
-		if p and p:distance_to_sqr(base) < 16 then   -- sane bone (within 4 m of origin)
+		if p and p:distance_to_sqr(base) < 16 then -- sane bone (within 4 m of origin)
 			found = true
 			local d = screen_dist_to(p, cx, cy)
-			if d and (not best or d < best) then best = d end
+			if d and (not best or d < best) then
+				best = d
+			end
 		end
 	end
-	if not found then   -- monster / non-bip01 rig: sample a vertical span at the origin
+	if not found then -- monster / non-bip01 rig: sample a vertical span at the origin
 		for _, lift in ipairs({ 0.3, 0.9, 1.5 }) do
 			local d = screen_dist_to(_body_pt:set(base.x, base.y + lift, base.z), cx, cy)
-			if d and (not best or d < best) then best = d end
+			if d and (not best or d < best) then
+				best = d
+			end
 		end
 	end
 	return best
@@ -702,41 +880,59 @@ end
 -- and whether the bodycam module exposes the free-aim offset.
 -- --------------------------------------------------------------------------
 local function dbg(msg)
-	if not C.debug_log or not printf then return end
+	if not C.debug_log or not printf then
+		return
+	end
 	printf("%s", "[ii] " .. msg)
 end
 
 local function fv(v)
-	if not v then return "nil" end
+	if not v then
+		return "nil"
+	end
 	return string.format("(%.2f, %.2f, %.2f)", v.x or 0, v.y or 0, v.z or 0)
 end
 
 local function obj_desc(o)
-	if not o then return "nil" end
+	if not o then
+		return "nil"
+	end
 	local nm = safe_call(o.character_name, o) or safe_call(o.name, o) or "?"
 	return tostring(nm) .. "#" .. tostring(o:id())
 end
 
 local function ui_of(pos)
-	if not pos then return "nil" end
+	if not pos then
+		return "nil"
+	end
 	local sx, sy = project_world(pos)
-	if not sx then return "offscreen" end
+	if not sx then
+		return "offscreen"
+	end
 	return string.format("(%.0f, %.0f)", sx, sy)
 end
 
 local function debug_dump_aim()
-	if not C.debug_log or not printf then return end
+	if not C.debug_log or not printf then
+		return
+	end
 	dbg("---- identify ----")
 	local dev = device and device()
-	if dev then dbg(string.format("cam_pos=%s cam_dir=%s fov=%.1f", fv(dev.cam_pos), fv(dev.cam_dir), dev.fov or -1)) end
+	if dev then
+		dbg(string.format("cam_pos=%s cam_dir=%s fov=%.1f", fv(dev.cam_pos), fv(dev.cam_dir), dev.fov or -1))
+	end
 
 	local ET = level and level.ETraceTarget
 	if not ET then
 		dbg("level.ETraceTarget MISSING (no weapon-trace binding on this engine)")
 	else
-		dbg(string.format("obj  camera=%s  weapon=%s",
-			obj_desc(safe_call(level.get_target_obj, ET.Camera)),
-			obj_desc(safe_call(level.get_target_obj, ET.Weapon))))
+		dbg(
+			string.format(
+				"obj  camera=%s  weapon=%s",
+				obj_desc(safe_call(level.get_target_obj, ET.Camera)),
+				obj_desc(safe_call(level.get_target_obj, ET.Weapon))
+			)
+		)
 		if level.get_target_pos then
 			local cpos = safe_call(level.get_target_pos, ET.Camera)
 			local wpos = safe_call(level.get_target_pos, ET.Weapon)
@@ -758,13 +954,33 @@ local function debug_dump_aim()
 		if not ok or type(st) ~= "table" then
 			dbg("bodycam.get_state() failed")
 		else
-			dbg(string.format("bodycam active=%s ads=%s mstate=%s",
-				tostring(st.active), tostring(st.ads), tostring(st.mstate)))
-			dbg(string.format("bodycam yaw=%s pitch=%s roll=%s",
-				tostring(st.camera_yaw), tostring(st.camera_pitch), tostring(st.camera_roll)))
-			dbg(string.format("bodycam vm_pos=(%s,%s,%s) vm_rot=(%s,%s,%s)",
-				tostring(st.vm_pos_x), tostring(st.vm_pos_y), tostring(st.vm_pos_z),
-				tostring(st.vm_rot_x), tostring(st.vm_rot_y), tostring(st.vm_rot_z)))
+			dbg(
+				string.format(
+					"bodycam active=%s ads=%s mstate=%s",
+					tostring(st.active),
+					tostring(st.ads),
+					tostring(st.mstate)
+				)
+			)
+			dbg(
+				string.format(
+					"bodycam yaw=%s pitch=%s roll=%s",
+					tostring(st.camera_yaw),
+					tostring(st.camera_pitch),
+					tostring(st.camera_roll)
+				)
+			)
+			dbg(
+				string.format(
+					"bodycam vm_pos=(%s,%s,%s) vm_rot=(%s,%s,%s)",
+					tostring(st.vm_pos_x),
+					tostring(st.vm_pos_y),
+					tostring(st.vm_pos_z),
+					tostring(st.vm_rot_x),
+					tostring(st.vm_rot_y),
+					tostring(st.vm_rot_z)
+				)
+			)
 		end
 	end
 
@@ -772,15 +988,27 @@ local function debug_dump_aim()
 	if bc2 and bc2.get_fire_ray then
 		local ok3, r = pcall(bc2.get_fire_ray)
 		if ok3 and type(r) == "table" and r.valid ~= false and r.dir_x then
-			local eye = vector():set(r.pos_x + r.dir_x * FREEAIM_PROJECT_DIST,
-			                         r.pos_y + r.dir_y * FREEAIM_PROJECT_DIST,
-			                         r.pos_z + r.dir_z * FREEAIM_PROJECT_DIST)
+			local eye = vector():set(
+				r.pos_x + r.dir_x * FREEAIM_PROJECT_DIST,
+				r.pos_y + r.dir_y * FREEAIM_PROJECT_DIST,
+				r.pos_z + r.dir_z * FREEAIM_PROJECT_DIST
+			)
 			dbg(string.format("aim(eye)    dir=(%.2f,%.2f,%.2f) ui=%s", r.dir_x, r.dir_y, r.dir_z, ui_of(eye)))
 			if r.bar_dir_x then
-				local bar = vector():set(r.bar_pos_x + r.bar_dir_x * FREEAIM_PROJECT_DIST,
-				                         r.bar_pos_y + r.bar_dir_y * FREEAIM_PROJECT_DIST,
-				                         r.bar_pos_z + r.bar_dir_z * FREEAIM_PROJECT_DIST)
-				dbg(string.format("aim(barrel) dir=(%.2f,%.2f,%.2f) ui=%s", r.bar_dir_x, r.bar_dir_y, r.bar_dir_z, ui_of(bar)))
+				local bar = vector():set(
+					r.bar_pos_x + r.bar_dir_x * FREEAIM_PROJECT_DIST,
+					r.bar_pos_y + r.bar_dir_y * FREEAIM_PROJECT_DIST,
+					r.bar_pos_z + r.bar_dir_z * FREEAIM_PROJECT_DIST
+				)
+				dbg(
+					string.format(
+						"aim(barrel) dir=(%.2f,%.2f,%.2f) ui=%s",
+						r.bar_dir_x,
+						r.bar_dir_y,
+						r.bar_dir_z,
+						ui_of(bar)
+					)
+				)
 			end
 		else
 			dbg("bodycam.get_fire_ray returned invalid (no controlled actor?)")
@@ -808,25 +1036,33 @@ end
 -- acceptable for the far more common "behind a building/wall" case. query()
 -- returns true when the ray HIT something (i.e. occluded), so a clear line of
 -- sight is `not query()`.
-local RAY_LOS_TOL = 0.3   -- metres: stop short of the camera
-local RQT_STATIC  = (rq_target and rq_target.rqtStatic) or 2   -- collide::rqtStatic
-local RQT_BOTH    = (rq_target and rq_target.rqtBoth) or 3     -- collide::rqtStatic|rqtObject
-local _los_ray    = nil   -- lazily-built reusable ray_pick (may be absent on old builds)
-local _los_dir    = vector()
+local RAY_LOS_TOL = 0.3 -- metres: stop short of the camera
+local RQT_STATIC = (rq_target and rq_target.rqtStatic) or 2 -- collide::rqtStatic
+local RQT_BOTH = (rq_target and rq_target.rqtBoth) or 3 -- collide::rqtStatic|rqtObject
+local _los_ray = nil -- lazily-built reusable ray_pick (may be absent on old builds)
+local _los_dir = vector()
 local function has_clear_ray(target_obj)
 	local dev = device and device()
-	if not dev or not dev.cam_pos then return true end   -- fail open
+	if not dev or not dev.cam_pos then
+		return true
+	end -- fail open
 	local origin = anchor_pos(target_obj)
-	if not origin then return true end
+	if not origin then
+		return true
+	end
 
-	local dir  = _los_dir:set(dev.cam_pos):sub(origin)   -- cam - origin
+	local dir = _los_dir:set(dev.cam_pos):sub(origin) -- cam - origin
 	local dist = dir:magnitude()
-	if dist <= RAY_LOS_TOL then return true end          -- essentially point-blank
+	if dist <= RAY_LOS_TOL then
+		return true
+	end -- essentially point-blank
 	dir:normalize()
 
 	local ok, blocked = pcall(function()
 		if not _los_ray then
-			if not rawget(_G, "ray_pick") then return nil end
+			if not rawget(_G, "ray_pick") then
+				return nil
+			end
 			_los_ray = ray_pick()
 		end
 		_los_ray:set_flags(RQT_STATIC)
@@ -835,7 +1071,9 @@ local function has_clear_ray(target_obj)
 		_los_ray:set_range(dist - RAY_LOS_TOL)
 		return _los_ray:query()
 	end)
-	if not ok or blocked == nil then return true end     -- fail open: API absent or errored
+	if not ok or blocked == nil then
+		return true
+	end -- fail open: API absent or errored
 	return not blocked
 end
 
@@ -850,10 +1088,16 @@ end
 -- actually perceive this" (darkness, stealth), AND has_clear_ray() as a hard
 -- geometric backstop for see()'s grace-window leak through solid geometry.
 local function has_los(target_obj)
-	if not db.actor then return true end
+	if not db.actor then
+		return true
+	end
 	local ok, visible = pcall(db.actor.see, db.actor, target_obj)
-	if not ok then return true end   -- fail open: don't block selection if the check itself errors
-	if not visible then return false end
+	if not ok then
+		return true
+	end -- fail open: don't block selection if the check itself errors
+	if not visible then
+		return false
+	end
 	return has_clear_ray(target_obj)
 end
 
@@ -866,10 +1110,16 @@ end
 -- (never blanks a tag on a check error). Per-frame across tracked targets, but
 -- there are only ever a handful.
 local function tag_visible(obj)
-	if not db.actor then return true end
+	if not db.actor then
+		return true
+	end
 	local ok, visible = pcall(db.actor.see, db.actor, obj)
-	if not ok then return true end
-	if not visible then return false end
+	if not ok then
+		return true
+	end
+	if not visible then
+		return false
+	end
 	return has_clear_ray(obj)
 end
 
@@ -887,10 +1137,12 @@ end
 -- nothing new (see try_identify()'s tracked[id] branch) -- the busy one is
 -- only ever returned when nothing else in the FOV circle qualifies at all.
 local function find_nearest_in_fov(max_dist)
-	if not db.actor or not level.iterate_nearest then return nil end
+	if not db.actor or not level.iterate_nearest then
+		return nil
+	end
 	local apos = db.actor:position()
 	local actor_id = db.actor:id()
-	local cx, cy = aim_center()   -- weapon aim point under free-aim, else screen centre
+	local cx, cy = aim_center() -- weapon aim point under free-aim, else screen centre
 	local best_obj, best_d = nil, C.fov_radius
 	local best_busy_obj, best_busy_d = nil, C.fov_radius
 
@@ -906,7 +1158,9 @@ local function find_nearest_in_fov(max_dist)
 					local d = screen_dist_to_body(obj, cx, cy)
 					if d and (not C.require_los or has_los(obj)) then
 						if tracked[obj:id()] then
-							if d < best_busy_d then best_busy_d, best_busy_obj = d, obj end
+							if d < best_busy_d then
+								best_busy_d, best_busy_obj = d, obj
+							end
 						elseif d < best_d then
 							best_d, best_obj = d, obj
 						end
@@ -914,7 +1168,7 @@ local function find_nearest_in_fov(max_dist)
 				end
 			end
 		end
-		return false   -- keep scanning the full set within max_dist
+		return false -- keep scanning the full set within max_dist
 	end)
 
 	return best_obj or best_busy_obj
@@ -926,17 +1180,32 @@ end
 -- gating flags. Defined here (after has_los / find_nearest_in_fov) so it can
 -- reuse them. Only runs when C.debug_log is on.
 local function debug_dump_candidates()
-	if not C.debug_log or not printf then return end
-	if not (db.actor and level.iterate_nearest) then return end
-	dbg(string.format("flags enabled=%s fov_assist=%s freeaim_assist=%s require_los=%s require_binoc=%s fov_radius=%.0f max_dist=%.0f",
-		tostring(C.enabled), tostring(C.fov_assist), tostring(C.freeaim_assist),
-		tostring(C.require_los), tostring(C.require_binoculars), C.fov_radius, C.max_dist))
+	if not C.debug_log or not printf then
+		return
+	end
+	if not (db.actor and level.iterate_nearest) then
+		return
+	end
+	dbg(
+		string.format(
+			"flags enabled=%s fov_assist=%s freeaim_assist=%s require_los=%s require_binoc=%s fov_radius=%.0f max_dist=%.0f",
+			tostring(C.enabled),
+			tostring(C.fov_assist),
+			tostring(C.freeaim_assist),
+			tostring(C.require_los),
+			tostring(C.require_binoculars),
+			C.fov_radius,
+			C.max_dist
+		)
+	)
 	local apos = db.actor:position()
 	local aid = db.actor:id()
 	local cx, cy = aim_center()
 	local n = 0
 	pcall(level.iterate_nearest, apos, C.max_dist, function(obj)
-		if n >= 8 then return true end
+		if n >= 8 then
+			return true
+		end
 		if obj and obj:id() ~= aid and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) then
 			local alive = safe_call(obj.alive, obj)
 			local comm = safe_call(obj.character_community, obj)
@@ -944,16 +1213,25 @@ local function debug_dump_candidates()
 			local d = screen_dist_to_body(obj, cx, cy)
 			local within = (d and d <= C.fov_radius)
 			local los = has_los(obj)
-			dbg(string.format("cand %s alive=%s comm=%s ui=%s dist=%s within=%s los=%s",
-				obj_desc(obj), tostring(alive), tostring(comm),
-				sx and string.format("(%.0f,%.0f)", sx, sy) or "offscreen",
-				d and string.format("%.0f", d) or "n/a",
-				within and "YES" or "no", tostring(los)))
+			dbg(
+				string.format(
+					"cand %s alive=%s comm=%s ui=%s dist=%s within=%s los=%s",
+					obj_desc(obj),
+					tostring(alive),
+					tostring(comm),
+					sx and string.format("(%.0f,%.0f)", sx, sy) or "offscreen",
+					d and string.format("%.0f", d) or "n/a",
+					within and "YES" or "no",
+					tostring(los)
+				)
+			)
 			n = n + 1
 		end
 		return false
 	end)
-	if n == 0 then dbg("cand (none nearby)") end
+	if n == 0 then
+		dbg("cand (none nearby)")
+	end
 end
 
 -- Free-aim direct hit: cast a ray along the actual aim ray (bodycam.get_fire_ray
@@ -969,22 +1247,30 @@ local _aim_pos = vector()
 local _aim_dir = vector()
 local function freeaim_target(max_dist)
 	local px, py, pz, dx, dy, dz = freeaim_ray()
-	if not (px and py and pz and dx and dy and dz) then return nil end
+	if not (px and py and pz and dx and dy and dz) then
+		return nil
+	end
 	if not rawget(_G, "ray_pick") then
 		dbg("freeaim_target: ray_pick binding absent on this engine")
 		return nil
 	end
 	local ok, obj = pcall(function()
-		if not _aim_ray then _aim_ray = ray_pick() end
+		if not _aim_ray then
+			_aim_ray = ray_pick()
+		end
 		_aim_ray:set_flags(RQT_BOTH)
 		-- The ray starts at the eye, INSIDE the actor's own collision capsule,
 		-- so without this it hits the player (dashie#0) first. Ignore the actor
 		-- so the trace passes through to the real target behind it.
-		if db.actor then _aim_ray:set_ignore_object(db.actor) end
+		if db.actor then
+			_aim_ray:set_ignore_object(db.actor)
+		end
 		_aim_ray:set_position(_aim_pos:set(px, py, pz))
 		_aim_ray:set_direction(_aim_dir:set(dx, dy, dz))
 		_aim_ray:set_range(max_dist)
-		if _aim_ray:query() then return _aim_ray:get_object() end
+		if _aim_ray:query() then
+			return _aim_ray:get_object()
+		end
 		return nil
 	end)
 	if not ok or not obj then
@@ -999,7 +1285,9 @@ local function freeaim_target(max_dist)
 	end
 	local is_npc = safe_call(IsStalker, obj) or safe_call(IsMonster, obj)
 	dbg(string.format("freeaim_target: hit %s npc=%s", obj_desc(obj), tostring(is_npc)))
-	if not is_npc then return nil end
+	if not is_npc then
+		return nil
+	end
 	return obj
 end
 
@@ -1026,8 +1314,12 @@ end
 -- and needs the same has_los() gate applied to it.
 local function get_target_obj(max_dist, allow_fov)
 	local function accept(obj)
-		if not obj then return nil end
-		if C.require_los and not has_los(obj) then return nil end
+		if not obj then
+			return nil
+		end
+		if C.require_los and not has_los(obj) then
+			return nil
+		end
 		return obj
 	end
 
@@ -1038,7 +1330,9 @@ local function get_target_obj(max_dist, allow_fov)
 	-- identifies it even with FOV target-assist turned off.
 	if C.freeaim_assist then
 		local fa = accept(freeaim_target(max_dist))
-		if fa and not tracked[fa:id()] then return fa end
+		if fa and not tracked[fa:id()] then
+			return fa
+		end
 	end
 
 	local direct = nil
@@ -1054,14 +1348,18 @@ local function get_target_obj(max_dist, allow_fov)
 	-- target in the ballpark over one already tracked (see
 	-- find_nearest_in_fov above), and only fall back to the busy direct hit
 	-- if nothing else is actually available.
-	if direct and not tracked[direct:id()] then return direct end
+	if direct and not tracked[direct:id()] then
+		return direct
+	end
 
 	-- FOV target-assist (fov_assist / fov_assist_binoc, decided per-context by
 	-- the caller). When disabled, identification is direct-hit only: you must
 	-- actually aim at the target, with no nearest-in-circle fallback.
 	if allow_fov then
 		local nearby = find_nearest_in_fov(max_dist)
-		if nearby then return nearby end
+		if nearby then
+			return nearby
+		end
 	end
 	return direct
 end
@@ -1071,11 +1369,17 @@ end
 -- section name via this repo's own axr_main.script:355. On its own this only
 -- means "in hand", not "raised to the eye" -- see is_binoc_active() below.
 local function is_binoc_held()
-	if not db.actor then return false end
+	if not db.actor then
+		return false
+	end
 	local item = safe_call(db.actor.active_item, db.actor)
-	if not item then return false end
+	if not item then
+		return false
+	end
 	local sec = safe_call(item.section, item)
-	if not sec then return false end
+	if not sec then
+		return false
+	end
 	return sec == BINOC_SECTION or sec:find("binoc") ~= nil
 end
 
@@ -1093,24 +1397,86 @@ end
 -- they ARE held as "looking through them". Calibration runs every frame
 -- from actor_on_update() regardless of feature state, so the baseline is
 -- already warm whenever is_binoc_active() is actually called.
-local FOV_ZOOM_RATIO = 0.7   -- current fov must drop below this fraction of baseline to count as zoomed
-local _fov_baseline = 60     -- self-corrects within moments of normal (unzoomed) play either way
+local FOV_ZOOM_RATIO = 0.7 -- current fov must drop below this fraction of baseline to count as zoomed
+local _fov_baseline = 60 -- self-corrects within moments of normal (unzoomed) play either way
 
 local function update_fov_baseline()
-	if is_binoc_held() then return end
+	if is_binoc_held() then
+		return
+	end
 	local dev = device and device()
 	local fov = dev and dev.fov
 	if fov and fov > _fov_baseline then
-		_fov_baseline = fov   -- only ever raised, and only while not holding binoculars
+		_fov_baseline = fov -- only ever raised, and only while not holding binoculars
 	end
 end
 
 local function is_binoc_active()
-	if not is_binoc_held() then return false end
+	if not is_binoc_held() then
+		return false
+	end
 	local dev = device and device()
 	local fov = dev and dev.fov
-	if not fov or fov <= 0 then return true end   -- can't read fov: fail open to "held" behaviour
+	if not fov or fov <= 0 then
+		return true
+	end -- can't read fov: fail open to "held" behaviour
 	return fov < _fov_baseline * FOV_ZOOM_RATIO
+end
+
+-- Is the actor aiming down sight (ADS) with a weapon right now? Prefers the
+-- bodycam engine's real aim flag (bodycam.get_state().ads) -- which catches even
+-- low-zoom iron sights -- and falls back to the same FOV-zoom heuristic
+-- is_binoc_active() uses, with a gentler ratio because ADS narrows the FOV less
+-- than a scope or binoculars. Binoculars are excluded (that's binocular mode's
+-- job), so ADS and binocular boosts never both fire.
+local ADS_ZOOM_RATIO = 0.85 -- fov must drop below this fraction of baseline to count as ADS (fallback only)
+local function is_ads_active()
+	if is_binoc_held() then
+		return false
+	end
+	local bc = rawget(_G, "bodycam")
+	if bc and bc.get_state then
+		local ok, st = pcall(bc.get_state)
+		if ok and type(st) == "table" and st.ads ~= nil then
+			return st.ads and true or false
+		end
+	end
+	local dev = device and device()
+	local fov = dev and dev.fov
+	if not fov or fov <= 0 then
+		return false
+	end
+	return fov < _fov_baseline * ADS_ZOOM_RATIO
+end
+
+-- Current effective aiming magnification (1.0 = 1x), or nil when not meaningfully
+-- zoomed. Hybrid, so it works with OR without a PiP engine, and tracks variable/
+-- dynamic (x2/x4/...) zoom live in both cases:
+--   1. PiP engine: the zoom lives in the SECOND viewport, so the main camera FOV
+--      does NOT change -- only the engine binding svp_scope_magnification() (added
+--      alongside is_svp_active) can report it accurately.
+--   2. No PiP (stock engine), or the binding reports nothing (iron sights, a
+--      non-PiP-rendered scope): a non-PiP optic narrows the MAIN camera FOV, so
+--      the zoom is recoverable from device().fov against the self-calibrating
+--      unzoomed baseline (_fov_baseline, see update_fov_baseline).
+local SVP_MAG_AVAILABLE = rawget(_G, "svp_scope_magnification") ~= nil
+local MAG_FOV_MIN = 1.05 -- below this the FOV barely narrowed: treat as un-magnified (x1)
+local function scope_magnification()
+	if SVP_MAG_AVAILABLE then
+		local ok, m = pcall(svp_scope_magnification)
+		if ok and m and m > 0 then
+			return m
+		end
+	end
+	local dev = device and device()
+	local fov = dev and dev.fov
+	if fov and fov > 0 and _fov_baseline > 0 then
+		local m = _fov_baseline / fov
+		if m > MAG_FOV_MIN then
+			return m
+		end
+	end
+	return nil
 end
 
 -- The further away a target is (as a fraction of the CURRENT effective max
@@ -1123,9 +1489,15 @@ end
 -- one instead, on top of the flat binoc_scan_mult speed multiplier applied
 -- separately in try_identify().
 local function distance_scan_mult(dist, max_dist)
-	if not C.dist_penalty then return 1 end
+	if not C.dist_penalty then
+		return 1
+	end
 	local t = dist / math.max(1, max_dist)
-	if t < 0 then t = 0 elseif t > 1 then t = 1 end
+	if t < 0 then
+		t = 0
+	elseif t > 1 then
+		t = 1
+	end
 	return 1 + (C.dist_penalty_max - 1) * t
 end
 
@@ -1149,14 +1521,14 @@ end
 -- size up quickly. novice is pinned at exactly 0 so a rookie is always the
 -- unpenalised baseline regardless of the rank_penalty_max slider.
 local RANK_WEIGHT = {
-	novice       = 0.00,
-	trainee      = 0.08,
-	experienced  = 0.20,
+	novice = 0.00,
+	trainee = 0.08,
+	experienced = 0.20,
 	professional = 0.35,
-	veteran      = 0.50,
-	expert       = 0.68,
-	master       = 0.85,
-	legend       = 1.00,
+	veteran = 0.50,
+	expert = 0.68,
+	master = 0.85,
+	legend = 1.00,
 }
 
 -- rank_penalty_max is the multiplier at weight 1 (legend); every other rank
@@ -1167,11 +1539,17 @@ local RANK_WEIGHT = {
 -- non-stalkers (SAFE_WRAP, not an error), and there's nothing to classify a
 -- rank we don't recognise against.
 local function rank_scan_mult(obj)
-	if not C.rank_penalty then return 1 end
+	if not C.rank_penalty then
+		return 1
+	end
 	local rid = safe_call(obj.rank_name, obj)
-	if not rid or rid == "" then return 1 end
+	if not rid or rid == "" then
+		return 1
+	end
 	local w = RANK_WEIGHT[rid]
-	if not w then return 1 end
+	if not w then
+		return 1
+	end
 	return 1 + (C.rank_penalty_max - 1) * w
 end
 
@@ -1183,9 +1561,13 @@ end
 -- (src/xrGame/level_script.cpp:300/308, bound :2514-2515) return the current
 -- world clock, the same one the HUD watch and A-Life day/night cycle read.
 local function game_hour()
-	if not (level and level.get_time_hours) then return nil end
+	if not (level and level.get_time_hours) then
+		return nil
+	end
 	local h = safe_call(level.get_time_hours)
-	if not h then return nil end
+	if not h then
+		return nil
+	end
 	local m = safe_call(level.get_time_minutes) or 0
 	return h + m / 60
 end
@@ -1196,23 +1578,33 @@ end
 -- squarely in the slowest-to-identify window (per the request). The ramps
 -- make it "get harder as it gets dark" rather than flipping on at a hard
 -- cutoff. Fails open to 0 (no penalty) if the clock can't be read.
-local DUSK_START, NIGHT_START = 19.0, 23.0   -- 0 -> 1 over dusk
-local NIGHT_END, DAWN_END     = 4.0, 8.0     -- 1 -> 0 over dawn
+local DUSK_START, NIGHT_START = 19.0, 23.0 -- 0 -> 1 over dusk
+local NIGHT_END, DAWN_END = 4.0, 8.0 -- 1 -> 0 over dawn
 
 local function darkness_factor()
 	local h = game_hour()
-	if not h then return 0 end
-	if h >= NIGHT_START or h < NIGHT_END then return 1 end          -- deep night, incl. midnight
-	if h >= DAWN_END and h < DUSK_START then return 0 end            -- broad daylight
-	if h < DAWN_END then return 1 - (h - NIGHT_END) / (DAWN_END - NIGHT_END) end  -- dawn
-	return (h - DUSK_START) / (NIGHT_START - DUSK_START)             -- dusk
+	if not h then
+		return 0
+	end
+	if h >= NIGHT_START or h < NIGHT_END then
+		return 1
+	end -- deep night, incl. midnight
+	if h >= DAWN_END and h < DUSK_START then
+		return 0
+	end -- broad daylight
+	if h < DAWN_END then
+		return 1 - (h - NIGHT_END) / (DAWN_END - NIGHT_END)
+	end -- dawn
+	return (h - DUSK_START) / (NIGHT_START - DUSK_START) -- dusk
 end
 
 -- Scan-time multiplier from ambient darkness (1 at noon, up to
 -- night_penalty_max in the dead of night), scaled by darkness_factor above so
 -- the slowdown eases in over dusk instead of snapping on.
 local function night_scan_mult()
-	if not C.night_penalty then return 1 end
+	if not C.night_penalty then
+		return 1
+	end
 	return 1 + (C.night_penalty_max - 1) * darkness_factor()
 end
 
@@ -1230,7 +1622,9 @@ end
 -- is no method call here that can throw, just table field reads.
 -- --------------------------------------------------------------------------
 local function perception_level()
-	if not C.perception_compat then return 0 end
+	if not C.perception_compat then
+		return 0
+	end
 	local lv = haru_skills and haru_skills.skills_levels and haru_skills.skills_levels["perception"]
 	return (lv and lv.current_level) or 0
 end
@@ -1240,9 +1634,13 @@ end
 -- reveal at max level.
 local function perception_scan_mult()
 	local lvl = perception_level()
-	if lvl <= 0 then return 1 end
+	if lvl <= 0 then
+		return 1
+	end
 	local mult = 1 - C.perception_scan_mult * lvl
-	if mult < 0.15 then mult = 0.15 end
+	if mult < 0.15 then
+		mult = 0.15
+	end
 	return mult
 end
 
@@ -1277,7 +1675,9 @@ function perception_hint_stats()
 	local function scan_seconds(dist, boosted_case)
 		local eff_max = boosted_case and (C.max_dist * C.binoc_range_mult) or C.max_dist
 		local t = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max))
-		if boosted_case then t = math.floor(t * C.binoc_scan_mult) end
+		if boosted_case then
+			t = math.floor(t * C.binoc_scan_mult)
+		end
 		t = math.floor(t * pmult)
 		return string.format("%.2f", t / 1000)
 	end
@@ -1313,9 +1713,13 @@ end
 -- time. `amount` lets both the base identify reward and the loot bonus
 -- (below) share this same function instead of duplicating it.
 local function award_perception_xp(amount)
-	if not C.perception_compat then return false end
+	if not C.perception_compat then
+		return false
+	end
 	local lv = haru_skills and haru_skills.skills_levels and haru_skills.skills_levels["perception"]
-	if not lv or type(lv.experience) ~= "number" then return false end
+	if not lv or type(lv.experience) ~= "number" then
+		return false
+	end
 	lv.experience = lv.experience + amount
 	return true
 end
@@ -1366,15 +1770,21 @@ local function update_loot_xp()
 		loot_partner_id = partner:id()
 		return
 	end
-	if not loot_partner_id then return end
+	if not loot_partner_id then
+		return
+	end
 
 	local id = loot_partner_id
 	loot_partner_id = nil
-	if not remembered[id] or loot_xp_awarded[id] then return end
+	if not remembered[id] or loot_xp_awarded[id] then
+		return
+	end
 
 	local corpse = level.object_by_id(id)
 	local alive = corpse and safe_call(corpse.alive, corpse)
-	if alive then return end   -- the partner session ended some other way (e.g. a live trade), not a loot
+	if alive then
+		return
+	end -- the partner session ended some other way (e.g. a live trade), not a loot
 
 	if award_perception_xp(C.perception_loot_xp) then
 		loot_xp_awarded[id] = true
@@ -1387,9 +1797,13 @@ end
 -- share one identical commit path. Caller guarantees obj is alive and comm is
 -- a non-empty community id; (boosted, eff_max_dist, eff_fade_dist) come from
 -- the caller's boost_params() snapshot.
-local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, auto_mode)
-	local dist = safe_call(function() return obj:position():distance_to(db.actor:position()) end)
-	if not dist or dist > eff_max_dist then return end
+local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, scan_mult, auto_mode)
+	local dist = safe_call(function()
+		return obj:position():distance_to(db.actor:position())
+	end)
+	if not dist or dist > eff_max_dist then
+		return
+	end
 
 	-- Target-side difficulty first (how far away, how accomplished the
 	-- stalker is), then the ambient darkness, then actor-side mitigation on
@@ -1403,7 +1817,9 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 	local eff_scan_ms = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max_dist))
 	eff_scan_ms = math.floor(eff_scan_ms * rank_scan_mult(obj))
 	eff_scan_ms = math.floor(eff_scan_ms * night_scan_mult())
-	if boosted then eff_scan_ms = math.floor(eff_scan_ms * C.binoc_scan_mult) end
+	if boosted then
+		eff_scan_ms = math.floor(eff_scan_ms * (scan_mult or 1.0))
+	end
 	eff_scan_ms = math.floor(eff_scan_ms * perception_scan_mult())
 
 	local id = obj:id()
@@ -1415,7 +1831,9 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 
 	-- Instant identify: skip the whole scanning phase (no spinner, no wait) so
 	-- the tag reveals immediately. Overrides every scan-time factor above.
-	if C.instant_identify then eff_scan_ms = 0 end
+	if C.instant_identify then
+		eff_scan_ms = 0
+	end
 
 	if tracked[id] then
 		local e = tracked[id]
@@ -1431,7 +1849,9 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 			-- touching it and it fades out normally. (Dead entries never reach
 			-- here -- the sweep only iterates alive targets.)
 			local revealed = (e.scan_ms or 0) + (e.fade_ms or FADE_MS)
-			if (tg - e.t0) >= revealed then e.t0 = tg - revealed end
+			if (tg - e.t0) >= revealed then
+				e.t0 = tg - revealed
+			end
 			return
 		end
 		-- Manual re-identify while the card is still showing: restart the reveal
@@ -1459,24 +1879,35 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 	local count, oldest_id, oldest_t = 0, nil, math.huge
 	for k, e in pairs(tracked) do
 		count = count + 1
-		if e.t0 < oldest_t then oldest_t, oldest_id = e.t0, k end
+		if e.t0 < oldest_t then
+			oldest_t, oldest_id = e.t0, k
+		end
 	end
-	if count >= MAX_TAGS and oldest_id then tracked[oldest_id] = nil end
+	if count >= MAX_TAGS and oldest_id then
+		tracked[oldest_id] = nil
+	end
 
 	tracked[id] = {
-		t0 = tg, col = relation_color(obj),
-		fcol = faction_color(comm), sign = relation_sign(obj),
-		header = faction_label(comm), name = display_name(obj, comm),
-		icon = faction_icon_id(comm), rank = rank_label(obj),
+		t0 = tg,
+		col = relation_color(obj),
+		fcol = faction_color(comm),
+		sign = relation_sign(obj),
+		header = faction_label(comm),
+		name = display_name(obj, comm),
+		icon = faction_icon_id(comm),
+		rank = rank_label(obj),
 		weap = held_weapon_label(obj),
-		scan_ms = eff_scan_ms, max_dist = eff_max_dist, fade_dist = eff_fade_dist,
+		scan_ms = eff_scan_ms,
+		max_dist = eff_max_dist,
+		fade_dist = eff_fade_dist,
 		-- Snapshotted like scan_ms/max_dist/fade_dist above: FADE_MS/HOLD_MS
 		-- can change live via MCM mid-reveal, and without this snapshot an
 		-- already-active tag's `total` (see render()) would shrink/grow
 		-- retroactively -- e.g. lowering hold_time while a tag is mid-hold
 		-- could delete it outright the next frame instead of letting it
 		-- finish the reveal it started.
-		fade_ms = FADE_MS, hold_ms = HOLD_MS,
+		fade_ms = FADE_MS,
+		hold_ms = HOLD_MS,
 	}
 end
 
@@ -1486,37 +1917,79 @@ end
 -- at identify time (not read live in render()) so a tag identified at boosted
 -- range doesn't immediately fail the (unboosted) fade/grace distance checks the
 -- instant the player lowers the binoculars mid-reveal.
+-- Returns: binoc (looking through binoculars), ads (aiming down sight), boosted
+-- (a boost is actually active), the widened effective max/fade distances, and the
+-- active scan_time multiplier. Binoculars take priority over ADS so the two never
+-- stack. Each boost carries its own scan + range multipliers from its MCM section.
 local function boost_params()
 	local binoc = is_binoc_active()
-	local boosted = C.binoc_boost and binoc
-	local eff_max_dist = boosted and (C.max_dist * C.binoc_range_mult) or C.max_dist
-	local eff_fade_dist = boosted and (C.fade_dist * C.binoc_range_mult) or C.fade_dist
-	return binoc, boosted, eff_max_dist, eff_fade_dist
+	local ads = (not binoc) and is_ads_active()
+	local boosted = false
+	local scan_mult, range_mult = 1.0, 1.0
+	if binoc and C.binoc_boost then
+		boosted = true
+		scan_mult, range_mult = C.binoc_scan_mult, C.binoc_range_mult
+	elseif ads and C.ads_boost then
+		boosted = true
+		scan_mult, range_mult = C.ads_scan_mult, C.ads_range_mult
+		-- Higher-power optics reach further: scale the ADS range by the scope's
+		-- magnification (x2/x4/...), so ads_range_mult is the x1 base. Only when
+		-- the engine reports a magnification (PiP scope); iron sights stay at x1.
+		if C.ads_zoom_scaling then
+			local mag = scope_magnification()
+			if mag and mag > 1 then
+				range_mult = range_mult * mag
+			end
+		end
+	end
+	local eff_max_dist = C.max_dist * range_mult
+	local eff_fade_dist = C.fade_dist * range_mult
+	return binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult
 end
 
-local function try_identify()
-	if not C.enabled or not db.actor then return end
+-- auto_mode: called by the steady-aim auto-trigger (binocular / ADS mode) rather
+-- than a deliberate keypress. In that mode identify_target refreshes an already-
+-- revealed target's hold window WITHOUT restarting its reveal, so holding/tracking
+-- a target you've already identified doesn't re-scan it every time the steady aim
+-- re-arms (the ADS "double identification" retrigger). A manual keypress (nil)
+-- still restarts the reveal on purpose.
+local function try_identify(auto_mode)
+	if not C.enabled or not db.actor then
+		return
+	end
 	debug_dump_aim()
 	debug_dump_candidates()
-	local binoc, boosted, eff_max_dist, eff_fade_dist = boost_params()
-	if C.require_binoculars and not binoc then return end
+	local binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	if C.require_binoculars and not binoc then
+		return
+	end
 
 	-- FOV target-assist is context-sensitive: fov_assist_binoc governs it while
 	-- looking through raised binoculars, fov_assist otherwise.
 	local allow_fov = C.fov_assist
-	if binoc then allow_fov = C.fov_assist_binoc end
+	if binoc then
+		allow_fov = C.fov_assist_binoc
+	end
 
 	local obj = get_target_obj(eff_max_dist, allow_fov)
-	if not obj then return end
-	if obj:id() == db.actor:id() then return end
+	if not obj then
+		return
+	end
+	if obj:id() == db.actor:id() then
+		return
+	end
 
 	local alive = safe_call(obj.alive, obj)
-	if not alive then return end
+	if not alive then
+		return
+	end
 
 	local comm = safe_call(obj.character_community, obj)
-	if not comm or comm == "" then return end
+	if not comm or comm == "" then
+		return
+	end
 
-	identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist)
+	identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, scan_mult, auto_mode)
 end
 
 -- --------------------------------------------------------------------------
@@ -1533,13 +2006,21 @@ local AUTO_THROTTLE_MS = 250
 local auto_last_tg = 0
 
 local function update_auto_identify(tg)
-	if not C.auto_identify then return end
-	if tg - auto_last_tg < AUTO_THROTTLE_MS then return end
+	if not C.auto_identify then
+		return
+	end
+	if tg - auto_last_tg < AUTO_THROTTLE_MS then
+		return
+	end
 	auto_last_tg = tg
-	if not db.actor or not level.iterate_nearest then return end
+	if not db.actor or not level.iterate_nearest then
+		return
+	end
 
-	local binoc, boosted, eff_max_dist, eff_fade_dist = boost_params()
-	if C.require_binoculars and not binoc then return end
+	local binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	if C.require_binoculars and not binoc then
+		return
+	end
 
 	local apos = db.actor:position()
 	local actor_id = db.actor:id()
@@ -1548,11 +2029,11 @@ local function update_auto_identify(tg)
 			if safe_call(obj.alive, obj) then
 				local comm = safe_call(obj.character_community, obj)
 				if comm and comm ~= "" and has_los(obj) then
-					identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, true)
+					identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, scan_mult, true)
 				end
 			end
 		end
-		return false   -- keep scanning the whole set within eff_max_dist
+		return false -- keep scanning the whole set within eff_max_dist
 	end)
 end
 
@@ -1564,9 +2045,9 @@ end
 -- so slow deliberate panning correctly resets it while ordinary hand-shake/
 -- micro-jitter within the tolerance doesn't -- comparing only to the
 -- previous frame would let a slow continuous pan stay "steady" forever.
-local STEADY_MAX_D2 = 0.002   -- squared-distance tolerance between unit vectors, ~2.6 degrees
+local STEADY_MAX_D2 = 0.002 -- squared-distance tolerance between unit vectors, ~2.6 degrees
 
-local steady_anchor = nil   -- vector(), the camera direction steadiness is measured against
+local steady_anchor = nil -- vector(), the camera direction steadiness is measured against
 local steady_start_tg = nil
 local steady_triggered = false
 
@@ -1576,8 +2057,11 @@ local function reset_steady()
 	steady_triggered = false
 end
 
+-- Steady-aim auto-identify for both binocular mode and ADS mode: after the aim
+-- holds still for steady_time, fire an identify. Either mode can drive it.
 local function update_binocular_scan(tg)
-	if not C.binocular_mode or not is_binoc_active() then
+	local mode_active = (C.binocular_mode and is_binoc_active()) or (C.ads_mode and is_ads_active())
+	if not mode_active then
 		reset_steady()
 		return
 	end
@@ -1605,7 +2089,7 @@ local function update_binocular_scan(tg)
 	end
 
 	if not steady_triggered and (tg - steady_start_tg) >= C.steady_time * 1000 then
-		try_identify()
+		try_identify(true) -- auto-trigger: refresh, don't re-scan an already-revealed target
 		steady_triggered = true
 	end
 end
@@ -1617,11 +2101,15 @@ local function install_key_hook()
 		local handled = false
 		if _prev_on_key_press then
 			local ok, res = pcall(_prev_on_key_press, key, action, disabled)
-			if ok then handled = res end
+			if ok then
+				handled = res
+			end
 		end
 		if not disabled then
 			local dik = active_dik()
-			if dik and key == dik and modifiers_ok() then try_identify() end
+			if dik and key == dik and modifiers_ok() then
+				try_identify()
+			end
 		end
 		return handled
 	end
@@ -1634,7 +2122,7 @@ end
 -- gamma-immersive-quest-markers' iqm_cards.xml / IqmCards:draw_slot
 -- technique (see $HOME/code/lua/gamma-immersive-quest-markers).
 -- --------------------------------------------------------------------------
-local CARD_OFF_X, CARD_OFF_Y = 60, 34   -- px (before scale) from the anchor to the card
+local CARD_OFF_X, CARD_OFF_Y = 60, 34 -- px (before scale) from the anchor to the card
 
 -- The `---@class` annotation has to attach to an actual declaration, and
 -- `class "IiTags" (CUIScriptWnd)` below is a bare function-call statement
@@ -1646,9 +2134,10 @@ local CARD_OFF_X, CARD_OFF_Y = 60, 34   -- px (before scale) from the anchor to 
 ---@field slots table[]
 IiTags = {}
 
-class "IiTags" (CUIScriptWnd)
+class("IiTags")(CUIScriptWnd)
 
-function IiTags:__init() super()
+function IiTags:__init()
+	super()
 	self:InitControls()
 end
 
@@ -1666,40 +2155,55 @@ function IiTags:InitControls()
 		-- a flush join), plate, accent bar, icon, then the header/name/rank
 		-- text (parented to `self`, not the plate, so they draw on top of
 		-- it), and finally the glow/node at the body anchor.
-		local shadow  = self.xml:InitStatic("tag_shadow", self)
+		local shadow = self.xml:InitStatic("tag_shadow", self)
 		local line_sh = self.xml:InitStatic("tag_line_sh", self)
-		local line    = self.xml:InitStatic("tag_line", self)
-		local plate   = self.xml:InitStatic("tag_plate", self)
-		local accent  = self.xml:InitStatic("tag_accent", self)
-		local icon    = self.xml:InitStatic("tag_icon", self)
+		local line = self.xml:InitStatic("tag_line", self)
+		local plate = self.xml:InitStatic("tag_plate", self)
+		local accent = self.xml:InitStatic("tag_accent", self)
+		local icon = self.xml:InitStatic("tag_icon", self)
 		local head_sh = self.xml:InitTextWnd("tag_head_sh:text", self)
-		local head    = self.xml:InitTextWnd("tag_head:text", self)
+		local head = self.xml:InitTextWnd("tag_head:text", self)
 		local name_sh = self.xml:InitTextWnd("tag_name_sh:text", self)
-		local name    = self.xml:InitTextWnd("tag_name:text", self)
+		local name = self.xml:InitTextWnd("tag_name:text", self)
 		local rank_sh = self.xml:InitTextWnd("tag_rank_sh:text", self)
-		local rank    = self.xml:InitTextWnd("tag_rank:text", self)
+		local rank = self.xml:InitTextWnd("tag_rank:text", self)
 		local weap_sh = self.xml:InitTextWnd("tag_weap_sh:text", self)
-		local weap    = self.xml:InitTextWnd("tag_weap:text", self)
+		local weap = self.xml:InitTextWnd("tag_weap:text", self)
 		local sign_sh = self.xml:InitTextWnd("tag_sign_sh:text", self)
-		local sign    = self.xml:InitTextWnd("tag_sign:text", self)
-		local glow    = self.xml:InitStatic("tag_glow", self)
-		local node    = self.xml:InitStatic("tag_node", self)
+		local sign = self.xml:InitTextWnd("tag_sign:text", self)
+		local glow = self.xml:InitStatic("tag_glow", self)
+		local node = self.xml:InitStatic("tag_node", self)
 		local spinner = self.xml:InitStatic("tag_spinner", self)
 		spinner:EnableHeading(true)
 		-- Bodycam-style head-outline edges (created last = drawn on top).
-		local box_top    = self.xml:InitStatic("tag_box_top", self)
+		local box_top = self.xml:InitStatic("tag_box_top", self)
 		local box_bottom = self.xml:InitStatic("tag_box_bottom", self)
-		local box_left   = self.xml:InitStatic("tag_box_left", self)
-		local box_right  = self.xml:InitStatic("tag_box_right", self)
+		local box_left = self.xml:InitStatic("tag_box_left", self)
+		local box_right = self.xml:InitStatic("tag_box_right", self)
 		self.slots[i] = {
-			shadow = shadow, line_sh = line_sh, line = line, plate = plate,
-			accent = accent, icon = icon, head_sh = head_sh, head = head,
-			name_sh = name_sh, name = name, rank_sh = rank_sh, rank = rank,
-			weap_sh = weap_sh, weap = weap,
-			sign_sh = sign_sh, sign = sign,
-			glow = glow, node = node, spinner = spinner,
-			box_top = box_top, box_bottom = box_bottom,
-			box_left = box_left, box_right = box_right,
+			shadow = shadow,
+			line_sh = line_sh,
+			line = line,
+			plate = plate,
+			accent = accent,
+			icon = icon,
+			head_sh = head_sh,
+			head = head,
+			name_sh = name_sh,
+			name = name,
+			rank_sh = rank_sh,
+			rank = rank,
+			weap_sh = weap_sh,
+			weap = weap,
+			sign_sh = sign_sh,
+			sign = sign,
+			glow = glow,
+			node = node,
+			spinner = spinner,
+			box_top = box_top,
+			box_bottom = box_bottom,
+			box_left = box_left,
+			box_right = box_right,
 		}
 		-- hidden starts unset (falsy) so this first hide_slot() call actually
 		-- runs the Show(false) calls below, instead of short-circuiting on its
@@ -1716,9 +2220,22 @@ end
 -- together with it); the minimal-style branch shows them back explicitly,
 -- same pattern as mini-mode already does for glow/node below.
 local CARD_WIDGET_KEYS = {
-	"shadow", "line_sh", "line", "plate", "accent", "icon",
-	"head_sh", "head", "name_sh", "name", "rank_sh", "rank",
-	"weap_sh", "weap", "sign_sh", "sign",
+	"shadow",
+	"line_sh",
+	"line",
+	"plate",
+	"accent",
+	"icon",
+	"head_sh",
+	"head",
+	"name_sh",
+	"name",
+	"rank_sh",
+	"rank",
+	"weap_sh",
+	"weap",
+	"sign_sh",
+	"sign",
 }
 
 local function hide_card_widgets(s)
@@ -1742,7 +2259,9 @@ end
 
 function IiTags:hide_slot(i)
 	local s = self.slots[i]
-	if not s or s.hidden then return end
+	if not s or s.hidden then
+		return
+	end
 	s.hidden = true
 	hide_card_widgets(s)
 	hide_box_widgets(s)
@@ -1772,33 +2291,39 @@ local BODYCAM_LINE_H = 19
 -- no longer double-draws (and darkens) at the corners.
 local function draw_head_box(s, cx, cy, hw, hh, alpha, r, g, b)
 	local t = C.box_thickness or 2
-	if t < 1 then t = 1 end
-	local tw = math.max(1, t * UI_KX)   -- vertical-edge width, aspect-corrected
+	if t < 1 then
+		t = 1
+	end
+	local tw = math.max(1, t * UI_KX) -- vertical-edge width, aspect-corrected
 	-- Box opacity scales the fade alpha (rectangle only; the text keeps full alpha).
 	local col = GetARGB(math.floor(alpha * (C.box_opacity or 1)), r, g, b)
 	local x0, y0 = cx - hw, cy - hh
 	local w, h = hw * 2, hh * 2
-	local vh = math.max(1, h - 2 * t)   -- vertical edges fill between top & bottom
+	local vh = math.max(1, h - 2 * t) -- vertical edges fill between top & bottom
 
 	s.box_top:SetWndSize(S(w, t))
 	s.box_top:SetWndPos(P(x0, y0))
-	s.box_top:SetTextureColor(col); s.box_top:Show(true)
+	s.box_top:SetTextureColor(col)
+	s.box_top:Show(true)
 
 	s.box_bottom:SetWndSize(S(w, t))
 	s.box_bottom:SetWndPos(P(x0, y0 + h - t))
-	s.box_bottom:SetTextureColor(col); s.box_bottom:Show(true)
+	s.box_bottom:SetTextureColor(col)
+	s.box_bottom:Show(true)
 
 	s.box_left:SetWndSize(S(tw, vh))
 	s.box_left:SetWndPos(P(x0, y0 + t))
-	s.box_left:SetTextureColor(col); s.box_left:Show(true)
+	s.box_left:SetTextureColor(col)
+	s.box_left:Show(true)
 
 	s.box_right:SetWndSize(S(tw, vh))
 	s.box_right:SetWndPos(P(x0 + w - tw, y0 + t))
-	s.box_right:SetTextureColor(col); s.box_right:Show(true)
+	s.box_right:SetTextureColor(col)
+	s.box_right:Show(true)
 end
 
-local SPIN_D = 20            -- spinner diameter, px, at scale 1
-local SPIN_PERIOD_MS = 900   -- one full rotation
+local SPIN_D = 20 -- spinner diameter, px, at scale 1
+local SPIN_PERIOD_MS = 900 -- one full rotation
 
 -- Draws just the relation-coloured node dot + its glow halo at the body
 -- anchor -- shared by the scanning-spinner branch and draw_slot's mini/full
@@ -1855,8 +2380,17 @@ local function draw_sign(s, hx, hy, alpha, sign_char)
 	s.sign:SetText(sign_char)
 	s.sign_sh:SetText(sign_char)
 	local shadow_a = math.floor(180 * alpha / 255)
-	draw_shadowed_text(s.sign, s.sign_sh, math.floor(hx - SIGN_W / 2), math.floor(hy - SIGN_H / 2),
-		alpha, col[1], col[2], col[3], shadow_a)
+	draw_shadowed_text(
+		s.sign,
+		s.sign_sh,
+		math.floor(hx - SIGN_W / 2),
+		math.floor(hy - SIGN_H / 2),
+		alpha,
+		col[1],
+		col[2],
+		col[3],
+		shadow_a
+	)
 end
 
 -- hx, hy: anchor screen position (1024x768 virtual space) -- the identify
@@ -1891,17 +2425,42 @@ end
 -- box_cx/box_cy/box_hw/box_hh (bodycam style only): the head-bone screen centre
 -- and its projected half-extents, precomputed in render(); nil for other styles
 -- or when the head doesn't project this frame.
-function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning, tg, scale, rank, stack_offset, fcol, sign, weap, box_cx, box_cy, box_hw, box_hh)
+function IiTags:draw_slot(
+	i,
+	hx,
+	hy,
+	header,
+	name,
+	alpha,
+	col,
+	icon_id,
+	scanning,
+	tg,
+	scale,
+	rank,
+	stack_offset,
+	fcol,
+	sign,
+	weap,
+	box_cx,
+	box_cy,
+	box_hw,
+	box_hh
+)
 	local s = self.slots[i]
-	if not s then return end
+	if not s then
+		return
+	end
 	s.hidden = false
-	hide_box_widgets(s)   -- box only ever re-shown by the bodycam branch below
+	hide_box_widgets(s) -- box only ever re-shown by the bodycam branch below
 
 	local r, g, b = col[1], col[2], col[3]
 	scale = scale or 1
 	stack_offset = stack_offset or 0
 	alpha = math.floor(alpha)
-	if alpha > 255 then alpha = 255 end
+	if alpha > 255 then
+		alpha = 255
+	end
 
 	if scanning then
 		-- scanning only: a rotating spinner on the body, nothing revealed yet.
@@ -1927,7 +2486,8 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 		s.spinner:Show(true)
 
 		hide_card_widgets(s)
-		s.glow:Show(false); s.node:Show(false)
+		s.glow:Show(false)
+		s.node:Show(false)
 		return
 	end
 
@@ -1950,9 +2510,17 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 	-- in which case nothing is drawn (box already hidden at the top).
 	if C.ui_style == 3 then
 		hide_card_widgets(s)
-		s.glow:Show(false); s.node:Show(false)
+		s.glow:Show(false)
+		s.node:Show(false)
 		if box_hw and box_hh then
-			draw_head_box(s, box_cx, box_cy, box_hw, box_hh, alpha, fcol[1], fcol[2], fcol[3])
+			-- Box colour source: faction colour, or the relationship colour
+			-- (red/green/grey) keyed off the relation sign -- which stays accurate
+			-- regardless of color_by_relation, unlike the relation-tinted `col`.
+			local bcol = fcol
+			if C.box_color_source == 2 then
+				bcol = SIGN_COLOR[sign] or COL_NEUTRAL
+			end
+			draw_head_box(s, box_cx, box_cy, box_hw, box_hh, alpha, bcol[1], bcol[2], bcol[3])
 
 			-- Name / faction / weapon+caliber, stacked just to the right of the box
 			-- and tracking it every frame, each gated by its generic show toggle.
@@ -1962,17 +2530,20 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 			local ty = math.floor(box_cy - box_hh)
 			local shadow_a = math.floor(180 * alpha / 255)
 			if C.show_name and name and name ~= "" then
-				s.name:SetText(name); s.name_sh:SetText(name)
+				s.name:SetText(name)
+				s.name_sh:SetText(name)
 				draw_shadowed_text(s.name, s.name_sh, tx, ty, alpha, 236, 230, 218, shadow_a)
 				ty = ty + BODYCAM_LINE_H
 			end
 			if C.show_faction and header and header ~= "" then
-				s.head:SetText(header); s.head_sh:SetText(header)
+				s.head:SetText(header)
+				s.head_sh:SetText(header)
 				draw_shadowed_text(s.head, s.head_sh, tx, ty, alpha, fcol[1], fcol[2], fcol[3], shadow_a)
 				ty = ty + BODYCAM_LINE_H
 			end
 			if C.show_weapon and weap and weap ~= "" then
-				s.weap:SetText(weap); s.weap_sh:SetText(weap)
+				s.weap:SetText(weap)
+				s.weap_sh:SetText(weap)
 				draw_shadowed_text(s.weap, s.weap_sh, tx, ty, alpha, 172, 178, 188, shadow_a)
 			end
 		end
@@ -2011,17 +2582,44 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 	-- Text width: re-measured only when the strings OR which lines are shown
 	-- change (AdjustWidthToText/GetWidth per change, not per frame).
 	local text_w = s.text_w
-	if header ~= s.last_head or name ~= s.last_name or rank ~= s.last_rank or weap ~= s.last_weap
-		or has_head ~= s.last_hhead or has_name ~= s.last_hname or has_weap ~= s.last_hweap then
+	if
+		header ~= s.last_head
+		or name ~= s.last_name
+		or rank ~= s.last_rank
+		or weap ~= s.last_weap
+		or has_head ~= s.last_hhead
+		or has_name ~= s.last_hname
+		or has_weap ~= s.last_hweap
+	then
 		text_w = 0
-		if has_head then s.head:SetText(header); s.head_sh:SetText(header)
-			s.head:AdjustWidthToText(); s.head_sh:AdjustWidthToText(); text_w = math.max(text_w, s.head:GetWidth()) end
-		if has_name then s.name:SetText(name); s.name_sh:SetText(name)
-			s.name:AdjustWidthToText(); s.name_sh:AdjustWidthToText(); text_w = math.max(text_w, s.name:GetWidth()) end
-		if has_rank then s.rank:SetText(rank); s.rank_sh:SetText(rank)
-			s.rank:AdjustWidthToText(); s.rank_sh:AdjustWidthToText(); text_w = math.max(text_w, s.rank:GetWidth()) end
-		if has_weap then s.weap:SetText(weap); s.weap_sh:SetText(weap)
-			s.weap:AdjustWidthToText(); s.weap_sh:AdjustWidthToText(); text_w = math.max(text_w, s.weap:GetWidth()) end
+		if has_head then
+			s.head:SetText(header)
+			s.head_sh:SetText(header)
+			s.head:AdjustWidthToText()
+			s.head_sh:AdjustWidthToText()
+			text_w = math.max(text_w, s.head:GetWidth())
+		end
+		if has_name then
+			s.name:SetText(name)
+			s.name_sh:SetText(name)
+			s.name:AdjustWidthToText()
+			s.name_sh:AdjustWidthToText()
+			text_w = math.max(text_w, s.name:GetWidth())
+		end
+		if has_rank then
+			s.rank:SetText(rank)
+			s.rank_sh:SetText(rank)
+			s.rank:AdjustWidthToText()
+			s.rank_sh:AdjustWidthToText()
+			text_w = math.max(text_w, s.rank:GetWidth())
+		end
+		if has_weap then
+			s.weap:SetText(weap)
+			s.weap_sh:SetText(weap)
+			s.weap:AdjustWidthToText()
+			s.weap_sh:AdjustWidthToText()
+			text_w = math.max(text_w, s.weap:GetWidth())
+		end
 		s.text_w, s.last_head, s.last_name, s.last_rank, s.last_weap = text_w, header, name, rank, weap
 		s.last_hhead, s.last_hname, s.last_hweap = has_head, has_name, has_weap
 	end
@@ -2035,10 +2633,31 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 	local PAD_TOP, PAD_BOTTOM, GAP = 7, 7, 4
 	local head_h, name_h, rank_h, weap_h = 16, 18, 16, 16
 	local ch, nlines = PAD_TOP, 0
-	if has_head then ch = ch + head_h; nlines = nlines + 1 end
-	if has_name then if nlines > 0 then ch = ch + GAP end; ch = ch + name_h; nlines = nlines + 1 end
-	if has_rank then if nlines > 0 then ch = ch + GAP end; ch = ch + rank_h; nlines = nlines + 1 end
-	if has_weap then if nlines > 0 then ch = ch + GAP end; ch = ch + weap_h; nlines = nlines + 1 end
+	if has_head then
+		ch = ch + head_h
+		nlines = nlines + 1
+	end
+	if has_name then
+		if nlines > 0 then
+			ch = ch + GAP
+		end
+		ch = ch + name_h
+		nlines = nlines + 1
+	end
+	if has_rank then
+		if nlines > 0 then
+			ch = ch + GAP
+		end
+		ch = ch + rank_h
+		nlines = nlines + 1
+	end
+	if has_weap then
+		if nlines > 0 then
+			ch = ch + GAP
+		end
+		ch = ch + weap_h
+		nlines = nlines + 1
+	end
 	ch = ch + PAD_BOTTOM
 
 	-- place the card up and to one side of the anchor; flip to the left near
@@ -2050,9 +2669,13 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 	local off_x, off_y = CARD_OFF_X * scale, CARD_OFF_Y * scale + stack_offset
 	local right = (hx + off_x + cw) <= 1014
 	local cx = right and (hx + off_x) or (hx - off_x - cw)
-	if cx < 4 then cx = 4 end
+	if cx < 4 then
+		cx = 4
+	end
 	local cy = hy - off_y - ch
-	if cy < 4 then cy = 4 end
+	if cy < 4 then
+		cy = 4
+	end
 
 	-- soft drop shadow (ii_shadow, feathered -- see its texture comment),
 	-- larger and offset down-right of the plate, so the card reads as lifted
@@ -2093,28 +2716,70 @@ function IiTags:draw_slot(i, hx, hy, header, name, alpha, col, icon_id, scanning
 
 	if has_head then
 		draw_shadowed_text(s.head, s.head_sh, txo, y, alpha, r, g, b, shadow_a)
-		y = y + head_h; placed = placed + 1
-	else s.head:Show(false); s.head_sh:Show(false) end
+		y = y + head_h
+		placed = placed + 1
+	else
+		s.head:Show(false)
+		s.head_sh:Show(false)
+	end
 
 	if has_name then
-		if placed > 0 then y = y + GAP end
+		if placed > 0 then
+			y = y + GAP
+		end
 		draw_shadowed_text(s.name, s.name_sh, txo, y, alpha, 235, 230, 220, shadow_a)
-		y = y + name_h; placed = placed + 1
-	else s.name:Show(false); s.name_sh:Show(false) end
+		y = y + name_h
+		placed = placed + 1
+	else
+		s.name:Show(false)
+		s.name_sh:Show(false)
+	end
 
 	if has_rank then
-		if placed > 0 then y = y + GAP end
+		if placed > 0 then
+			y = y + GAP
+		end
 		-- muted: secondary to the name, so its own (lower) alpha
-		draw_shadowed_text(s.rank, s.rank_sh, txo, math.floor(y), math.floor(200 * alpha / 255), 210, 205, 195, shadow_a)
-		y = y + rank_h; placed = placed + 1
-	else s.rank:Show(false); s.rank_sh:Show(false) end
+		draw_shadowed_text(
+			s.rank,
+			s.rank_sh,
+			txo,
+			math.floor(y),
+			math.floor(200 * alpha / 255),
+			210,
+			205,
+			195,
+			shadow_a
+		)
+		y = y + rank_h
+		placed = placed + 1
+	else
+		s.rank:Show(false)
+		s.rank_sh:Show(false)
+	end
 
 	if has_weap then
-		if placed > 0 then y = y + GAP end
+		if placed > 0 then
+			y = y + GAP
+		end
 		-- steel-grey, dimmer still: an equipment note, not competing with the name
-		draw_shadowed_text(s.weap, s.weap_sh, txo, math.floor(y), math.floor(185 * alpha / 255), 165, 180, 195, shadow_a)
-		y = y + weap_h; placed = placed + 1
-	else s.weap:Show(false); s.weap_sh:Show(false) end
+		draw_shadowed_text(
+			s.weap,
+			s.weap_sh,
+			txo,
+			math.floor(y),
+			math.floor(185 * alpha / 255),
+			165,
+			180,
+			195,
+			shadow_a
+		)
+		y = y + weap_h
+		placed = placed + 1
+	else
+		s.weap:Show(false)
+		s.weap_sh:Show(false)
+	end
 
 	-- node + its glow halo at the anchor point on the body (shared with the
 	-- mini-mode branch above -- see draw_node_glow's comment).
@@ -2160,9 +2825,13 @@ end
 -- Per-frame update
 -- --------------------------------------------------------------------------
 local function ensure_tags()
-	if TAGS then return true end
+	if TAGS then
+		return true
+	end
 	local hud = get_hud and get_hud()
-	if not hud then return false end
+	if not hud then
+		return false
+	end
 	TAGS = IiTags()
 	hud:AddDialogToRender(TAGS)
 	return true
@@ -2197,18 +2866,31 @@ local HIDE_GRACE_MS = 150
 -- recomputed here every frame so they track the settling ragdoll) and submits
 -- them in one atomic begin/add/commit. Inert without the custom exe.
 -- --------------------------------------------------------------------------
-local corpse_ids = {}          -- cached visible-corpse ids (throttled membership)
+local corpse_ids = {} -- cached dead-in-range ids (throttled membership)
 local corpse_last_tg = 0
-local CORPSE_THROTTLE_MS = 300
-local _glitch_boxes = {}       -- reused per-frame box list, avoids GC churn
+-- Membership refresh cadence. Lowered now the sweep is just iterate_nearest +
+-- alive checks (no per-corpse LOS raycasts, see update_corpse_membership), so a
+-- newly-dead / newly-in-range body starts redacting promptly. The per-frame feed
+-- re-projects the cached set every frame regardless.
+local CORPSE_THROTTLE_MS = 150
+local _glitch_boxes = {} -- reused per-frame box list, avoids GC churn
 
 -- Head box (screen bbox, 1024x768 virtual space) as cx,cy,hw,hh, or nil if it
 -- doesn't project this frame. Head bone (lifted to the face centre) first, body
 -- anchor for monsters without a bip01_head.
+-- Returns the screen bbox (cx,cy,hw,hh,depth) PLUS the box's WORLD centre and
+-- world half-extents (metres) -- the engine reprojects the latter through the
+-- scope camera for in-scope redaction (see glitch_submit).
 local function head_box_for(obj)
 	local hc = head_center(obj) or anchor_pos(obj)
-	if not hc then return nil end
-	return screen_box(hc, BOX_HALF_W, BOX_HALF_H)
+	if not hc then
+		return nil
+	end
+	local cx, cy, hw, hh, depth = screen_box(hc, BOX_HALF_W, BOX_HALF_H)
+	if not cx then
+		return nil
+	end
+	return cx, cy, hw, hh, depth, hc.x, hc.y, hc.z, BOX_HALF_W, BOX_HALF_H
 end
 
 -- Full-body box: the screen-space bounding box of the actual body bones, so it
@@ -2219,24 +2901,68 @@ end
 -- extent, and pads it out a little. Falls back to a vertical span at the origin
 -- for monsters / rigs without these bones.
 local BODY_BOX_BONES = {
-	"bip01_head", "bip01_neck", "bip01_spine2", "bip01_spine1", "bip01_spine",
-	"bip01_pelvis", "bip01_l_forearm", "bip01_r_forearm", "bip01_l_hand", "bip01_r_hand",
-	"bip01_l_calf", "bip01_r_calf", "bip01_l_foot", "bip01_r_foot",
+	"bip01_head",
+	"bip01_neck",
+	"bip01_spine2",
+	"bip01_spine1",
+	"bip01_spine",
+	"bip01_pelvis",
+	"bip01_l_forearm",
+	"bip01_r_forearm",
+	"bip01_l_hand",
+	"bip01_r_hand",
+	"bip01_l_calf",
+	"bip01_r_calf",
+	"bip01_l_foot",
+	"bip01_r_foot",
 }
 local _bb_pt = vector()
 local function body_box_for(obj)
 	local base = obj:position()
 	local minx, miny, maxx, maxy
+	-- World-space AABB of the same bones, for the in-scope reprojection.
+	local wminx, wminy, wminz, wmaxx, wmaxy, wmaxz
+	local function acc_world(px, py, pz)
+		if not wminx then
+			wminx, wminy, wminz, wmaxx, wmaxy, wmaxz = px, py, pz, px, py, pz
+		else
+			if px < wminx then
+				wminx = px
+			elseif px > wmaxx then
+				wmaxx = px
+			end
+			if py < wminy then
+				wminy = py
+			elseif py > wmaxy then
+				wmaxy = py
+			end
+			if pz < wminz then
+				wminz = pz
+			elseif pz > wmaxz then
+				wmaxz = pz
+			end
+		end
+	end
 	for _, bone in ipairs(BODY_BOX_BONES) do
 		local p = safe_call(obj.bone_position, obj, bone)
-		if p and p:distance_to_sqr(base) < 25 then   -- sane bone (within 5 m of origin)
+		if p and p:distance_to_sqr(base) < 25 then -- sane bone (within 5 m of origin)
 			local sx, sy = project_world(p)
 			if sx then
-				if not minx then minx, miny, maxx, maxy = sx, sy, sx, sy
+				if not minx then
+					minx, miny, maxx, maxy = sx, sy, sx, sy
 				else
-					if sx < minx then minx = sx elseif sx > maxx then maxx = sx end
-					if sy < miny then miny = sy elseif sy > maxy then maxy = sy end
+					if sx < minx then
+						minx = sx
+					elseif sx > maxx then
+						maxx = sx
+					end
+					if sy < miny then
+						miny = sy
+					elseif sy > maxy then
+						maxy = sy
+					end
 				end
+				acc_world(p.x, p.y, p.z)
 			end
 		end
 	end
@@ -2246,14 +2972,26 @@ local function body_box_for(obj)
 		for _, lift in ipairs({ 0.2, 0.8, 1.5 }) do
 			local sx, sy = project_world(_bb_pt:set(base.x, base.y + lift, base.z))
 			if sx then
-				if not minx then minx, miny, maxx, maxy = sx, sy, sx, sy
+				if not minx then
+					minx, miny, maxx, maxy = sx, sy, sx, sy
 				else
-					if sx < minx then minx = sx elseif sx > maxx then maxx = sx end
-					if sy < miny then miny = sy elseif sy > maxy then maxy = sy end
+					if sx < minx then
+						minx = sx
+					elseif sx > maxx then
+						maxx = sx
+					end
+					if sy < miny then
+						miny = sy
+					elseif sy > maxy then
+						maxy = sy
+					end
 				end
+				acc_world(base.x, base.y + lift, base.z)
 			end
 		end
-		if not minx then return nil end
+		if not minx then
+			return nil
+		end
 	end
 
 	local cx, cy = (minx + maxx) * 0.5, (miny + maxy) * 0.5
@@ -2261,14 +2999,31 @@ local function body_box_for(obj)
 	-- not just the bone points: a fraction of each axis plus a small floor.
 	local hw = (maxx - minx) * 0.5 + math.max(6, (maxx - minx) * 0.12)
 	local hh = (maxy - miny) * 0.5 + math.max(6, (maxy - miny) * 0.10)
-	if hw < 2 or hh < 2 then return nil end
-	return cx, cy, hw, hh
+	if hw < 2 or hh < 2 then
+		return nil
+	end
+	-- World centre + billboard half-extents from the bone AABB (horizontal =
+	-- widest of the X/Z spans, vertical = Y span), padded a touch, for the
+	-- in-scope reprojection. Falls back to a metric guess if no world data.
+	local wcx, wcy, wcz, whw, whh
+	if wminx then
+		wcx, wcy, wcz = (wminx + wmaxx) * 0.5, (wminy + wmaxy) * 0.5, (wminz + wmaxz) * 0.5
+		whw = math.max(wmaxx - wminx, wmaxz - wminz) * 0.5 + 0.1
+		whh = (wmaxy - wminy) * 0.5 + 0.1
+	else
+		wcx, wcy, wcz, whw, whh = base.x, base.y + 0.9, base.z, 0.45, 0.95
+	end
+	-- Depth for the shader mask: the chest anchor (ragdoll-tracking) is a good
+	-- representative view-depth for the whole body box.
+	return cx, cy, hw, hh, view_depth(anchor_pos(obj)), wcx, wcy, wcz, whw, whh
 end
 
 -- Head-only (area 1) or full-body (area 2) box for an object. Shared by the
 -- redaction feed (redact_area) and the bodycam outline rectangle (box_area).
 local function area_box_for(obj, area)
-	if area == 2 then return body_box_for(obj) end
+	if area == 2 then
+		return body_box_for(obj)
+	end
 	return head_box_for(obj)
 end
 
@@ -2276,54 +3031,84 @@ local function redact_box_for(obj)
 	return area_box_for(obj, C.redact_area or 1)
 end
 
--- Throttled: rebuild the set of visible dead NPCs/creatures in range. LOS
--- (the expensive part) is only re-tested on this cadence; the per-frame feed
--- reuses the membership and just re-projects each head.
+-- Throttled: rebuild the set of dead NPCs/creatures in range. NO LOS check here
+-- on purpose: the redaction shader is depth-aware (it rejects any pixel nearer
+-- than the corpse, so a body behind a wall simply shows no redacted pixels), so
+-- gating membership on db.actor:see was both redundant AND the cause of a pop-in
+-- delay -- see() is smoothed/cached with a grace window, so a body you turn to
+-- look at took a beat to start redacting. Dropping it makes it appear the instant
+-- the box is on screen, and per-pixel depth occlusion is more accurate than a
+-- whole-corpse LOS gate. Off-screen corpses cost nothing (their box won't
+-- project). The per-frame feed re-projects each head from this membership.
 local function update_corpse_membership(tg)
 	if not C.redact_dead then
-		if #corpse_ids > 0 then corpse_ids = {} end
+		if #corpse_ids > 0 then
+			corpse_ids = {}
+		end
 		return
 	end
-	if tg - corpse_last_tg < CORPSE_THROTTLE_MS then return end
+	if tg - corpse_last_tg < CORPSE_THROTTLE_MS then
+		return
+	end
 	corpse_last_tg = tg
-	if not db.actor or not level.iterate_nearest then corpse_ids = {}; return end
+	if not db.actor or not level.iterate_nearest then
+		corpse_ids = {}
+		return
+	end
 	local apos = db.actor:position()
 	local actor_id = db.actor:id()
 	local ids, n = {}, 0
 	pcall(level.iterate_nearest, apos, C.max_dist, function(obj)
-		if n < GLITCH_MAX and obj and obj:id() ~= actor_id
-			and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) then
-			if not safe_call(obj.alive, obj) and has_los(obj) then
+		if
+			n < GLITCH_MAX
+			and obj
+			and obj:id() ~= actor_id
+			and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj))
+		then
+			if not safe_call(obj.alive, obj) then
 				n = n + 1
 				ids[n] = obj:id()
 			end
 		end
-		return false   -- keep scanning the whole set within range
+		return false -- keep scanning the whole set within range
 	end)
 	corpse_ids = ids
 end
 
 local function add_glitch_box(boxes, n, obj)
-	local cx, cy, hw, hh = redact_box_for(obj)
-	if not cx then return n end
+	local cx, cy, hw, hh, depth, wcx, wcy, wcz, whw, whh = redact_box_for(obj)
+	if not cx then
+		return n
+	end
 	-- Loosen the redacted region off the model by redact_padding (a fraction of
-	-- its size, so it stays proportional at any distance).
+	-- its size, so it stays proportional at any distance). Applied to both the
+	-- main-screen rect and the world half-extents.
 	local rp = 1 + (C.redact_padding or 0)
 	n = n + 1
 	local b = boxes[n] or {}
-	b.cx, b.cy, b.hw, b.hh = cx, cy, hw * rp, hh * rp
+	b.cx, b.cy, b.hw, b.hh, b.depth = cx, cy, hw * rp, hh * rp, depth or 0
+	b.wcx, b.wcy, b.wcz = wcx or 0, wcy or 0, wcz or 0
+	b.whw, b.whh = (whw or 0) * rp, (whh or 0) * rp
 	boxes[n] = b
 	return n
 end
 
-local function feed_glitch(tg, pip_active)
-	if not glitch_binding() then return end   -- stock exe: nothing to feed
-	if pip_active then glitch_clear(); return end
+-- No longer skips when scoped: the engine runs the redaction in BOTH the main
+-- pass (screen rects) and the SVP pass (world boxes reprojected through the scope
+-- camera), so the same submission feeds both. The main-pass rects are simply
+-- against the wrong picture inside the lens, but the lens only samples the SVP
+-- pass's output, so there's no conflict.
+local function feed_glitch(tg, pip_active, suppress_main)
+	if not glitch_binding() then
+		return
+	end -- stock exe: nothing to feed
 
 	local boxes, n = _glitch_boxes, 0
 	if C.redact_dead then
 		for _, id in ipairs(corpse_ids) do
-			if n >= GLITCH_MAX then break end
+			if n >= GLITCH_MAX then
+				break
+			end
 			local obj = level.object_by_id(id)
 			if obj and not safe_call(obj.alive, obj) then
 				n = add_glitch_box(boxes, n, obj)
@@ -2331,20 +3116,24 @@ local function feed_glitch(tg, pip_active)
 		end
 	end
 
-	glitch_submit(boxes, n, C.redact_strength or 1.0)
+	glitch_submit(boxes, n, C.redact_strength or 1.0, suppress_main)
 
 	if C.debug_log then
 		local on = n > 0
 		if on ~= _glitch_dbg_active then
 			_glitch_dbg_active = on
-			dbg(on and string.format("redact ON: %d corpse(s) strength=%.2f", n, C.redact_strength or 1.0)
-				or "redact OFF")
+			dbg(
+				on and string.format("redact ON: %d corpse(s) strength=%.2f", n, C.redact_strength or 1.0)
+					or "redact OFF"
+			)
 		end
 	end
 end
 
 local function render(tg)
-	if not TAGS then return end   -- only ever called after ensure_tags() succeeds, but don't assume it
+	if not TAGS then
+		return
+	end -- only ever called after ensure_tags() succeeds, but don't assume it
 	local apos = db.actor and db.actor:position()
 
 	-- While a true PiP scope is actively raised, the normal card/dot (always
@@ -2357,12 +3146,24 @@ local function render(tg)
 	-- for why the marker's position is submitted as a world point rather
 	-- than pre-projected here: the render thread projects it fresh through
 	-- this frame's own SVP camera, so there's no cross-thread staleness.
-	local pip_active = PIP_AVAILABLE and is_svp_active()
+	-- pip_scope: a PiP scope is physically rendering (regardless of our toggles).
+	-- pip_active: our in-scope UI path is on (pip_markers gates it) -- off = behave
+	-- as if there were no PiP support (normal HUD, no in-scope markers).
+	local pip_scope = PIP_AVAILABLE and is_svp_active()
+	local pip_active = C.pip_markers and pip_scope
+	-- Suppress ALL main-view drawing (HUD tags + main-pass redaction) while aiming
+	-- down sight (ads_hide_main) or while a scope is up (pip_hide_main). The
+	-- in-scope UI is unaffected -- markers still publish and scope redaction still
+	-- draws. (pip_active already hides the main HUD on its own; this also covers
+	-- the ADS-without-PiP and pip_markers-off cases, plus the main-pass redaction.)
+	local suppress_main = (C.ads_hide_main and is_ads_active()) or (C.pip_hide_main and pip_scope)
 	-- Unconditional on PIP_AVAILABLE (not pip_active): runs every frame the
 	-- engine supports it, scoped or not, so lowering the scope mid-reveal
 	-- still publishes one more (empty) snapshot instead of leaving the last
 	-- scoped frame's markers published indefinitely.
-	if PIP_AVAILABLE then svp_ui_markers_begin() end
+	if PIP_AVAILABLE then
+		svp_ui_markers_begin()
+	end
 
 	-- First pass: resolve which targets are actually on-screen and drawable
 	-- this frame (unchanged logic from before), collecting them instead of
@@ -2386,11 +3187,13 @@ local function render(tg)
 		local obj = level.object_by_id(id)
 		local remove = not obj
 		if obj then
-			remove = not safe_call(obj.alive, obj)   -- a tag is dropped the instant its target dies
+			remove = not safe_call(obj.alive, obj) -- a tag is dropped the instant its target dies
 		end
 
 		local elapsed = tg - e.t0
-		if not remove and elapsed > total then remove = true end
+		if not remove and elapsed > total then
+			remove = true
+		end
 
 		-- Out of sight: drop the tag near-instantly rather than wait out its
 		-- visibility timer (overrides the "stay visible after identify" hold).
@@ -2403,7 +3206,9 @@ local function render(tg)
 				e.unseen_since = nil
 			else
 				e.unseen_since = e.unseen_since or tg
-				if tg - e.unseen_since >= HIDE_GRACE_MS then remove = true end
+				if tg - e.unseen_since >= HIDE_GRACE_MS then
+					remove = true
+				end
 			end
 		end
 
@@ -2419,7 +3224,9 @@ local function render(tg)
 				phase_alpha = 1
 			else
 				phase_alpha = 1 - (elapsed - (scan_ms + fade_ms + hold_ms)) / fade_ms
-				if phase_alpha < 0 then phase_alpha = 0 end
+				if phase_alpha < 0 then
+					phase_alpha = 0
+				end
 			end
 
 			local pos = anchor_pos(obj)
@@ -2428,7 +3235,9 @@ local function render(tg)
 			if dist > fade_dist then
 				local span = math.max(1, max_dist - fade_dist)
 				dist_fade = 1 - (dist - fade_dist) / span
-				if dist_fade < 0 then dist_fade = 0 end
+				if dist_fade < 0 then
+					dist_fade = 0
+				end
 			end
 
 			-- (Out-of-sight targets are already dropped above via hide_unseen.)
@@ -2447,10 +3256,20 @@ local function render(tg)
 				if pip_active then
 					local col, fcol = e.col, e.fcol
 					local alpha = scanning and (0.9 * dist_fade) or (phase_alpha * dist_fade)
-					svp_ui_markers_add(pos.x, pos.y + PIP_MARKER_LIFT, pos.z,
-						fcol[1] / 255, fcol[2] / 255, fcol[3] / 255,
-						alpha, PIP_MARKER_RADIUS,
-						col[1] / 255, col[2] / 255, col[3] / 255, scanning)
+					svp_ui_markers_add(
+						pos.x,
+						pos.y + PIP_MARKER_LIFT,
+						pos.z,
+						fcol[1] / 255,
+						fcol[2] / 255,
+						fcol[3] / 255,
+						alpha,
+						PIP_MARKER_RADIUS,
+						col[1] / 255,
+						col[2] / 255,
+						col[3] / 255,
+						scanning
+					)
 				end
 
 				active_n = active_n + 1
@@ -2487,16 +3306,20 @@ local function render(tg)
 	-- and even when not currently scoped -- see begin() above): without
 	-- this, the last scoped frame's markers would otherwise linger
 	-- published forever once tracked drains out, or once the scope lowers.
-	if PIP_AVAILABLE then svp_ui_markers_commit() end
+	if PIP_AVAILABLE then
+		svp_ui_markers_commit()
+	end
 
 	-- Drive the engine glitch pass with every visible corpse's head box (custom
 	-- bodycam exe only; inert otherwise). feed_glitch clears it when nothing
 	-- qualifies or a PiP scope is up (the main-camera rects would be against the
 	-- wrong picture then, same reasoning as the card/dot).
-	feed_glitch(tg, pip_active)
+	feed_glitch(tg, pip_active, suppress_main)
 
-	if pip_active then
-		for i = 1, MAX_TAGS do TAGS:hide_slot(i) end
+	if pip_active or suppress_main then
+		for i = 1, MAX_TAGS do
+			TAGS:hide_slot(i)
+		end
 		return
 	end
 
@@ -2520,9 +3343,28 @@ local function render(tg)
 
 		slot_i = slot_i + 1
 		if slot_i <= MAX_TAGS then
-			TAGS:draw_slot(slot_i, ai.hx, ai.hy, ai.header, ai.name, ai.a, ai.col, ai.icon,
-				ai.scanning, tg, ai.scale, ai.rank, stack * STACK_STEP, ai.fcol, ai.sign, ai.weap,
-				ai.box_cx, ai.box_cy, ai.box_hw, ai.box_hh)
+			TAGS:draw_slot(
+				slot_i,
+				ai.hx,
+				ai.hy,
+				ai.header,
+				ai.name,
+				ai.a,
+				ai.col,
+				ai.icon,
+				ai.scanning,
+				tg,
+				ai.scale,
+				ai.rank,
+				stack * STACK_STEP,
+				ai.fcol,
+				ai.sign,
+				ai.weap,
+				ai.box_cx,
+				ai.box_cy,
+				ai.box_hw,
+				ai.box_hh
+			)
 		end
 	end
 
@@ -2534,14 +3376,51 @@ end
 -- Tear down every UI element the mod has drawn: hide all tag slots, drop the
 -- active reveals, forget cached corpses, and clear the engine redaction pass.
 local function teardown_ui()
-	if TAGS then for i = 1, MAX_TAGS do TAGS:hide_slot(i) end end
-	for k in pairs(tracked) do tracked[k] = nil end
+	if TAGS then
+		for i = 1, MAX_TAGS do
+			TAGS:hide_slot(i)
+		end
+	end
+	for k in pairs(tracked) do
+		tracked[k] = nil
+	end
 	corpse_ids = {}
 	glitch_clear()
 end
 
+-- When the ADS range boost ends (you zoom out / lower the sight), the effective
+-- identify range snaps back from the extended (ads_range_mult) range to the base.
+-- Any tag identified at that extended range that now sits beyond the base range is
+-- dropped immediately -- rather than lingering invisibly on its reveal timer --
+-- and survivors are re-snapshotted to the base range so their distance fade-out
+-- matches it. Fires only on the ADS-boost active->inactive edge.
+--
+-- Deliberately NOT applied to binoculars: those keep a just-glassed distant tag
+-- readable after you lower them (see boost_params()'s snapshot comment), a
+-- dedicated-observation UX that differs from ADS's transient combat aid.
+local _was_ads_boost = false
+local function update_ads_range_cull()
+	local _, ads, _, eff_max_dist, eff_fade_dist = boost_params()
+	local ads_boost = ads and C.ads_boost
+	if _was_ads_boost and not ads_boost then
+		local apos = db.actor and safe_call(db.actor.position, db.actor)
+		if apos then
+			for id, e in pairs(tracked) do
+				local obj = level.object_by_id(id)
+				local pos = obj and safe_call(obj.position, obj)
+				if pos and pos:distance_to(apos) > eff_max_dist then
+					tracked[id] = nil -- out of the (now unboosted) range: clear it
+				else
+					e.max_dist, e.fade_dist = eff_max_dist, eff_fade_dist
+				end
+			end
+		end
+	end
+	_was_ads_boost = ads_boost
+end
+
 local function actor_on_update()
-	update_fov_baseline()   -- keep this warm even while the mod is disabled
+	update_fov_baseline() -- keep this warm even while the mod is disabled
 
 	-- Actor death: clear everything we drew so no tag/box/redaction lingers on
 	-- the death screen. Polled here (idempotent); also fires if the actor object
@@ -2553,15 +3432,22 @@ local function actor_on_update()
 	end
 
 	if not C.enabled then
-		if TAGS then for i = 1, MAX_TAGS do TAGS:hide_slot(i) end end
+		if TAGS then
+			for i = 1, MAX_TAGS do
+				TAGS:hide_slot(i)
+			end
+		end
 		reset_steady()
 		glitch_clear()
 		return
 	end
-	if not ensure_tags() then return end
+	if not ensure_tags() then
+		return
+	end
 	local tg = time_global()
 	update_binocular_scan(tg)
 	update_auto_identify(tg)
+	update_ads_range_cull()
 	update_corpse_membership(tg)
 	update_loot_xp()
 	render(tg)

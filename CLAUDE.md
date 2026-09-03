@@ -45,6 +45,10 @@ on it; the `types/` stubs are cited against that source but engine forks drift.
   comment edit** — a bare `--` inside an XML comment crashes the engine's loader and
   xmllint is the only thing that reliably catches it.
 - `nix run .#check-lua` — headless lua-language-server check.
+- `nix run .#format` — StyLua-format every `.script` (config in `stylua.toml`).
+  StyLua globs `.lua`, so the app passes the `.script` files explicitly.
+- `nix run .#check-format` — verify formatting without writing (CI-friendly).
 - `nix run .#package` — build the FOMOD zip (version read from `fomod/info.xml`).
 
 `.luarc.json` maps `*.script` → Lua so the LSP treats Anomaly scripts as Lua 5.1.
+`stylua.toml` uses tabs + a wide column to match the hand-written style.

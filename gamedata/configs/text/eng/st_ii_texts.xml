@@ -32,6 +32,11 @@
 	<string id="ii_main_box_area_lst_head"><text>Head / face</text></string>
 	<string id="ii_main_box_area_lst_body"><text>Full body</text></string>
 
+	<string id="ui_mcm_ii_box_color_source"><text>Bodycam box colour</text></string>
+	<string id="ui_mcm_ii_box_color_source_desc"><text>Bodycam style: colour the outline rectangle by faction, or by relationship (red enemy / green friendly / grey neutral).</text></string>
+	<string id="ii_main_box_color_source_lst_faction"><text>Faction colour</text></string>
+	<string id="ii_main_box_color_source_lst_relation"><text>Relationship (red/green/grey)</text></string>
+
 	<string id="ui_mcm_ii_box_thickness"><text>Box outline thickness</text></string>
 	<string id="ui_mcm_ii_box_thickness_desc"><text>Bodycam style: thickness of the outline rectangle's edges, in pixels.</text></string>
 
@@ -123,8 +128,30 @@
 	<string id="ui_mcm_ii_binoc_scan_mult"><text>Binoculars scan speed multiplier</text></string>
 	<string id="ui_mcm_ii_binoc_scan_mult_desc"><text>Scan speed multiplier while binoculars are raised.</text></string>
 
-	<string id="ui_mcm_ii_binoc_range_mult"><text>Binoculars range multiplier</text></string>
-	<string id="ui_mcm_ii_binoc_range_mult_desc"><text>Range multiplier while binoculars are raised.</text></string>
+	<string id="ui_mcm_ii_binoc_range_mult"><text>Binoculars max distance multiplier</text></string>
+	<string id="ui_mcm_ii_binoc_range_mult_desc"><text>Max (and fade-out) distance multiplier while binoculars are raised.</text></string>
+
+	<string id="ui_mcm_ii_ads_title"><text>Aim Down Sight (ADS)</text></string>
+	<string id="ui_mcm_ii_ads_mode"><text>ADS mode</text></string>
+	<string id="ui_mcm_ii_ads_mode_desc"><text>Also auto-identify on a steady aim while aiming down sight, alongside the normal key.</text></string>
+	<string id="ui_mcm_ii_ads_boost"><text>ADS boosts identification</text></string>
+	<string id="ui_mcm_ii_ads_boost_desc"><text>Faster reveal and longer range while aiming down sight, any mode.</text></string>
+	<string id="ui_mcm_ii_ads_scan_mult"><text>ADS scan speed multiplier</text></string>
+	<string id="ui_mcm_ii_ads_scan_mult_desc"><text>Scan speed multiplier while aiming down sight (lower = faster).</text></string>
+	<string id="ui_mcm_ii_ads_range_mult"><text>ADS max distance multiplier (x1 base)</text></string>
+	<string id="ui_mcm_ii_ads_range_mult_desc"><text>Max (and fade-out) distance multiplier while aiming down sight. This is the base for a 1x sight; higher-power scopes scale it up if zoom scaling is on.</text></string>
+	<string id="ui_mcm_ii_ads_zoom_scaling"><text>Scale range by scope magnification</text></string>
+	<string id="ui_mcm_ii_ads_zoom_scaling_desc"><text>Multiply the ADS range by the scope's magnification (x2, x4, ...), so higher-power optics reach further. Works with PiP scopes and, on engines without PiP, from the aim FOV. Iron sights stay near the x1 base.</text></string>
+	<string id="ui_mcm_ii_ads_hide_main"><text>Hide main-view UI while aiming</text></string>
+	<string id="ui_mcm_ii_ads_hide_main_desc"><text>While aiming down sight, suppress all main-view drawing (identification tags and main-view redaction) for a clean sight picture. In-scope markers/redaction (if any) still draw.</text></string>
+
+	<string id="ui_mcm_ii_pip_title"><text>PiP Scope (in-scope UI)</text></string>
+	<string id="ui_mcm_ii_pip_markers"><text>Identification markers in scope</text></string>
+	<string id="ui_mcm_ii_pip_markers_desc"><text>Draw identification markers inside a Picture-in-Picture scope's lens. Needs a PiP-capable engine; when off, the mod behaves as if there were no PiP support (normal HUD, no in-scope markers).</text></string>
+	<string id="ui_mcm_ii_pip_redact"><text>Redaction in scope</text></string>
+	<string id="ui_mcm_ii_pip_redact_desc"><text>Draw the dead-body redaction effect inside a PiP scope's lens too. Independent of the markers toggle; the main-view redaction is unaffected either way.</text></string>
+	<string id="ui_mcm_ii_pip_hide_main"><text>Hide main-view UI when scope is up</text></string>
+	<string id="ui_mcm_ii_pip_hide_main_desc"><text>While a PiP scope is rendering, suppress all main-view drawing (identification tags and main-view redaction), leaving only the in-scope UI.</text></string>
 
 	<string id="ui_mcm_ii_distance_scaling_title"><text>Card Size</text></string>
 

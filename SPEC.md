@@ -214,10 +214,62 @@ community, and is within `eff_max_dist`.
   (`update_fov_baseline`, 548-555).
 - `binoc_boost` widens `eff_max_dist` / `eff_fade_dist` by `binoc_range_mult`
   (842-844) and speeds the scan.
-- **Auto-identify** (`update_binocular_scan`, 949-981): when `binocular_mode` and
-  binoculars active, tracks a "steady" camera direction against an anchor
+- **Auto-identify** (`update_binocular_scan`): when `binocular_mode` **or**
+  `ads_mode` is active, tracks a "steady" camera direction against an anchor
   (`STEADY_MAX_D2 = 0.002`, ~2.6°); held steady for `steady_time`, it auto-fires
   `try_identify()` once (`steady_triggered` guard).
+
+### 3.5b Aim Down Sight (ADS)
+
+Mirrors the binocular boost for regular weapons. `is_ads_active()` prefers the
+bodycam engine's real aim flag (`bodycam.get_state().ads`, catches iron sights),
+falling back to the same FOV-zoom heuristic with a gentler `ADS_ZOOM_RATIO (0.85)`;
+binoculars are excluded so the two never stack. `boost_params()` now returns
+`(binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult)` — binoc takes
+priority, then ADS, each carrying its own `*_scan_mult` / `*_range_mult` from its
+MCM section; `identify_target` applies the returned `scan_mult`. Its own MCM
+section: `ads_mode` (steady-aim auto-identify), `ads_boost`, `ads_scan_mult`,
+`ads_range_mult`, `ads_zoom_scaling`.
+
+**Zoom-scaled range**: with `ads_zoom_scaling` on, the ADS range multiplier is
+scaled by the current scope magnification — `range_mult = ads_range_mult × mag` —
+so higher-power optics reach further (`ads_range_mult` is the x1 base). The magnification is **hybrid**, so it works with or without a PiP engine and
+tracks dynamic zoom live in both: (1) on a PiP engine the zoom lives in the second
+viewport (main FOV unchanged), so the new engine binding `svp_scope_magnification()`
+— which returns the SVP `svp_mag` "zoom scaled trigger" (1.0=1x .. ~8x, -1 when not
+scoped) — is the only accurate source; (2) with no PiP (or when the binding reports
+nothing), a non-PiP optic narrows the **main-camera FOV**, so magnification is
+recovered as `_fov_baseline / device().fov`. Iron sights / un-magnified aim stay at
+the x1 base (`MAG_FOV_MIN = 1.05`).
+
+**Zoom-out range cull** (`update_ads_range_cull`): on the ADS-boost
+active→inactive edge, tags now beyond the (unboosted, base) range are dropped
+immediately rather than lingering invisibly on their timer; survivors are
+re-snapshotted to the base range. Deliberately ADS-only — binoculars keep a
+just-glassed distant tag readable after lowering (observation vs. combat-aid UX).
+
+**Steady auto-trigger uses auto semantics**: `try_identify(auto_mode)` — the
+steady-aim trigger (binocular / ADS mode) passes `true`, so `identify_target`
+refreshes an already-revealed target's hold window instead of restarting its
+reveal. Without this, ADS combat aim (constant micro-adjustment re-arms the steady
+trigger) re-scanned already-identified targets every re-fire — the "double
+identification" retrigger, most visible in-scope as the marker flicking back to
+the scanning spinner. A manual keypress (`nil`) still restarts on purpose.
+
+**PiP toggles**: `pip_markers` gates the whole in-scope UI path (`pip_active =
+pip_markers and PIP_AVAILABLE and is_svp_active()`) — off reverts to normal
+HUD/main-pass behavior. `pip_redact` gates only the in-scope redaction, by zeroing
+the world box extents in `glitch_submit` so the engine's SVP glitch pass skips
+them (the main-view redaction is unaffected).
+
+**Suppress main-view drawing**: `suppress_main = (ads_hide_main and is_ads_active())
+or (pip_hide_main and pip_scope)` hides ALL main-view drawing — the HUD tags (adds
+to the `pip_active or suppress_main` hide-slots-and-return) and the main-pass
+redaction (`glitch_submit(…, main_off)` submits each box's main-camera rect
+off-screen — outside `[0,1]`, so the main glitch shader finds no pixels — while the
+WORLD box still feeds the in-scope pass). The in-scope UI is unaffected, so with a
+PiP scope up you get in-scope-only rendering. `pip_scope` is the physical scope
+state (independent of `pip_markers`), so this also covers `pip_markers`-off.
 
 ### 3.6 UI rendering
 
@@ -338,7 +390,17 @@ opt_list` helpers set `hint = "ii_" .. id` mechanically.
 | `steady_time` | track | 0.6 | 0.2, 3, 0.1, 1 | steady-aim hold time (s) |
 | `binoc_boost` | check | true | — | binocs speed up + extend range |
 | `binoc_scan_mult` | track | 0.4 | 0.1, 1, 0.05, 2 | scan-speed mult w/ binocs |
-| `binoc_range_mult` | track | 2.5 | 1, 5, 0.1, 1 | range mult w/ binocs |
+| `binoc_range_mult` | track | 2.5 | 1, 5, 0.1, 1 | max/fade distance mult w/ binocs |
+| `ads_mode` | check | false | — | steady-aim auto-identify while ADS |
+| `ads_boost` | check | true | — | ADS speeds up + extends range |
+| `ads_scan_mult` | track | 0.6 | 0.1, 1, 0.05, 2 | scan-speed mult while ADS |
+| `ads_range_mult` | track | 1.6 | 1, 5, 0.1, 1 | max/fade distance mult while ADS (x1 base) |
+| `ads_zoom_scaling` | check | true | — | scale ADS range by scope magnification |
+| `box_color_source` | list | 1 | faction, relation | bodycam box colour source |
+| `pip_markers` | check | true | — | draw identification markers in a PiP scope |
+| `pip_redact` | check | true | — | draw redaction in a PiP scope |
+| `pip_hide_main` | check | false | — | hide all main-view drawing while a scope is up |
+| `ads_hide_main` | check | false | — | hide all main-view drawing while aiming down sight |
 | `card_scale` | track | 1.0 | 0.5, 2, 0.05, 2 | flat card size multiplier |
 | `mini_scale_cutoff` | track | 0.4 | 0.1, 1, 0.05, 2 | below this scale → dot only |
 | `dist_penalty` | check | true | — | distance slows scan |
@@ -449,10 +511,14 @@ Without this component (and the host mod) there is no XP and no effect.
 ## 8. Dev tooling
 
 - **`flake.nix`** — `devShells.default` provides `xmllint` (libxml2),
-  `lua-language-server`, `lua5_1`, `p7zip`. Three apps: **`check-xml`** runs
+  `lua-language-server`, `lua5_1`, `stylua`, `p7zip`. Apps: **`check-xml`** runs
   `xmllint --noout` over all mod XML (guards the recurring bare-`--`-in-XML-comment
-  crash), **`check-lua`** runs LuaLS headless at Warning level, **`package`**
-  reads `<Version>` from `info.xml` and zips a FOMOD bundle.
+  crash), **`check-lua`** runs LuaLS headless at Warning level, **`format`** /
+  **`check-format`** run StyLua over the `.script` sources (write / verify), and
+  **`package`** reads `<Version>` from `info.xml` and zips a FOMOD bundle.
+- **`stylua.toml`** — StyLua config: tabs, wide column (120), `AutoPreferDouble`,
+  `call_parentheses="Always"`. StyLua globs `.lua`, so the format apps pass the
+  `.script` files explicitly via `find`.
 - **`.luarc.json`** — Lua 5.1 runtime, `workspace.library=["types"]` for the
   EmmyLua engine stubs, and the key association trick
   `"files.associations": { "*.script": "lua" }` so LuaLS treats Anomaly's
@@ -556,10 +622,12 @@ involvement:
   The bodycam outline has the equivalent **`box_padding`** applied in `render`.
 
 **Behavior.** `feed_glitch` runs every frame: when `redact_dead` is on it builds a
-list of head boxes for the currently-visible corpses (`update_corpse_membership`
-throttles the `level.iterate_nearest` + `db.actor:see` membership sweep; ids are
-cached and the head boxes re-projected every frame so they track the settling
-ragdoll) and submits them in one atomic batch. Cleared when nothing qualifies, a
+list of head boxes for the dead-in-range bodies (`update_corpse_membership`
+throttles a `level.iterate_nearest` + alive-check sweep — **no LOS check**: the
+shader's depth mask handles occlusion per-pixel, so gating on `db.actor:see` was
+redundant and caused a pop-in delay from its grace window; ids are cached and the
+head boxes re-projected every frame so they track the settling ragdoll) and
+submits them in one atomic batch. Cleared when nothing qualifies, a
 PiP scope is up, or the mod is disabled. Up to `GLITCH_MAX` (16) corpses at once.
 (Identification's own dead handling is unchanged: a tag is dropped the instant its
 target dies, `render`'s `remove = not alive`.)
@@ -607,13 +675,28 @@ a separate binding so older exes degrade to glitch): `0` glitch, `1` pixelate
 engine binding names stay `glitch_*` — internal plumbing, unchanged by the
 mod-facing "redaction" rename.)
 
+**Depth mask (never over the viewmodel)**: each box also carries its **view-space
+depth** (`view_depth` in Lua = `(headPos − cam_pos)·cam_dir`, matching the engine's
+`s_position.z`), threaded through `glitch_add(…,depth)` → `g_ii_glitch_depths[]` →
+`set_ca("glitch_depths")`. The shader samples the scene depth (`s_position`,
+`r2_RT_P`, bound by the blender) and **skips any pixel nearer than
+`GLITCH_DEPTH_FRAC`×box-depth** (0.55) — a *relative* cutoff, not a fixed metric
+margin: the box depth is the body CENTRE and its front-facing surfaces sit some
+way in front of it (worse at an angle / full-body), so a fixed margin wrongly
+excluded them and the body drew over the effect; relative-to-distance the body's
+spread is small while the viewmodel is dramatically nearer, so this keeps the
+whole body at any range/angle. So the gun/hands (in the g-buffer before combine
+via `r_dsgraph_render_hud`) and any foreground geometry are excluded. A `continue`
+(not bail) lets an overlapping box at a different depth still win. depth `0` = no
+test (the back-compat single-rect wrapper).
+
 **Shader** (ships as gamedata, this repo): `gamedata/shaders/r3/ii_glitch.ps` —
 loaded at runtime by filename, DX11 path (`getShaderPath()` returns `"r3\\"`).
 Samples the scene RT via the shared `s_image`/`smp_base`; **loops** the rect array
-and, inside the first box a pixel hits, applies the mode's effect (glitch = banded
-tear + chromatic aberration + dropout + scanline/noise; pixelate = quantise box UV
-to cells and resample; black = solid), feathered at the edges, scene untouched
-elsewhere. Reads `float4 glitch_params (intensity,time,…)`, `float4 glitch_count
+and, inside the first box a pixel hits (and passing the depth mask), applies the
+mode's effect (glitch = banded tear + chromatic aberration + dropout +
+scanline/noise; pixelate = quantise box UV to cells and resample; black = solid),
+feathered at the edges, scene untouched elsewhere. Reads `float4 glitch_params (intensity,time,…)`, `float4 glitch_count
 (.x = n, .y = mode)`, and `float4 glitch_rects[16]` set from C++ (rect array via
 `set_ca`).
 
@@ -658,7 +741,48 @@ files + the shader: `xr_ioc_cmd.cpp` (globals), `bodycam_script.cpp` (binding),
 call). Needs an `AnomalyDX11` rebuild (MSBuild). Step-by-step notes:
 `docs/engine-glitch-patch.md`.
 
-## 12. Known repo drift (flagged during analysis)
+## 12. In-scope (SVP/PiP) identification markers (engine)
+
+The mod's `svp_ui_markers_begin/add/commit` + `is_svp_active` calls (gated by
+`PIP_AVAILABLE`, a `rawget` existence check) draw identification markers **inside a
+PiP scope**. These bindings were written against a PiP engine and **did not exist
+in the bodycam fork** — only `is_svp_active` — so `PIP_AVAILABLE` was `false` and
+the whole path was inert until Phase 1 built them.
+
+**Phase 1 (engine, validated in-game):** a Lua→shared-buffer→render-pass→shader
+pipeline (same shape as the redaction glitch). `svp_ui_markers_*` (registered in
+`console_registrator_script.cpp` next to `is_svp_active`) stage a list of
+WORLD-space markers into `g_ii_svp_markers[16×12]` (12 floats: world xyz, fill
+rgba, radius, ring rgb, scanning). `CRenderTarget::phase_svp_markers` projects each
+through the **SVP camera** (`Device.matrices[1]`, `mul(mProject,mView)` + clip
+divide — the same recipe/source `svp_project_world_point_to_lens` and
+`phase_svp_capture` use) and draws a small alpha sprite per marker.
+
+Two placement facts were load-bearing (both cost a bringup cycle): the draw must
+go into **`rt_Generic_0`** (the RT `phase_svp_capture` copies into `rt_secondVP`
+for the lens to sample — not `rt_Color`/`rt_Generic`), and it must be injected at
+the **top of `phase_svp_capture`** (svp_optics.cpp), not the `phase_combine` tail,
+because `matrices[1]` is only the live scope camera at capture time. Viewport is
+the SVP target's `Width`/`Height`. Shader `gamedata/shaders/r3/ii_svp_marker.ps`
+(faction disc + relation ring + scanning arc; no in-scope text — infeasible in the
+pass). Debug: console `r__ii_svp_marker_debug 1`. **No Lua changes** — the mod's
+existing code drives it. Phase 2 (richer bracket/sign) not yet built.
+
+**In-scope redaction** (same commit): the dead-body redaction glitch also runs in
+the scope. `bodycam.glitch_add` gained WORLD box args (`wcx,wcy,wcz,whw,whh`,
+stored in `g_ii_glitch_world[16×6]`); `phase_svp_glitch` (called in
+`phase_svp_capture`, before the markers) reprojects each world box's 4
+camera-facing corners through the SVP camera to a scope-normalised rect and reuses
+`ii_glitch.ps` **unchanged** (depth `0` = no viewmodel mask in-scope). Lua-side
+`head_box_for`/`body_box_for` now also return the box's world centre + world
+half-extents (`body_box_for` accumulates a world AABB of the bones, so the in-scope
+box tracks the ragdoll too), and `feed_glitch` no longer bails when scoped — the
+engine draws the main-camera rects in the main pass and the world boxes in the SVP
+pass; the lens only samples the SVP output, so there's no double-draw. Relies on
+`SetActive` remapping `r2_RT_generic0`/`r2_RT_P` to the SVP RTs so the shader
+samples the scope scene.
+
+## 13. Known repo drift (flagged during analysis)
 
 - **`README.md`** — verify its optional-component list matches the two components
   currently in `ModuleConfig.xml` (FactionID Neutralized, Perception Skill
