@@ -259,14 +259,14 @@ the scanning spinner. A manual keypress (`nil`) still restarts on purpose.
 **PiP toggles**: `pip_markers` gates the whole in-scope UI path (`pip_active =
 pip_markers and PIP_AVAILABLE and is_svp_active()`) — off reverts to normal
 HUD/main-pass behavior. `pip_redact` gates only the in-scope redaction, by zeroing
-the world box extents in `glitch_submit` so the engine's SVP glitch pass skips
+the world box extents in `redaction_submit` so the engine's SVP redaction pass skips
 them (the main-view redaction is unaffected).
 
 **Suppress main-view drawing**: `suppress_main = (ads_hide_main and is_ads_active())
 or (pip_hide_main and pip_scope)` hides ALL main-view drawing — the HUD tags (adds
 to the `pip_active or suppress_main` hide-slots-and-return) and the main-pass
-redaction (`glitch_submit(…, main_off)` submits each box's main-camera rect
-off-screen — outside `[0,1]`, so the main glitch shader finds no pixels — while the
+redaction (`redaction_submit(…, main_off)` submits each box's main-camera rect
+off-screen — outside `[0,1]`, so the main redaction shader finds no pixels — while the
 WORLD box still feeds the in-scope pass). The in-scope UI is unaffected, so with a
 PiP scope up you get in-scope-only rendering. `pip_scope` is the physical scope
 state (independent of `pip_markers`), so this also covers `pip_markers`-off.
@@ -612,23 +612,46 @@ involvement:
 
 - **`redact_dead`** (toggle) — draw an effect over **every visible dead body in
   range**, no identify needed, persistent while visible, any UI style.
-- **`redact_style`** (list) — `glitch` / `pixelate` / `black` (§ shader below).
+- **`redact_style`** (list) — `redaction` / `pixelate` / `black` (§ shader below).
 - **`redact_area`** (list) — `head` (head/face box) or `body` (full-body box,
   centred `BODY_CENTER_LIFT` above the origin with body-sized extents). `redact_box_for`
   dispatches; both use the same `box_extents` projection with different metres.
 - **`redact_strength`** — master intensity.
 - **`redact_padding`** — extra margin around the region as a fraction of its size
-  (`add_glitch_box` expands `hw/hh` by `1 + redact_padding`), distance-independent.
+  (`add_redaction_box` expands `hw/hh` by `1 + redact_padding`), distance-independent.
   The bodycam outline has the equivalent **`box_padding`** applied in `render`.
 
-**Behavior.** `feed_glitch` runs every frame: when `redact_dead` is on it builds a
-list of head boxes for the dead-in-range bodies (`update_corpse_membership`
-throttles a `level.iterate_nearest` + alive-check sweep — **no LOS check**: the
-shader's depth mask handles occlusion per-pixel, so gating on `db.actor:see` was
-redundant and caused a pop-in delay from its grace window; ids are cached and the
-head boxes re-projected every frame so they track the settling ragdoll) and
-submits them in one atomic batch. Cleared when nothing qualifies, a
-PiP scope is up, or the mod is disabled. Up to `GLITCH_MAX` (16) corpses at once.
+**Two independent redaction features, one engine pass:**
+Both features share **`redact_range`** (default 100 m) — the redaction membership
+sweep uses it instead of the identify `max_dist`, since redaction is passive (no
+aiming) and should reach as far as a body/face is visible. A distant face still
+stops naturally once its box projects below ~1 px (`screen_box`).
+
+- **Corpse redaction** (`redact_dead`): dead NPCs/creatures in range, head or
+  full-body box (`redact_area`), `redact_padding`.
+- **Face redaction** (`redact_face`): the FACE of humanoids in range — **alive or
+  dead** — via `face_box_for` (a tighter head box, nudged forward along
+  `obj:direction()` so it sits over the face front, not the skull; humanoids only —
+  `head_center` is nil for monsters), own `redact_face_style` + `redact_face_padding`.
+  An entity already covered by corpse redaction this frame is skipped.
+  **Front-only**: `face_box_for` NEGATES its depth as a shader flag — the shader
+  then uses a tight, front-biased band (`FACE_FRONT`/`FACE_BACK`) so only the face
+  front + sides are redacted, not the back of the head. (Mod-side: the engine passes
+  the depth through untouched, so no rebuild.)
+
+`redact_style`/`redact_face_style` each pick pixelate/black, but the engine redaction
+pass has ONE mode per frame, so `feed_redaction` uses the corpse style when corpse
+boxes are present, else the face style; **truly independent simultaneous styles
+need a per-box mode in the engine** (pending). Intensity (`redact_strength`) is
+shared. One throttled sweep (`update_redact_membership`) builds both `corpse_ids`
+(dead) and `face_ids` (humanoid, alive/dead), gated per toggle.
+
+**Behavior.** `feed_redaction` runs every frame, builds the combined box list (both
+features, `add_redaction_box(…, box_fn, padding)`), and submits in one atomic batch —
+**no LOS check**: the shader's depth mask handles occlusion per-pixel (gating on
+`db.actor:see` was redundant and caused a pop-in delay). Ids cached, boxes
+re-projected every frame (tracks the settling ragdoll). Up to `REDACTION_MAX` (16)
+boxes total across both features.
 (Identification's own dead handling is unchanged: a tag is dropped the instant its
 target dies, `render`'s `remove = not alive`.)
 
@@ -659,87 +682,94 @@ the poll alone leaves them on the death screen), plus `actor_on_update` polls
 exe — the box still shows, just no distortion). Multi-rect, SVP-marker style:
 
 ```
-bodycam.glitch_begin()                 -- start a frame's list
-bodycam.glitch_add(x0, y0, x1, y1)     -- one head box, NORMALISED [0,1], top-left origin
-bodycam.glitch_commit(intensity)       -- publish atomically (intensity 0 / empty list clears)
--- legacy single-rect wrappers kept: set_glitch_rect(...), clear_glitch()
+bodycam.redaction_begin()                 -- start a frame's list
+bodycam.redaction_add(x0, y0, x1, y1)     -- one head box, NORMALISED [0,1], top-left origin
+bodycam.redaction_commit(intensity)       -- publish atomically (intensity 0 / empty list clears)
+-- legacy single-rect wrappers kept: set_redaction_rect(...), clear_redaction()
 ```
 
-`glitch_submit()` converts each box's 1024×768 virtual-space centre/extents to
+`redaction_submit()` converts each box's 1024×768 virtual-space centre/extents to
 `[0,1]` (divide by 1024/768, since that virtual space maps across the whole
 screen); `intensity` = `redact_strength`.
 
-**Effect variant** (`redact_style`, MCM list → engine mode via `bodycam.glitch_set_mode`,
-a separate binding so older exes degrade to glitch): `0` glitch, `1` pixelate
-(mosaic censor), `2` black box. Passed to the shader in `glitch_count.y`. (The
-engine binding names stay `glitch_*` — internal plumbing, unchanged by the
+**Effect variant** (`redact_style`, MCM list → engine mode via `bodycam.redaction_set_mode`,
+a separate binding so older exes degrade to redaction): `0` redaction, `1` pixelate
+(mosaic censor), `2` black box. Passed to the shader in `redaction_count.y`. (The
+engine binding names stay `redaction_*` — internal plumbing, unchanged by the
 mod-facing "redaction" rename.)
 
 **Depth mask (never over the viewmodel)**: each box also carries its **view-space
 depth** (`view_depth` in Lua = `(headPos − cam_pos)·cam_dir`, matching the engine's
-`s_position.z`), threaded through `glitch_add(…,depth)` → `g_ii_glitch_depths[]` →
-`set_ca("glitch_depths")`. The shader samples the scene depth (`s_position`,
-`r2_RT_P`, bound by the blender) and **skips any pixel nearer than
-`GLITCH_DEPTH_FRAC`×box-depth** (0.55) — a *relative* cutoff, not a fixed metric
-margin: the box depth is the body CENTRE and its front-facing surfaces sit some
-way in front of it (worse at an angle / full-body), so a fixed margin wrongly
-excluded them and the body drew over the effect; relative-to-distance the body's
-spread is small while the viewmodel is dramatically nearer, so this keeps the
-whole body at any range/angle. So the gun/hands (in the g-buffer before combine
-via `r_dsgraph_render_hud`) and any foreground geometry are excluded. A `continue`
-(not bail) lets an overlapping box at a different depth still win. depth `0` = no
-test (the back-compat single-rect wrapper).
+`s_position.z`), threaded through `redaction_add(…,depth)` → `g_bodycam_redaction_depths[]` →
+`set_ca("redaction_depths")`. The shader samples the scene depth (`s_position`,
+`r2_RT_P`, bound by the blender) and **draws only where the scene surface is within
+`band` metres of the box-centre depth, on BOTH sides** — cutting a foreground
+occluder (viewmodel, wall) in front AND the ground/background behind, so the effect
+hugs the body's depth *slab* instead of a flat rect over everything. `band` is
+**size-adaptive**: `band = clamp(max(span.x,span.y) × box-depth × REDACTION_BAND_K 0.8,
+REDACTION_BAND_MIN 0.45, REDACTION_BAND_MAX 2.5)` — it scales with the box's on-screen
+size × depth (a proxy for the object's own depth extent), so a close/angled body
+whose near end (feet/backpack) sits a metre-plus in front of its centre gets a band
+wide enough to cover its full depth, while a distant head stays tight. This evolved
+from a fixed 0.35 m margin (clipped the body front at angles) → a distance-relative
+`×0.55` (huge front gap at range) → the current size-adaptive two-sided band.
+Fundamental limit: a flat rect + depth slab still can't perfectly hug an angled 3D
+body; a per-object stencil mask would (bigger engine change, not done). A `continue`
+(not bail) lets an overlapping box still win. depth `0` = no test (the back-compat
+wrapper, and the in-scope SVP pass). The pixelate mode additionally re-checks each
+mosaic cell centre against the same slab so it never pulls an off-body colour into
+a block.
 
-**Shader** (ships as gamedata, this repo): `gamedata/shaders/r3/ii_glitch.ps` —
+**Shader** (ships as gamedata, this repo): `gamedata/shaders/r3/bodycam_redaction.ps` —
 loaded at runtime by filename, DX11 path (`getShaderPath()` returns `"r3\\"`).
 Samples the scene RT via the shared `s_image`/`smp_base`; **loops** the rect array
 and, inside the first box a pixel hits (and passing the depth mask), applies the
-mode's effect (glitch = banded tear + chromatic aberration + dropout +
+mode's effect (redaction = banded tear + chromatic aberration + dropout +
 scanline/noise; pixelate = quantise box UV to cells and resample; black = solid),
-feathered at the edges, scene untouched elsewhere. Reads `float4 glitch_params (intensity,time,…)`, `float4 glitch_count
-(.x = n, .y = mode)`, and `float4 glitch_rects[16]` set from C++ (rect array via
+feathered at the edges, scene untouched elsewhere. Reads `float4 redaction_params (intensity,time,…)`, `float4 redaction_count
+(.x = n, .y = mode)`, and `float4 redaction_rects[16]` set from C++ (rect array via
 `set_ca`).
 
 **Engine side (custom exe — staged, applied against the fork).** Modeled on the
 fork's SVP `draw_scope` region-pass, itself a variant of the stock
 `phase_fakescope` (`rendertarget_phase_nightvision.cpp`) + its `CBlender_fakescope`
 (`blender_nightvision.cpp`, binds scene RT `r2_RT_generic0` → `s_image`):
-1. `CBlender_glitch` binding `s_image` + selecting `ii_glitch.ps`; `ref_shader
-   s_glitch` created in `r4_rendertarget.cpp` (`s_glitch.create(b_glitch,
-   "r3\\ii_glitch")`).
-2. `CRenderTarget::phase_glitch()` — bind `dx10_msaa ? rt_Generic : rt_Color`,
-   draw the **fullscreen** `g_combine` quad, `set_c("glitch_rect"/"glitch_params",
+1. `CBlender_bodycam_redaction` binding `s_image` + selecting `bodycam_redaction.ps`; `ref_shader
+   s_redaction` created in `r4_rendertarget.cpp` (`s_redaction.create(b_redaction,
+   "r3\\bodycam_redaction")`).
+2. `CRenderTarget::phase_redaction()` — bind `dx10_msaa ? rt_Generic : rt_Color`,
+   draw the **fullscreen** `g_combine` quad, `set_c("redaction_rect"/"redaction_params",
    …)`, then `CopyResource` back into `rt_Generic_0`. **No scissor**: the pass is
-   fullscreen and the region restriction lives in `ii_glitch.ps` (it returns the
-   scene untouched outside `glitch_rect`), because `CopyResource` copies the whole
+   fullscreen and the region restriction lives in `bodycam_redaction.ps` (it returns the
+   scene untouched outside `redaction_rect`), because `CopyResource` copies the whole
    RT back — a scissored draw would leave the area outside the box stale and
    corrupt the scene on copy-back. Inject in `r4_rendertarget_phase_combine.cpp`
    **after SMAA and TAA** (`phase_ssfx_taa`), immediately before the final
-   `combine_2` pass, gated on `g_ii_glitch_active && !svp_pass_now`. Placement is
+   `combine_2` pass, gated on `g_bodycam_redaction_active && !svp_pass_now`. Placement is
    load-bearing: running it *before* TAA (with the nightvision/fakescope FX) let
-   TAA's temporal history rectification clamp the churning glitch out as an
-   artifact (a stable overlay like fakescope survives, a per-frame glitch does
+   TAA's temporal history rectification clamp the churning redaction out as an
+   artifact (a stable overlay like fakescope survives, a per-frame redaction does
    not). After TAA, `rt_Generic_0` holds the finished post-AA scene that
    `combine_2` samples (`s_image = r2_RT_generic0`, `blender_combine.cpp`), so the
    distortion survives straight to screen.
 3. Shared state as `ENGINE_API` globals in `xrEngine` (`xr_ioc_cmd.cpp`):
-   `g_glitch_rect` (Fvector4, normalised), `g_glitch_intensity`,
-   `g_glitch_active`; `bodycam_script.cpp` writes them, the R4 renderer `extern`s
+   `g_redaction_rect` (Fvector4, normalised), `g_redaction_intensity`,
+   `g_redaction_active`; `bodycam_script.cpp` writes them, the R4 renderer `extern`s
    and reads them (same cross-module channel as `ps_r2_sun_shafts_min`).
-4. `bodycam.set_glitch_rect`/`clear_glitch` added to `Bodycam::script_register`'s
+4. `bodycam.set_redaction_rect`/`clear_redaction` added to `Bodycam::script_register`'s
    `module(L,"bodycam")[…]`; that `script_register(L)` is called from
    `script_engine_export.cpp`. New `.cpp` files → `xrGame.vcxproj` /
    `xrRender_R4.vcxproj`; game exe target is `AnomalyDX11` (`xrEngine.vcxproj`).
-   `set_glitch_rect` stores the rect + sets `g_glitch_active=true`; renderer
+   `set_redaction_rect` stores the rect + sets `g_redaction_active=true`; renderer
    multiplies the `[0,1]` rect by `Device.dwWidth/dwHeight` for the scissor and
    passes the `[0,1]` rect straight to the shader.
 
 Engine changes **applied** to the fork (branch `freeaim-identify-binding`), 7
 files + the shader: `xr_ioc_cmd.cpp` (globals), `bodycam_script.cpp` (binding),
-`blender_nightvision.{h,cpp}` (`CBlender_ii_glitch`), `r4_rendertarget.{h,cpp}`
-(member/create/delete), `r4_rendertarget_phase_combine.cpp` (`phase_glitch` +
+`blender_nightvision.{h,cpp}` (`CBlender_bodycam_redaction`), `r4_rendertarget.{h,cpp}`
+(member/create/delete), `r4_rendertarget_phase_combine.cpp` (`phase_redaction` +
 call). Needs an `AnomalyDX11` rebuild (MSBuild). Step-by-step notes:
-`docs/engine-glitch-patch.md`.
+`docs/engine-redaction-patch.md`.
 
 ## 12. In-scope (SVP/PiP) identification markers (engine)
 
@@ -750,9 +780,9 @@ in the bodycam fork** — only `is_svp_active` — so `PIP_AVAILABLE` was `false
 the whole path was inert until Phase 1 built them.
 
 **Phase 1 (engine, validated in-game):** a Lua→shared-buffer→render-pass→shader
-pipeline (same shape as the redaction glitch). `svp_ui_markers_*` (registered in
+pipeline (same shape as the redaction). `svp_ui_markers_*` (registered in
 `console_registrator_script.cpp` next to `is_svp_active`) stage a list of
-WORLD-space markers into `g_ii_svp_markers[16×12]` (12 floats: world xyz, fill
+WORLD-space markers into `g_bodycam_svp_markers[16×12]` (12 floats: world xyz, fill
 rgba, radius, ring rgb, scanning). `CRenderTarget::phase_svp_markers` projects each
 through the **SVP camera** (`Device.matrices[1]`, `mul(mProject,mView)` + clip
 divide — the same recipe/source `svp_project_world_point_to_lens` and
@@ -763,20 +793,20 @@ go into **`rt_Generic_0`** (the RT `phase_svp_capture` copies into `rt_secondVP`
 for the lens to sample — not `rt_Color`/`rt_Generic`), and it must be injected at
 the **top of `phase_svp_capture`** (svp_optics.cpp), not the `phase_combine` tail,
 because `matrices[1]` is only the live scope camera at capture time. Viewport is
-the SVP target's `Width`/`Height`. Shader `gamedata/shaders/r3/ii_svp_marker.ps`
+the SVP target's `Width`/`Height`. Shader `gamedata/shaders/r3/bodycam_svp_marker.ps`
 (faction disc + relation ring + scanning arc; no in-scope text — infeasible in the
-pass). Debug: console `r__ii_svp_marker_debug 1`. **No Lua changes** — the mod's
+pass). Debug: console `r__bodycam_svp_marker_debug 1`. **No Lua changes** — the mod's
 existing code drives it. Phase 2 (richer bracket/sign) not yet built.
 
-**In-scope redaction** (same commit): the dead-body redaction glitch also runs in
-the scope. `bodycam.glitch_add` gained WORLD box args (`wcx,wcy,wcz,whw,whh`,
-stored in `g_ii_glitch_world[16×6]`); `phase_svp_glitch` (called in
+**In-scope redaction** (same commit): the dead-body redaction also runs in
+the scope. `bodycam.redaction_add` gained WORLD box args (`wcx,wcy,wcz,whw,whh`,
+stored in `g_bodycam_redaction_world[16×6]`); `phase_svp_redaction` (called in
 `phase_svp_capture`, before the markers) reprojects each world box's 4
 camera-facing corners through the SVP camera to a scope-normalised rect and reuses
-`ii_glitch.ps` **unchanged** (depth `0` = no viewmodel mask in-scope). Lua-side
+`bodycam_redaction.ps` **unchanged** (depth `0` = no viewmodel mask in-scope). Lua-side
 `head_box_for`/`body_box_for` now also return the box's world centre + world
 half-extents (`body_box_for` accumulates a world AABB of the bones, so the in-scope
-box tracks the ragdoll too), and `feed_glitch` no longer bails when scoped — the
+box tracks the ragdoll too), and `feed_redaction` no longer bails when scoped — the
 engine draws the main-camera rects in the main pass and the world boxes in the SVP
 pass; the lens only samples the SVP output, so there's no double-draw. Relies on
 `SetActive` remapping `r2_RT_generic0`/`r2_RT_P` to the SVP RTs so the shader

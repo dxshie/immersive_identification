@@ -49,12 +49,23 @@
 	<string id="ui_mcm_ii_auto_identify"><text>Auto-identify visible targets</text></string>
 	<string id="ui_mcm_ii_auto_identify_desc"><text>Continuously identify every visible target in range without pressing the key. Line of sight is always required. Pairs well with the Bodycam style.</text></string>
 
-	<string id="ui_mcm_ii_redact_title"><text>Redaction</text></string>
+	<string id="ui_mcm_ii_redact_title"><text>Corpse Redaction</text></string>
+	<string id="ui_mcm_ii_redact_range"><text>Redaction range (m)</text></string>
+	<string id="ui_mcm_ii_redact_range_desc"><text>How far redaction reaches, for both corpse and face redaction. Independent of the identify Max range -- redaction is passive, so it can reach further than you can aim-identify. A distant face still stops once it's under ~1px on screen.</text></string>
 	<string id="ui_mcm_ii_redact_dead"><text>Redact dead bodies</text></string>
-	<string id="ui_mcm_ii_redact_dead_desc"><text>Draw a distortion over the head of every visible dead body in range. Fully independent of identification -- no need to aim at or identify a body, works in any UI style. Requires the custom bodycam engine build; inert without it.</text></string>
+	<string id="ui_mcm_ii_redact_dead_desc"><text>Draw a distortion over every visible dead body in range (head or full body, see below). Fully independent of identification -- no need to aim at or identify a body. Requires the custom bodycam engine build; inert without it.</text></string>
 	<string id="ui_mcm_ii_redact_style"><text>Redaction style</text></string>
-	<string id="ui_mcm_ii_redact_style_desc"><text>How a dead body's head is redacted: an animated glitch, a pixelated (mosaic) censor, or a solid black box.</text></string>
-	<string id="ii_main_redact_style_lst_glitch"><text>Glitch</text></string>
+	<string id="ui_mcm_ii_redact_style_desc"><text>How a body/face is redacted: a pixelated (mosaic) censor, or a solid black box. Shared by corpse and face redaction (the engine applies one style).</text></string>
+
+	<string id="ui_mcm_ii_faceredact_title"><text>Face Redaction</text></string>
+	<string id="ui_mcm_ii_redact_face"><text>Redact faces</text></string>
+	<string id="ui_mcm_ii_redact_face_desc"><text>Draw the redaction over just the FACE of every humanoid in range -- ALIVE or dead, separate from corpse redaction. The box sits over the front of the head (the face). Uses the shared redaction style/strength above. Requires the custom bodycam engine build.</text></string>
+	<string id="ui_mcm_ii_redact_face_style"><text>Face redaction style</text></string>
+	<string id="ui_mcm_ii_redact_face_style_desc"><text>How a face is redacted: a pixelated (mosaic) censor, or a solid black box. Applies on a face-only frame; when dead bodies are ALSO being redacted, both share the corpse style above (the engine applies one style per frame).</text></string>
+	<string id="ii_main_redact_face_style_lst_pixelate"><text>Pixelated</text></string>
+	<string id="ii_main_redact_face_style_lst_black"><text>Black Box</text></string>
+	<string id="ui_mcm_ii_redact_face_padding"><text>Face redaction padding</text></string>
+	<string id="ui_mcm_ii_redact_face_padding_desc"><text>Extra margin around the face box, as a fraction of its size (0 = tight on the face, 0.15 = 15% larger each side).</text></string>
 	<string id="ii_main_redact_style_lst_pixelate"><text>Pixelated</text></string>
 	<string id="ii_main_redact_style_lst_black"><text>Black Box</text></string>
 	<string id="ui_mcm_ii_redact_area"><text>Redaction area</text></string>
@@ -211,6 +222,8 @@
 	<string id="ui_mcm_ii_debug_title"><text>Debug</text></string>
 	<string id="ui_mcm_ii_debug_log"><text>Log aim debug</text></string>
 	<string id="ui_mcm_ii_debug_log_desc"><text>Write aim/trace diagnostics to the game log (xray_*.log) on each identify attempt. For troubleshooting free-aim target acquisition. Leave off normally.</text></string>
+	<string id="ui_mcm_ii_debug_draw"><text>Debug draw</text></string>
+	<string id="ui_mcm_ii_debug_draw_desc"><text>On-screen visualiser for the FOV target-assist: a RED dot at the current aim point, a YELLOW ring showing the assist radius (fov_radius, with its value as text), and dots on the bones of every entity whose body falls inside the ring -- GREEN if within identify range, RED if the target is beyond max range -- each labelled with its distance in metres. For tuning fov_radius / max range / diagnosing target acquisition. Leave off normally.</text></string>
 
 	<!-- List-content ids: MCM resolves each modifier_index dropdown entry as
 	     "<page>_<option>_lst_" + the bare label from ii_identify.MODIFIER_LIST,

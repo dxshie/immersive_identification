@@ -161,13 +161,21 @@ function on_mcm_load()
 					opt_check("pip_redact"),
 					opt_check("pip_hide_main"),
 
-					-- Redaction ---------------------------------------------------
+					-- Corpse Redaction --------------------------------------------
 					opt_title("ui_mcm_ii_redact_title"),
 					opt_check("redact_dead"),
-					opt_list("redact_style", redact_style_content),
 					opt_list("redact_area", redact_area_content),
-					opt_track("redact_strength", 0.1, 1, 0.05, 2),
 					opt_track("redact_padding", 0, 1, 0.05, 2),
+					-- Range + style + strength are shared with Face redaction.
+					opt_track("redact_range", 10, 300, 10),
+					opt_list("redact_style", redact_style_content),
+					opt_track("redact_strength", 0.1, 1, 0.05, 2),
+
+					-- Face Redaction ----------------------------------------------
+					opt_title("ui_mcm_ii_faceredact_title"),
+					opt_check("redact_face"),
+					opt_list("redact_face_style", redact_style_content),
+					opt_track("redact_face_padding", 0, 1, 0.05, 2),
 
 					-- Scan-time modifiers -----------------------------------------
 					opt_title("ui_mcm_ii_dist_penalty_title"),
@@ -194,6 +202,7 @@ function on_mcm_load()
 
 					opt_title("ui_mcm_ii_debug_title"),
 					opt_check("debug_log"),
+					opt_check("debug_draw"),
 				},
 			},
 		},

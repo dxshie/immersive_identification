@@ -9,6 +9,10 @@ local MAX_TAGS = 12 -- most identifications tracked/drawn at once (raised from 5
 -- so the auto-identify option, which reveals every visible
 -- target at once, isn't constantly evicting the oldest tag)
 
+local DBG_DOTS = 96 -- debug-draw dot pool (FOV ring segments + in-ring entity bones)
+local DBG_RING_SEG = 32 -- dots forming the FOV ring outline
+local DBG_TEXTS = 16 -- per-candidate distance labels
+
 -- render()'s per-frame scratch list of on-screen cards, reused instead of
 -- allocated fresh every call -- tracked is capped at MAX_TAGS (see
 -- try_identify), so this pool never needs to grow past it.
@@ -40,13 +44,21 @@ DEFAULTS = {
 	-- Redaction: an engine post-process drawn over the head of every visible dead
 	-- body in range. Fully independent of identification -- no need to aim at or
 	-- identify a body, works in any UI style. Needs the custom bodycam exe's
-	-- multi-rect glitch binding; fully inert on a stock exe.
-	redact_dead = false, -- master toggle: redact visible dead bodies
-	redact_style = 1, -- index into REDACT_STYLE_LIST (1 = glitch, 2 = pixelate, 3 = black)
-	redact_area = 1, -- index into REDACT_AREA_LIST (1 = head/face only, 2 = full body)
-	redact_strength = 1.0, -- master intensity 0..1 of the redaction effect
-	redact_padding = 0.15, -- extra margin around the redacted region as a fraction of its size
+	-- multi-rect redaction binding; fully inert on a stock exe.
+	redact_range = 100, -- metres: redaction reach (corpse + face), independent of the identify
+	-- max_dist -- redaction is passive, so it reaches as far as a body/face is visible
+	redact_dead = false, -- corpse redaction master toggle: redact visible DEAD bodies
+	redact_style = 1, -- index into REDACT_STYLE_LIST (1 = pixelate, 2 = black);
+	-- shared by corpse + face redaction (the engine pass has one style/strength)
+	redact_area = 1, -- corpse redaction: index into REDACT_AREA_LIST (1 = head/face, 2 = full body)
+	redact_strength = 1.0, -- master intensity 0..1 of the redaction effect (corpse + face)
+	redact_padding = 0.15, -- corpse redaction: extra margin as a fraction of the region size
 	-- (0 = tight, 0.15 = 15% larger each side), distance-independent
+	redact_face = false, -- FACE redaction master toggle: redact the FACE of humanoids in range,
+	-- ALIVE or dead (separate from corpse redaction; only the face, nudged to the face front)
+	redact_face_style = 1, -- face redaction: own style, index into REDACT_STYLE_LIST (1 = pixelate,
+	-- 2 = black). Used on a face-only frame; when corpses are also redacted they share redact_style
+	redact_face_padding = 0.15, -- face redaction: own margin fraction around the face box
 	color_by_relation = true, -- tint the tag by relation to the actor instead of a flat colour
 	show_name = true, -- show the target's name line (all text styles: card + bodycam)
 	show_faction = true, -- show the target's faction line (all text styles: card + bodycam)
@@ -113,6 +125,7 @@ DEFAULTS = {
 	night_penalty_max = 2.0, -- scan time multiplier at the darkest point of the night
 	show_weapon = true, -- show the target's currently-wielded weapon + caliber line (card + bodycam)
 	debug_log = false, -- write aim/trace diagnostics to the game log on each identify attempt
+	debug_draw = false, -- on-screen target-assist visualiser: aim dot, FOV ring, in-ring bone dots
 }
 
 -- Section name of the stock binoculars item (confirmed from this engine's
@@ -178,12 +191,11 @@ UI_STYLE_LIST = {
 	{ label = "bodycam" },
 }
 
--- Which distortion the dead-body redaction draws. Index order IS the engine mode
--- passed to ii_glitch.ps (list index - 1): 0 glitch, 1 pixelate, 2 black.
+-- Which distortion the redaction draws. Index order IS the engine mode passed to
+-- the redaction shader (list index - 1): 0 pixelate, 1 black. (Glitch was removed.)
 -- Referenced as ii_identify.REDACT_STYLE_LIST from ii_mcm.script, same cross-file
 -- pattern as MODIFIER_LIST / UI_STYLE_LIST.
 REDACT_STYLE_LIST = {
-	{ label = "glitch" },
 	{ label = "pixelate" },
 	{ label = "black" },
 }
@@ -567,7 +579,7 @@ end
 -- View-space depth (metres along the view axis) of a world point: the projection
 -- of (pos - cam_pos) onto the camera forward. Matches the engine's s_position.z,
 -- so the redaction shader can skip anything nearer than this (the viewmodel /
--- foreground) -- see glitch_submit + ii_glitch.ps. 0 (no test) if unavailable.
+-- foreground) -- see redaction_submit + bodycam_redaction.ps. 0 (no test) if unavailable.
 local function view_depth(pos)
 	local dev = device and device()
 	local cp = dev and dev.cam_pos
@@ -665,19 +677,19 @@ local function screen_box(center, hw_m, hh_m)
 	return (minx + maxx) * 0.5, (miny + maxy) * 0.5, hw, hh, view_depth(center)
 end
 
--- Engine glitch post-process binding: distorts the real scene inside a LIST of
+-- Engine redaction post-process binding: distorts the real scene inside a LIST of
 -- screen-space rectangles (one per visible dead body's head), added by the
--- custom bodycam exe (bodycam.glitch_begin/add/commit). Same guarded existence
+-- custom bodycam exe (bodycam.redaction_begin/add/commit). Same guarded existence
 -- pattern as bodycam.get_fire_ray -- fully inert on a stock exe, so the box
 -- still draws, just without distortion. Rects are NORMALISED [0,1] screen space
 -- (top-left origin); the engine passes them straight to the shader as box UVs.
 -- Our box extents are in world2ui's fixed 1024x768 virtual space, which maps
 -- across the whole screen, so dividing by 1024/768 gives [0,1].
-local GLITCH_MAX = 16 -- must match II_GLITCH_MAX in the engine + shader
+local REDACTION_MAX = 16 -- must match BODYCAM_REDACTION_MAX in the engine + shader
 
-local function glitch_binding()
+local function redaction_binding()
 	local bc = rawget(_G, "bodycam")
-	if bc and bc.glitch_begin and bc.glitch_add and bc.glitch_commit then
+	if bc and bc.redaction_begin and bc.redaction_add and bc.redaction_commit then
 		return bc
 	end
 	return nil
@@ -688,29 +700,30 @@ end
 -- effect. depth is the box's view-space depth; the engine skips pixels nearer
 -- than it (the viewmodel / foreground) so the effect never covers the gun/hands.
 -- main_off: suppress the MAIN-pass redaction (but keep the in-scope pass) by
--- submitting each box's main-camera rect off-screen -- the main glitch shader
+-- submitting each box's main-camera rect off-screen -- the main redaction shader
 -- finds no pixels in a rect outside [0,1], while the engine still reprojects the
 -- WORLD box for the scope pass. Used by pip_hide_main / ads_hide_main.
-local function glitch_submit(boxes, n, intensity, main_off)
-	local bc = glitch_binding()
+local function redaction_submit(boxes, n, intensity, main_off, style)
+	local bc = redaction_binding()
 	if not bc then
 		return
 	end
-	-- Redaction style (glitch/pixelate/black); guarded so an older exe without
-	-- this binding just keeps mode 0 (glitch). List index -> 0-based engine mode.
-	if bc.glitch_set_mode then
-		pcall(bc.glitch_set_mode, (C.redact_style or 1) - 1)
+	-- Redaction style (pixelate/black) -> 0-based engine mode. `style` is chosen by
+	-- feed_redaction per frame (corpse vs face); guarded so an older exe without this
+	-- binding just keeps mode 0 (pixelate).
+	if bc.redaction_set_mode then
+		pcall(bc.redaction_set_mode, ((style or C.redact_style or 1) - 1))
 	end
 	-- pip_redact (MCM) gates the in-scope redaction: when off, zero the world
 	-- extents so the engine's SVP pass skips it (main-pass redaction still uses
 	-- the screen rect above, unaffected).
 	local in_scope = C.pip_redact ~= false
-	pcall(bc.glitch_begin)
+	pcall(bc.redaction_begin)
 	for i = 1, n do
 		local b = boxes[i]
 		-- Main-camera normalised rect + view depth (main pass), then the box's
 		-- WORLD centre + world half-extents (metres) which the engine reprojects
-		-- through the scope camera for the in-scope pass. glitch_add ignores the
+		-- through the scope camera for the in-scope pass. redaction_add ignores the
 		-- world args on an older exe (5-arg binding) -- pcall + arg drop.
 		local mx0, my0, mx1, my1
 		if main_off then
@@ -720,7 +733,7 @@ local function glitch_submit(boxes, n, intensity, main_off)
 			mx1, my1 = (b.cx + b.hw) / 1024, (b.cy + b.hh) / 768
 		end
 		pcall(
-			bc.glitch_add,
+			bc.redaction_add,
 			mx0,
 			my0,
 			mx1,
@@ -733,20 +746,23 @@ local function glitch_submit(boxes, n, intensity, main_off)
 			in_scope and (b.whh or 0) or 0
 		)
 	end
-	pcall(bc.glitch_commit, (n > 0) and intensity or 0.0)
+	pcall(bc.redaction_commit, (n > 0) and intensity or 0.0)
 end
 
-local function glitch_clear()
-	local bc = glitch_binding()
+local function redaction_clear()
+	local bc = redaction_binding()
 	if bc then
-		pcall(bc.glitch_begin)
-		pcall(bc.glitch_commit, 0.0)
+		pcall(bc.redaction_begin)
+		pcall(bc.redaction_commit, 0.0)
+		if bc.redact_corpse then
+			pcall(bc.redact_corpse, -1, 0.0) -- disable the corpse stencil redaction too
+		end
 	end
 end
 
--- Tracks the glitch on/off edge so the debug log only fires on the transition
--- (not every frame) when debug_log is on. See feed_glitch().
-local _glitch_dbg_active = false
+-- Tracks the redaction on/off edge so the debug log only fires on the transition
+-- (not every frame) when debug_log is on. See feed_redaction().
+local _redaction_dbg_active = false
 
 -- Free-aim target-assist centre. On a normal engine the weapon points at the
 -- screen centre, so the FOV assist circle is centred on (512,384). On a bodycam
@@ -2211,6 +2227,25 @@ function IiTags:InitControls()
 		-- default position (0,0 -- top-left) permanently visible.
 		self:hide_slot(i)
 	end
+
+	-- Debug-draw pool (MCM "Debug draw"): round dots for the FOV ring + in-ring
+	-- entity bones, one text line for the radius, and a dedicated aim dot created
+	-- LAST so it draws on top. All start hidden; only shown when debug_draw is on.
+	self.dbg = { dots = {}, texts = {}, text = nil, aim = nil }
+	for i = 1, DBG_DOTS do
+		local d = self.xml:InitStatic("dbg_dot", self)
+		d:Show(false)
+		self.dbg.dots[i] = d
+	end
+	for i = 1, DBG_TEXTS do
+		local t = self.xml:InitTextWnd("dbg_text:text", self)
+		t:Show(false)
+		self.dbg.texts[i] = t
+	end
+	self.dbg.text = self.xml:InitTextWnd("dbg_text:text", self)
+	self.dbg.text:Show(false)
+	self.dbg.aim = self.xml:InitStatic("dbg_dot", self)
+	self.dbg.aim:Show(false)
 end
 
 -- The plate/accent/icon/text widgets, shared by hide_slot and draw_slot's
@@ -2270,6 +2305,181 @@ function IiTags:hide_slot(i)
 	s.spinner:Show(false)
 end
 
+-- Hide every debug-draw widget (the FOV-ring/bone dot pool, the radius text, and
+-- the aim dot). Called when debug_draw is off / on teardown.
+function IiTags:hide_debug()
+	local d = self.dbg
+	if not d then
+		return
+	end
+	if d._active == false then
+		return
+	end
+	d._active = false
+	for i = 1, DBG_DOTS do
+		d.dots[i]:Show(false)
+	end
+	for i = 1, DBG_TEXTS do
+		d.texts[i]:Show(false)
+	end
+	if d.text then
+		d.text:Show(false)
+	end
+	if d.aim then
+		d.aim:Show(false)
+	end
+end
+
+-- Target-assist debug visualiser (MCM "Debug draw"). Draws, in the 1024x768 virtual
+-- UI space that world2ui + fov_radius already live in:
+--   * the current aim point (aim_center) as a RED dot,
+--   * the FOV target-assist ring (radius = fov_radius) as a circle of YELLOW dots,
+--   * dots on every body bone of each NPC/creature whose nearest body point is inside
+--     the ring (a candidate) -- GREEN if within max_dist (would identify), RED if the
+--     target is OUTSIDE max range (rejected for distance),
+--   * the distance (metres) to each candidate as text on it,
+--   * the radius value as text.
+-- Distances match find_nearest_in_fov exactly (screen_dist_to_body vs fov_radius),
+-- so what you see is precisely what the assist tests. Pure debug: gated on
+-- C.debug_draw, iterates once per frame, dot/text pools reused (no per-frame alloc).
+function IiTags:draw_debug()
+	local d = self.dbg
+	if not d then
+		return
+	end
+	d._active = true
+	local used = 0
+	local used_t = 0
+	-- Consume one pooled dot: centre (cx,cy) in virtual px, `size` px, colour a/r/g/b.
+	-- UI_KX corrects the horizontal size so the dot stays round on any aspect (the
+	-- CENTRE is raw virtual px, matching world2ui / the fov_radius comparison).
+	local function dot(cx, cy, size, a, r, g, b)
+		used = used + 1
+		local w = d.dots[used]
+		if not w then
+			return false
+		end
+		local wx = math.max(2, math.floor(size * UI_KX + 0.5))
+		w:SetWndSize(S(wx, size))
+		w:SetWndPos(P(math.floor(cx - wx / 2), math.floor(cy - size / 2)))
+		w:SetTextureColor(GetARGB(a, r, g, b))
+		w:Show(true)
+		return used < DBG_DOTS
+	end
+	-- Consume one pooled text label at (cx,cy).
+	local function label(cx, cy, str, a, r, g, b)
+		used_t = used_t + 1
+		local w = d.texts[used_t]
+		if not w then
+			return false
+		end
+		w:SetText(str)
+		w:SetTextColor(GetARGB(a, r, g, b))
+		w:SetWndPos(P(math.floor(cx), math.floor(cy)))
+		w:Show(true)
+		return used_t < DBG_TEXTS
+	end
+
+	local cx, cy = aim_center()
+	local radius = C.fov_radius or 110
+	local max_dist = C.max_dist or 50
+
+	-- FOV ring outline (yellow). Radius is raw virtual px so the drawn circle matches
+	-- the assist's screen_dist_to test exactly (it will look elliptical on a 16:9
+	-- screen -- that IS the true test shape in virtual space).
+	for i = 0, DBG_RING_SEG - 1 do
+		local ang = (i / DBG_RING_SEG) * 2 * math.pi
+		dot(cx + math.cos(ang) * radius, cy + math.sin(ang) * radius, 4, 210, 255, 220, 40)
+	end
+
+	-- Bones of every entity inside the ring: GREEN if within max_dist (a real
+	-- identify candidate), RED if beyond max range (rejected for distance). Scans a
+	-- bit past max_dist so out-of-range candidates you're aiming at still show.
+	if db.actor and level and level.iterate_nearest then
+		local apos = db.actor:position()
+		local actor_id = db.actor:id()
+		local scan = math.max(max_dist * 2, max_dist + 40)
+		pcall(level.iterate_nearest, apos, scan, function(obj)
+			if used >= DBG_DOTS then
+				return true
+			end
+			if
+				obj
+				and obj:id() ~= actor_id
+				and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj))
+				and safe_call(obj.alive, obj)
+			then
+				local mind = screen_dist_to_body(obj, cx, cy)
+				if mind and mind <= radius then
+					local base = obj:position()
+					local dist = math.sqrt(apos:distance_to_sqr(base))
+					-- Green in range, red out of range.
+					local cr, cg, cb = 235, 60, 70
+					if dist <= max_dist then
+						cr, cg, cb = 60, 235, 70
+					end
+					local drew = false
+					local tx, ty -- label anchor: first projected bone
+					for _, bone in ipairs(BODY_BONES) do
+						local p = safe_call(obj.bone_position, obj, bone)
+						if p and p:distance_to_sqr(base) < 16 then
+							local sx, sy = project_world(p)
+							if sx then
+								drew = true
+								tx, ty = tx or sx, ty or sy
+								if not dot(sx, sy, 6, 200, cr, cg, cb) then
+									break
+								end
+							end
+						end
+					end
+					if not drew then -- monster / non-bip01 rig: the vertical-span fallback
+						for _, lift in ipairs({ 0.3, 0.9, 1.5 }) do
+							local sx, sy = project_world(_body_pt:set(base.x, base.y + lift, base.z))
+							if sx then
+								tx, ty = tx or sx, ty or sy
+								if not dot(sx, sy, 6, 200, cr, cg, cb) then
+									break
+								end
+							end
+						end
+					end
+					-- Distance label on the candidate (same colour as its dots).
+					if tx then
+						label(tx + 8, ty - 8, string.format("%.0fm", dist), 255, cr, cg, cb)
+					end
+				end
+			end
+			return false
+		end)
+	end
+
+	-- Hide any unused pooled dots + labels.
+	for i = used + 1, DBG_DOTS do
+		d.dots[i]:Show(false)
+	end
+	for i = used_t + 1, DBG_TEXTS do
+		d.texts[i]:Show(false)
+	end
+
+	-- Aim point (red), dedicated widget created last so it draws on top.
+	if d.aim then
+		local aw = math.max(2, math.floor(9 * UI_KX + 0.5))
+		d.aim:SetWndSize(S(aw, 9))
+		d.aim:SetWndPos(P(math.floor(cx - aw / 2), math.floor(cy - 9 / 2)))
+		d.aim:SetTextureColor(GetARGB(255, 235, 40, 40))
+		d.aim:Show(true)
+	end
+
+	-- Radius value, just above the ring.
+	if d.text then
+		d.text:SetText(string.format("fov_radius = %d", radius))
+		d.text:SetTextColor(GetARGB(255, 255, 220, 40))
+		d.text:SetWndPos(P(math.floor(cx + 6), math.floor(cy - radius - 18)))
+		d.text:Show(true)
+	end
+end
+
 -- Bodycam style: gap (px) from the box's right edge to the name/weapon text, and
 -- the vertical step between the name and weapon lines.
 local BODYCAM_TEXT_PAD = 8
@@ -2289,18 +2499,58 @@ local BODYCAM_LINE_H = 19
 -- see UI_KX). Edges butt at the corners with NO overlap: top/bottom span the
 -- full width, left/right fill only the gap between them -- so a thick outline
 -- no longer double-draws (and darkens) at the corners.
-local function draw_head_box(s, cx, cy, hw, hh, alpha, r, g, b)
+-- Depth-aware overlay binding (custom bodycam exe): draws world-anchored rects
+-- depth-tested against the scene, so walls/viewmodel clip the box per-pixel. Same
+-- guarded-existence pattern as the redaction/marker paths; inert on a stock exe, where
+-- draw_head_box falls back to the (non-depth-aware) CUIStatic edges.
+local function overlay_binding()
+	local bc = rawget(_G, "bodycam")
+	if bc and bc.overlay_begin and bc.overlay_rect and bc.overlay_commit then
+		return bc
+	end
+	return nil
+end
+---@type any
+local _overlay_bc = nil -- set for the current frame in render() (begin..commit)
+
+-- Submit one rect to the depth overlay. Coords are in the mod's 1024x768 virtual
+-- space; the engine scales them to real pixels (dwWidth/1024, dwHeight/768 -- the
+-- same stretch world2ui uses). world anchor drives the per-pixel depth test.
+local function overlay_rect_v(vx0, vy0, vx1, vy1, a, r, g, b, wx, wy, wz)
+	local bc = _overlay_bc
+	if not bc then
+		return
+	end
+	pcall(bc.overlay_rect, vx0, vy0, vx1, vy1, r / 255, g / 255, b / 255, a / 255, wx or 0, wy or 0, wz or 0)
+end
+
+local function draw_head_box(s, cx, cy, hw, hh, alpha, r, g, b, wx, wy, wz)
 	local t = C.box_thickness or 2
 	if t < 1 then
 		t = 1
 	end
 	local tw = math.max(1, t * UI_KX) -- vertical-edge width, aspect-corrected
-	-- Box opacity scales the fade alpha (rectangle only; the text keeps full alpha).
-	local col = GetARGB(math.floor(alpha * (C.box_opacity or 1)), r, g, b)
+	local a = math.floor(alpha * (C.box_opacity or 1))
 	local x0, y0 = cx - hw, cy - hh
 	local w, h = hw * 2, hh * 2
 	local vh = math.max(1, h - 2 * t) -- vertical edges fill between top & bottom
 
+	-- Depth-aware path: submit the 4 edges as world-anchored rects to the engine
+	-- (occluded per-pixel by walls/viewmodel) and hide the flat CUIStatic edges.
+	if _overlay_bc and wx then
+		s.box_top:Show(false)
+		s.box_bottom:Show(false)
+		s.box_left:Show(false)
+		s.box_right:Show(false)
+		overlay_rect_v(x0, y0, x0 + w, y0 + t, a, r, g, b, wx, wy, wz) -- top
+		overlay_rect_v(x0, y0 + h - t, x0 + w, y0 + h, a, r, g, b, wx, wy, wz) -- bottom
+		overlay_rect_v(x0, y0 + t, x0 + tw, y0 + h - t, a, r, g, b, wx, wy, wz) -- left
+		overlay_rect_v(x0 + w - tw, y0 + t, x0 + w, y0 + h - t, a, r, g, b, wx, wy, wz) -- right
+		return
+	end
+
+	-- Fallback: flat CUIStatic edges (no depth awareness).
+	local col = GetARGB(a, r, g, b)
 	s.box_top:SetWndSize(S(w, t))
 	s.box_top:SetWndPos(P(x0, y0))
 	s.box_top:SetTextureColor(col)
@@ -2367,6 +2617,29 @@ local function draw_shadowed_text(main, sh, x, y, alpha, r, g, b, shadow_a)
 	main:SetWndPos(P(x, y))
 	main:SetTextColor(GetARGB(alpha, r, g, b))
 	main:Show(true)
+end
+
+-- Depth-aware TEXT is disabled: the engine font-to-RT path (bodycam.overlay_text)
+-- doesn't render (the font's OnRender needs 2D state absent mid-combine -- see
+-- docs/engine-depth-overlay.md). Until that's reworked (render at frame-end with a
+-- saved depth copy), text uses the normal CUIStatic path so it always shows. The
+-- rectangle stays depth-aware (that engine path works). Flip to true to re-enable
+-- the engine text path once fixed.
+local DEPTH_TEXT = false
+
+-- Draw one bodycam text line either depth-aware (engine overlay, occluded by
+-- walls/viewmodel) or, when disabled/absent, as the flat CUIStatic shadowed text.
+-- main_w/sh_w are the widget + its shadow copy.
+local function draw_bodycam_line(main_w, sh_w, str, x, y, alpha, r, g, b, shadow_a, wx, wy, wz)
+	if DEPTH_TEXT and _overlay_bc and _overlay_bc.overlay_text_add and wx then
+		main_w:Show(false)
+		sh_w:Show(false)
+		pcall(_overlay_bc.overlay_text_add, str, x, y, r / 255, g / 255, b / 255, alpha / 255, wx, wy, wz)
+	else
+		main_w:SetText(str)
+		sh_w:SetText(str)
+		draw_shadowed_text(main_w, sh_w, x, y, alpha, r, g, b, shadow_a)
+	end
 end
 
 -- Minimal-style relation sign (-/+/o), centred on the same anchor point as
@@ -2445,7 +2718,10 @@ function IiTags:draw_slot(
 	box_cx,
 	box_cy,
 	box_hw,
-	box_hh
+	box_hh,
+	box_wx,
+	box_wy,
+	box_wz
 )
 	local s = self.slots[i]
 	if not s then
@@ -2520,7 +2796,7 @@ function IiTags:draw_slot(
 			if C.box_color_source == 2 then
 				bcol = SIGN_COLOR[sign] or COL_NEUTRAL
 			end
-			draw_head_box(s, box_cx, box_cy, box_hw, box_hh, alpha, bcol[1], bcol[2], bcol[3])
+			draw_head_box(s, box_cx, box_cy, box_hw, box_hh, alpha, bcol[1], bcol[2], bcol[3], box_wx, box_wy, box_wz)
 
 			-- Name / faction / weapon+caliber, stacked just to the right of the box
 			-- and tracking it every frame, each gated by its generic show toggle.
@@ -2530,21 +2806,57 @@ function IiTags:draw_slot(
 			local ty = math.floor(box_cy - box_hh)
 			local shadow_a = math.floor(180 * alpha / 255)
 			if C.show_name and name and name ~= "" then
-				s.name:SetText(name)
-				s.name_sh:SetText(name)
-				draw_shadowed_text(s.name, s.name_sh, tx, ty, alpha, 236, 230, 218, shadow_a)
+				draw_bodycam_line(
+					s.name,
+					s.name_sh,
+					name,
+					tx,
+					ty,
+					alpha,
+					236,
+					230,
+					218,
+					shadow_a,
+					box_wx,
+					box_wy,
+					box_wz
+				)
 				ty = ty + BODYCAM_LINE_H
 			end
 			if C.show_faction and header and header ~= "" then
-				s.head:SetText(header)
-				s.head_sh:SetText(header)
-				draw_shadowed_text(s.head, s.head_sh, tx, ty, alpha, fcol[1], fcol[2], fcol[3], shadow_a)
+				draw_bodycam_line(
+					s.head,
+					s.head_sh,
+					header,
+					tx,
+					ty,
+					alpha,
+					fcol[1],
+					fcol[2],
+					fcol[3],
+					shadow_a,
+					box_wx,
+					box_wy,
+					box_wz
+				)
 				ty = ty + BODYCAM_LINE_H
 			end
 			if C.show_weapon and weap and weap ~= "" then
-				s.weap:SetText(weap)
-				s.weap_sh:SetText(weap)
-				draw_shadowed_text(s.weap, s.weap_sh, tx, ty, alpha, 172, 178, 188, shadow_a)
+				draw_bodycam_line(
+					s.weap,
+					s.weap_sh,
+					weap,
+					tx,
+					ty,
+					alpha,
+					172,
+					178,
+					188,
+					shadow_a,
+					box_wx,
+					box_wy,
+					box_wz
+				)
 			end
 		end
 		return
@@ -2866,21 +3178,63 @@ local HIDE_GRACE_MS = 150
 -- recomputed here every frame so they track the settling ragdoll) and submits
 -- them in one atomic begin/add/commit. Inert without the custom exe.
 -- --------------------------------------------------------------------------
-local corpse_ids = {} -- cached dead-in-range ids (throttled membership)
+local corpse_ids = {} -- cached dead-in-range ids (corpse redaction, throttled)
+local face_ids = {} -- cached humanoid-in-range ids (face redaction, alive OR dead)
 local corpse_last_tg = 0
 -- Membership refresh cadence. Lowered now the sweep is just iterate_nearest +
 -- alive checks (no per-corpse LOS raycasts, see update_corpse_membership), so a
 -- newly-dead / newly-in-range body starts redacting promptly. The per-frame feed
 -- re-projects the cached set every frame regardless.
 local CORPSE_THROTTLE_MS = 150
-local _glitch_boxes = {} -- reused per-frame box list, avoids GC churn
+local _redaction_boxes = {} -- reused per-frame box list, avoids GC churn
+
+-- Stencil silhouette mask (Option B, custom exe with the redaction-stencil patch).
+-- game_object:set_bodycam_redact(bool) flags an object so the engine tags its g-buffer
+-- pixels with the redaction stencil bit; the redaction post-pass then hugs the
+-- exact corpse silhouette (occlusion free). Guarded existence check like PIP: inert
+-- on a stock exe, where the shader's screen-rect + depth-band path still applies.
+-- See docs/engine-redaction-stencil-patch.md.
+local _redact_marked = {} -- id -> true: objects we've currently flagged
+local function set_redact_flag(obj, on)
+	if obj and obj.set_bodycam_redact then
+		return pcall(obj.set_bodycam_redact, obj, on) and true or false
+	end
+	return false
+end
+
+-- Flag the given corpse id set, and unflag any object flagged last time that is no
+-- longer in it. Cheap when the binding is absent (set_redact_flag returns false).
+local function sync_redact_flags(ids)
+	local now = {}
+	for _, id in ipairs(ids) do
+		now[id] = true
+	end
+	for id in pairs(_redact_marked) do
+		if not now[id] then
+			set_redact_flag(level.object_by_id(id), false)
+			_redact_marked[id] = nil
+		end
+	end
+	for _, id in ipairs(ids) do
+		if not _redact_marked[id] and set_redact_flag(level.object_by_id(id), true) then
+			_redact_marked[id] = true
+		end
+	end
+end
+
+local function clear_redact_flags()
+	for id in pairs(_redact_marked) do
+		set_redact_flag(level.object_by_id(id), false)
+	end
+	_redact_marked = {}
+end
 
 -- Head box (screen bbox, 1024x768 virtual space) as cx,cy,hw,hh, or nil if it
 -- doesn't project this frame. Head bone (lifted to the face centre) first, body
 -- anchor for monsters without a bip01_head.
 -- Returns the screen bbox (cx,cy,hw,hh,depth) PLUS the box's WORLD centre and
 -- world half-extents (metres) -- the engine reprojects the latter through the
--- scope camera for in-scope redaction (see glitch_submit).
+-- scope camera for in-scope redaction (see redaction_submit).
 local function head_box_for(obj)
 	local hc = head_center(obj) or anchor_pos(obj)
 	if not hc then
@@ -3031,6 +3385,35 @@ local function redact_box_for(obj)
 	return area_box_for(obj, C.redact_area or 1)
 end
 
+-- Face-only box, for FACE redaction (a feature separate from corpse redaction:
+-- applies to living entities too, and covers just the face). Tighter than the
+-- head box, and nudged FORWARD along the entity's facing so it sits over the face
+-- (the front of the head) rather than centred on the skull. Humanoids only --
+-- head_center is nil for monsters/rigs without bip01_head, so they're skipped.
+local FACE_HALF_W = 0.12 -- the face is narrower/shorter than the whole head box
+local FACE_HALF_H = 0.15
+local FACE_FWD = 0.08 -- metres to push the box toward the face front, along facing
+local _face_c = vector()
+local function face_box_for(obj)
+	local hc = head_center(obj)
+	if not hc then
+		return nil
+	end
+	local dir = safe_call(obj.direction, obj)
+	if dir then
+		hc = _face_c:set(hc.x + dir.x * FACE_FWD, hc.y + dir.y * FACE_FWD, hc.z + dir.z * FACE_FWD)
+	end
+	local cx, cy, hw, hh, depth = screen_box(hc, FACE_HALF_W, FACE_HALF_H)
+	if not cx then
+		return nil
+	end
+	-- NEGATE the depth to flag this as a FACE box: the redaction shader then uses a
+	-- tight, front-biased depth band (only the face front + sides, not the back of
+	-- the head). The engine passes the value through untouched, so no rebuild; the
+	-- world data below stays positive (the in-scope SVP pass reprojects it normally).
+	return cx, cy, hw, hh, -(depth or 0), hc.x, hc.y, hc.z, FACE_HALF_W, FACE_HALF_H
+end
+
 -- Throttled: rebuild the set of dead NPCs/creatures in range. NO LOS check here
 -- on purpose: the redaction shader is depth-aware (it rejects any pixel nearer
 -- than the corpse, so a body behind a wall simply shows no redacted pixels), so
@@ -3040,10 +3423,19 @@ end
 -- the box is on screen, and per-pixel depth occlusion is more accurate than a
 -- whole-corpse LOS gate. Off-screen corpses cost nothing (their box won't
 -- project). The per-frame feed re-projects each head from this membership.
-local function update_corpse_membership(tg)
-	if not C.redact_dead then
+-- One sweep for BOTH redaction features: corpse_ids = dead NPCs/creatures in range
+-- (corpse redaction), face_ids = humanoids in range whether alive or dead (face
+-- redaction). Each is gated on its own toggle.
+local function update_redact_membership(tg)
+	if not C.redact_dead and not C.redact_face then
 		if #corpse_ids > 0 then
 			corpse_ids = {}
+		end
+		if #face_ids > 0 then
+			face_ids = {}
+		end
+		if next(_redact_marked) then
+			clear_redact_flags() -- redaction turned off: drop all stencil flags
 		end
 		return
 	end
@@ -3053,37 +3445,52 @@ local function update_corpse_membership(tg)
 	corpse_last_tg = tg
 	if not db.actor or not level.iterate_nearest then
 		corpse_ids = {}
+		face_ids = {}
 		return
 	end
 	local apos = db.actor:position()
 	local actor_id = db.actor:id()
-	local ids, n = {}, 0
-	pcall(level.iterate_nearest, apos, C.max_dist, function(obj)
-		if
-			n < GLITCH_MAX
-			and obj
-			and obj:id() ~= actor_id
-			and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj))
-		then
-			if not safe_call(obj.alive, obj) then
-				n = n + 1
-				ids[n] = obj:id()
+	local cids, cn = {}, 0
+	local fids, fn = {}, 0
+	-- Redaction has its OWN range, decoupled from the identification max_dist:
+	-- redaction is passive (no aiming), so it should reach as far as a body/face is
+	-- actually visible, not just as far as you can aim-identify. (A distant face
+	-- still stops naturally once its box projects below ~1px, see screen_box.)
+	local redact_range = C.redact_range or C.max_dist or 50
+	pcall(level.iterate_nearest, apos, redact_range, function(obj)
+		if obj and obj:id() ~= actor_id then
+			local stalker = safe_call(IsStalker, obj)
+			if stalker or safe_call(IsMonster, obj) then
+				local dead = not safe_call(obj.alive, obj)
+				if C.redact_dead and dead and cn < REDACTION_MAX then
+					cn = cn + 1
+					cids[cn] = obj:id()
+				end
+				-- Face redaction: humanoids only (they have a face), alive or dead.
+				if C.redact_face and stalker and fn < REDACTION_MAX then
+					fn = fn + 1
+					fids[fn] = obj:id()
+				end
 			end
 		end
 		return false -- keep scanning the whole set within range
 	end)
-	corpse_ids = ids
+	corpse_ids = cids
+	face_ids = fids
+	sync_redact_flags(cids) -- engine stencil mask for corpses (custom exe); inert otherwise
 end
 
-local function add_glitch_box(boxes, n, obj)
-	local cx, cy, hw, hh, depth, wcx, wcy, wcz, whw, whh = redact_box_for(obj)
+-- box_fn(obj) -> the screen box + world data (redact_box_for for corpses,
+-- face_box_for for faces); padding is that feature's own loosen fraction.
+local function add_redaction_box(boxes, n, obj, box_fn, padding)
+	local cx, cy, hw, hh, depth, wcx, wcy, wcz, whw, whh = box_fn(obj)
 	if not cx then
 		return n
 	end
-	-- Loosen the redacted region off the model by redact_padding (a fraction of
-	-- its size, so it stays proportional at any distance). Applied to both the
-	-- main-screen rect and the world half-extents.
-	local rp = 1 + (C.redact_padding or 0)
+	-- Loosen the redacted region off the model (a fraction of its size, so it stays
+	-- proportional at any distance). Applied to both the main-screen rect and the
+	-- world half-extents.
+	local rp = 1 + (padding or 0)
 	n = n + 1
 	local b = boxes[n] or {}
 	b.cx, b.cy, b.hw, b.hh, b.depth = cx, cy, hw * rp, hh * rp, depth or 0
@@ -3098,32 +3505,76 @@ end
 -- camera), so the same submission feeds both. The main-pass rects are simply
 -- against the wrong picture inside the lens, but the lens only samples the SVP
 -- pass's output, so there's no conflict.
-local function feed_glitch(tg, pip_active, suppress_main)
-	if not glitch_binding() then
+local function feed_redaction(tg, pip_active, suppress_main)
+	local bc = redaction_binding()
+	if not bc then
 		return
 	end -- stock exe: nothing to feed
 
-	local boxes, n = _glitch_boxes, 0
+	-- Corpse redaction is now a STENCIL SILHOUETTE (engine draws the effect where the
+	-- redaction stencil bit is set; corpses are flagged in update_redact_membership).
+	-- We just tell the engine the corpse style/strength; no rects. Guarded so an exe
+	-- without the stencil path (bodycam.redact_corpse absent) ignores it -- there the
+	-- corpse simply isn't redacted (the depth-band rect path was retired for corpses).
+	-- Keep the engine STENCIL corpse pass OFF: it caused whole-screen pixelation
+	-- (the g-buffer 0x40 tags don't reliably survive to the combine tail, so its
+	-- fullscreen quad wasn't masked). Corpse redaction is back on the rect +
+	-- depth-band path below (same as face). Stencil silhouette is deferred until
+	-- reworked with a mask RT -- see docs/engine-redaction-stencil-patch.md.
+	if bc.redact_corpse then
+		pcall(bc.redact_corpse, -1, 0.0)
+	end
+
+	local boxes, n = _redaction_boxes, 0
+	-- Corpse redaction: dead bodies, head or full-body box (redact_area).
+	local in_corpse = {}
+	local corpse_n = 0
 	if C.redact_dead then
 		for _, id in ipairs(corpse_ids) do
-			if n >= GLITCH_MAX then
+			if n >= REDACTION_MAX then
 				break
 			end
 			local obj = level.object_by_id(id)
 			if obj and not safe_call(obj.alive, obj) then
-				n = add_glitch_box(boxes, n, obj)
+				in_corpse[id] = true
+				n = add_redaction_box(boxes, n, obj, redact_box_for, C.redact_padding)
+				corpse_n = n
+			end
+		end
+	end
+	-- Face redaction: humanoid faces (front-only band). Skip anyone already covered
+	-- by corpse redaction this frame.
+	if C.redact_face then
+		for _, id in ipairs(face_ids) do
+			if n >= REDACTION_MAX then
+				break
+			end
+			if not in_corpse[id] then
+				local obj = level.object_by_id(id)
+				if obj then
+					n = add_redaction_box(boxes, n, obj, face_box_for, C.redact_face_padding)
+				end
 			end
 		end
 	end
 
-	glitch_submit(boxes, n, C.redact_strength or 1.0, suppress_main)
+	-- One engine style per frame: corpse style when any corpse is redacted, else
+	-- the face style.
+	local style = (corpse_n > 0) and C.redact_style or C.redact_face_style
+	redaction_submit(boxes, n, C.redact_strength or 1.0, suppress_main, style)
 
 	if C.debug_log then
 		local on = n > 0
-		if on ~= _glitch_dbg_active then
-			_glitch_dbg_active = on
+		if on ~= _redaction_dbg_active then
+			_redaction_dbg_active = on
 			dbg(
-				on and string.format("redact ON: %d corpse(s) strength=%.2f", n, C.redact_strength or 1.0)
+				on
+						and string.format(
+							"redact ON: %d box(es), %d total strength=%.2f",
+							#corpse_ids,
+							n,
+							C.redact_strength or 1.0
+						)
 					or "redact OFF"
 			)
 		end
@@ -3134,6 +3585,15 @@ local function render(tg)
 	if not TAGS then
 		return
 	end -- only ever called after ensure_tags() succeeds, but don't assume it
+
+	-- Target-assist debug visualiser (independent of the tag/scope paths below, so
+	-- it draws even when the HUD is suppressed / a scope is up).
+	if C.debug_draw then
+		TAGS:draw_debug()
+	else
+		TAGS:hide_debug()
+	end
+
 	local apos = db.actor and db.actor:position()
 
 	-- While a true PiP scope is actively raised, the normal card/dot (always
@@ -3163,6 +3623,17 @@ local function render(tg)
 	-- scoped frame's markers published indefinitely.
 	if PIP_AVAILABLE then
 		svp_ui_markers_begin()
+	end
+
+	-- Depth-aware bodycam overlay: open the per-frame rect + text batches
+	-- (draw_head_box / draw_slot fill them). Committed at every exit below so a
+	-- stale batch never persists.
+	_overlay_bc = overlay_binding()
+	if _overlay_bc then
+		pcall(_overlay_bc.overlay_begin)
+		if _overlay_bc.overlay_text_begin then
+			pcall(_overlay_bc.overlay_text_begin)
+		end
 	end
 
 	-- First pass: resolve which targets are actually on-screen and drawable
@@ -3286,14 +3757,17 @@ local function render(tg)
 				-- head-only or full-body per box_area. Cleared otherwise, since
 				-- active_pool entries are reused and would carry stale extents.
 				if C.ui_style == 3 then
-					local bcx, bcy, bhw, bhh = area_box_for(obj, C.box_area or 1)
+					local bcx, bcy, bhw, bhh, _, bwx, bwy, bwz = area_box_for(obj, C.box_area or 1)
 					if bcx then
 						-- Loosen the box off the model by box_padding (a fraction of
 						-- its size, so it stays proportional at any distance).
 						local bp = 1 + (C.box_padding or 0)
 						a.box_cx, a.box_cy, a.box_hw, a.box_hh = bcx, bcy, bhw * bp, bhh * bp
+						-- World anchor for depth-aware overlay drawing (engine occlusion).
+						a.box_wx, a.box_wy, a.box_wz = bwx, bwy, bwz
 					else
 						a.box_cx, a.box_cy, a.box_hw, a.box_hh = nil, nil, nil, nil
+						a.box_wx, a.box_wy, a.box_wz = nil, nil, nil
 					end
 				else
 					a.box_hw, a.box_hh = nil, nil
@@ -3310,15 +3784,22 @@ local function render(tg)
 		svp_ui_markers_commit()
 	end
 
-	-- Drive the engine glitch pass with every visible corpse's head box (custom
-	-- bodycam exe only; inert otherwise). feed_glitch clears it when nothing
+	-- Drive the engine redaction pass with every visible corpse's head box (custom
+	-- bodycam exe only; inert otherwise). feed_redaction clears it when nothing
 	-- qualifies or a PiP scope is up (the main-camera rects would be against the
 	-- wrong picture then, same reasoning as the card/dot).
-	feed_glitch(tg, pip_active, suppress_main)
+	feed_redaction(tg, pip_active, suppress_main)
 
 	if pip_active or suppress_main then
 		for i = 1, MAX_TAGS do
 			TAGS:hide_slot(i)
+		end
+		if _overlay_bc then
+			pcall(_overlay_bc.overlay_commit) -- empty: clear any prior overlay rects
+			if _overlay_bc.overlay_text_commit then
+				pcall(_overlay_bc.overlay_text_commit)
+			end
+			_overlay_bc = nil
 		end
 		return
 	end
@@ -3363,13 +3844,24 @@ local function render(tg)
 				ai.box_cx,
 				ai.box_cy,
 				ai.box_hw,
-				ai.box_hh
+				ai.box_hh,
+				ai.box_wx,
+				ai.box_wy,
+				ai.box_wz
 			)
 		end
 	end
 
 	for i = slot_i + 1, MAX_TAGS do
 		TAGS:hide_slot(i)
+	end
+
+	if _overlay_bc then
+		pcall(_overlay_bc.overlay_commit) -- publish this frame's depth-overlay rects
+		if _overlay_bc.overlay_text_commit then
+			pcall(_overlay_bc.overlay_text_commit)
+		end
+		_overlay_bc = nil
 	end
 end
 
@@ -3380,12 +3872,20 @@ local function teardown_ui()
 		for i = 1, MAX_TAGS do
 			TAGS:hide_slot(i)
 		end
+		TAGS:hide_debug()
 	end
 	for k in pairs(tracked) do
 		tracked[k] = nil
 	end
 	corpse_ids = {}
-	glitch_clear()
+	face_ids = {}
+	clear_redact_flags() -- drop engine stencil flags so nothing stays redacted
+	redaction_clear()
+	local ob = overlay_binding() -- clear any depth-overlay rects
+	if ob then
+		pcall(ob.overlay_begin)
+		pcall(ob.overlay_commit)
+	end
 end
 
 -- When the ADS range boost ends (you zoom out / lower the sight), the effective
@@ -3438,7 +3938,7 @@ local function actor_on_update()
 			end
 		end
 		reset_steady()
-		glitch_clear()
+		redaction_clear()
 		return
 	end
 	if not ensure_tags() then
@@ -3448,7 +3948,7 @@ local function actor_on_update()
 	update_binocular_scan(tg)
 	update_auto_identify(tg)
 	update_ads_range_cull()
-	update_corpse_membership(tg)
+	update_redact_membership(tg)
 	update_loot_xp()
 	render(tg)
 end

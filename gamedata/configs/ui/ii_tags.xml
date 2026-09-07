@@ -136,4 +136,15 @@
 	<tag_sign>
 		<text font="letterica18" align="c" width="20" height="18" />
 	</tag_sign>
+
+	<!-- Debug draw (MCM "Debug draw", target-assist visualiser). A pool of small
+	     round dots (ii_dot, tinted at runtime: green = entity bones in the FOV
+	     ring, yellow = the ring outline, red = the current aim point) plus one
+	     text line showing the ring radius. Only shown when debug_draw is on. -->
+	<dbg_dot width="8" height="8" stretch="1">
+		<texture r="255" g="255" b="255" a="255">ii_dot</texture>
+	</dbg_dot>
+	<dbg_text>
+		<text font="letterica16" align="l" width="200" height="16" />
+	</dbg_text>
 </w>
