@@ -19,12 +19,33 @@ configurable duration, then fades out.
 It replaces static HUD faction indicators (e.g. the FactionID mod) with a
 diegetic, in-world label that tracks the target as it and the camera move.
 
-Two visual styles:
+Three visual styles:
 
 - **Card** (`ui_style = 1`): dark plate + faction icon + text lines + a leader
   line connecting to a colored dot on the target's chest.
 - **Minimal** (`ui_style = 2`): just a faction-colored dot plus a relation glyph
   (`-` enemy / `+` friend / `o` neutral).
+- **Bodycam** (`ui_style = 3`): an unfilled faction-colored rectangle outline
+  locked to the target's **head bone**, auto-scaled with distance so it stays a
+  constant real-world size around the head (a bounding box with padding). Four
+  thin `ii_white` strips per edge (`draw_head_box`), with the target **name** and
+  **weapon/caliber** (`e.weap`, includes caliber) stacked as shadowed text just to
+  the right of the box (reusing the card's `tag_name`/`tag_weap` widgets). The box
+  covers the head or the full body per **`box_area`** (`area_box_for`, shared with
+  redaction). The head box is the **screen bounding box of the head's four
+  projected corners** (`screen_box`: `center ± cam_right*BOX_HALF_W ±
+  cam_top*BOX_HALF_H`), perspective-correct at any screen position — a
+  single-axis extent shortcut mis-sizes/mis-centres near the screen edges (the
+  "slips off at the corners" bug). The centre is `bip01_head` lifted `HEAD_LIFT`
+  (0.09 m) to the face (the bone sits at the skull base, so an unlifted box rides
+  low over the neck). Distance scaling falls out of the projection (no `UI_KX`
+  squeeze). Pairs naturally with **Auto-identify** below.
+
+Optionally, **Auto-identify** (`auto_identify`, default off) continuously reveals
+every visible target in range without a keypress: a throttled
+`level.iterate_nearest` sweep (`update_auto_identify`) hands each alive,
+community-tagged, LOS-visible target to the shared `identify_target` commit path.
+Line of sight is always required for it. Works with any style.
 
 Identification difficulty is expressed **entirely as reveal delay** (scan time),
 not as pass/fail. **There is no RNG anywhere** — the outcome is fully
@@ -193,27 +214,82 @@ community, and is within `eff_max_dist`.
   (`update_fov_baseline`, 548-555).
 - `binoc_boost` widens `eff_max_dist` / `eff_fade_dist` by `binoc_range_mult`
   (842-844) and speeds the scan.
-- **Auto-identify** (`update_binocular_scan`, 949-981): when `binocular_mode` and
-  binoculars active, tracks a "steady" camera direction against an anchor
+- **Auto-identify** (`update_binocular_scan`): when `binocular_mode` **or**
+  `ads_mode` is active, tracks a "steady" camera direction against an anchor
   (`STEADY_MAX_D2 = 0.002`, ~2.6°); held steady for `steady_time`, it auto-fires
   `try_identify()` once (`steady_triggered` guard).
+
+### 3.5b Aim Down Sight (ADS)
+
+Mirrors the binocular boost for regular weapons. `is_ads_active()` prefers the
+bodycam engine's real aim flag (`bodycam.get_state().ads`, catches iron sights),
+falling back to the same FOV-zoom heuristic with a gentler `ADS_ZOOM_RATIO (0.85)`;
+binoculars are excluded so the two never stack. `boost_params()` now returns
+`(binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult)` — binoc takes
+priority, then ADS, each carrying its own `*_scan_mult` / `*_range_mult` from its
+MCM section; `identify_target` applies the returned `scan_mult`. Its own MCM
+section: `ads_mode` (steady-aim auto-identify), `ads_boost`, `ads_scan_mult`,
+`ads_range_mult`, `ads_zoom_scaling`.
+
+**Zoom-scaled range**: with `ads_zoom_scaling` on, the ADS range multiplier is
+scaled by the current scope magnification — `range_mult = ads_range_mult × mag` —
+so higher-power optics reach further (`ads_range_mult` is the x1 base). The magnification is **hybrid**, so it works with or without a PiP engine and
+tracks dynamic zoom live in both: (1) on a PiP engine the zoom lives in the second
+viewport (main FOV unchanged), so the new engine binding `svp_scope_magnification()`
+— which returns the SVP `svp_mag` "zoom scaled trigger" (1.0=1x .. ~8x, -1 when not
+scoped) — is the only accurate source; (2) with no PiP (or when the binding reports
+nothing), a non-PiP optic narrows the **main-camera FOV**, so magnification is
+recovered as `_fov_baseline / device().fov`. Iron sights / un-magnified aim stay at
+the x1 base (`MAG_FOV_MIN = 1.05`).
+
+**Zoom-out range cull** (`update_ads_range_cull`): on the ADS-boost
+active→inactive edge, tags now beyond the (unboosted, base) range are dropped
+immediately rather than lingering invisibly on their timer; survivors are
+re-snapshotted to the base range. Deliberately ADS-only — binoculars keep a
+just-glassed distant tag readable after lowering (observation vs. combat-aid UX).
+
+**Steady auto-trigger uses auto semantics**: `try_identify(auto_mode)` — the
+steady-aim trigger (binocular / ADS mode) passes `true`, so `identify_target`
+refreshes an already-revealed target's hold window instead of restarting its
+reveal. Without this, ADS combat aim (constant micro-adjustment re-arms the steady
+trigger) re-scanned already-identified targets every re-fire — the "double
+identification" retrigger, most visible in-scope as the marker flicking back to
+the scanning spinner. A manual keypress (`nil`) still restarts on purpose.
+
+**PiP toggles**: `pip_markers` gates the whole in-scope UI path (`pip_active =
+pip_markers and PIP_AVAILABLE and is_svp_active()`) — off reverts to normal
+HUD/main-pass behavior. `pip_redact` gates only the in-scope redaction, by zeroing
+the world box extents in `redaction_submit` so the engine's SVP redaction pass skips
+them (the main-view redaction is unaffected).
+
+**Suppress main-view drawing**: `suppress_main = (ads_hide_main and is_ads_active())
+or (pip_hide_main and pip_scope)` hides ALL main-view drawing — the HUD tags (adds
+to the `pip_active or suppress_main` hide-slots-and-return) and the main-pass
+redaction (`redaction_submit(…, main_off)` submits each box's main-camera rect
+off-screen — outside `[0,1]`, so the main redaction shader finds no pixels — while the
+WORLD box still feeds the in-scope pass). The in-scope UI is unaffected, so with a
+PiP scope up you get in-scope-only rendering. `pip_scope` is the physical scope
+state (independent of `pip_markers`), so this also covers `pip_markers`-off.
 
 ### 3.6 UI rendering
 
 `IiTags : CUIScriptWnd` (1019), rect 1024×768, parses `ii_tags.xml` via
 `CScriptXmlInit`. `InitControls` (1025-1073) builds `MAX_TAGS` slots of widgets in
-draw order (shadow → line → plate → accent → icon → text → node/glow → spinner).
+draw order (shadow → line → plate → accent → icon → text → node/glow → spinner →
+bodycam box edges).
 
 - **World-to-screen:** `anchor_pos(obj)` (379-390) picks the first of
   `ANCHOR_BONES` (`bip01_head`, `bip01_spine2/1`, `bip01_spine`) within 3m and
   lifts by `ANCHOR_LIFT = 0.12`; monsters fall back to `position().y + 1.3`.
   `project_world` (392-398) calls `game/level.world2ui`, rejecting `x < -9000`
   (off-screen/behind).
-- **`draw_slot`** (1194-1441) branches: scanning spinner only → minimal
-  (node+glow+glyph) → mini fallback below `mini_scale_cutoff` (node+glow) → full
-  card (measured text, plate, accent, icon, shadowed text lines, node/glow, and a
-  leader line rotated via `atan2`/`SetHeading` from node to the card's nearest
-  bottom corner).
+- **`draw_slot`** branches: scanning spinner only → **bodycam** (head-outline
+  box, `ui_style==3`) → minimal (node+glow+glyph, `ui_style==2`) → mini fallback
+  below `mini_scale_cutoff` (node+glow) → full card (measured text, plate, accent,
+  icon, shadowed text lines, node/glow, and a leader line rotated via
+  `atan2`/`SetHeading` from node to the card's nearest bottom corner). The bodycam
+  box's centre/extents (`box_cx/cy/hw/hh`) are precomputed per target in `render`
+  (via `head_center` + `head_box_extents`) since `draw_slot` has no world access.
 - **Aspect correction** `UI_KX` (200): `(h/w)/(768/1024)`; the X of any
   KX-distorted static (node, glow, line) is pre-corrected so circles stay round
   and angles stay true under the engine's anisotropic virtual→screen stretch. The
@@ -262,11 +338,27 @@ defaults, the modifier dropdown, and the UI-style dropdown are read from
 default is resolved here (not in `DEFAULTS`) because `DIK_keys` isn't populated
 when `ii_identify.script` is first parsed (27-31).
 
+**Presets:** the leaf page carries a `presets = { "ii_card", "ii_minimal",
+"ii_bodycam", "ii_immersive" }` list, which makes MCM show a preset dropdown at
+the top of the page. Names resolve from `ui_mcm_prst_<id>` strings; **values live
+in LTX**, not Lua — MCM reads `configs/presets/includes.ltx` (which we ship with a
+wildcard `#include "presets_*.ltx"` so other mods coexist) → `presets_ii.ltx`,
+whose `[<preset_id>]` sections key options by their storage path (`ii/main/<id>`,
+values by type: check→bool, track/list→number). A preset only overrides the
+options it lists. Adding an option to a preset = one LTX line; no code change.
+
 **Tree:** root node `id="ii"` (no `sh`) → one leaf page `id="main"` (`sh=true`)
-holding a `gr` of options. Section headers are `type="slide"` pseudo-entries. Two
-MCM traps are encoded in comments: the top node must **not** carry `sh` (only the
-leaf page does), and `hint` ids must be passed **bare** because MCM auto-prepends
-`ui_mcm_`.
+holding a `gr` of options, grouped by `type="slide"` section headers: **General**
+(enable/key/instant/scan-fade-hold/hide-unseen/range), **UI Style** (style, box
+area, show name/faction/weapon, colour-by-relation, card size), **Targeting**
+(FOV assist, free-aim, LOS, auto-identify), **Binoculars**, **Redaction**, then
+the scan-time modifier sections and Debug. Three MCM traps encoded in comments:
+the top node must **not** carry `sh` (only the leaf page does); an option's
+**`hint` is the BARE base id** (`"ii_<id>"`) — MCM resolves its caption from
+`ui_mcm_<hint>` and its **hover tooltip** from `ui_mcm_<hint>_desc`, so passing a
+`_desc`-suffixed hint mis-renders the label and kills the tooltip; and `text` is
+only read for slide headers, not option captions. The `opt_check/opt_track/
+opt_list` helpers set `hint = "ii_" .. id` mechanically.
 
 ### Setting inventory
 
@@ -275,9 +367,14 @@ leaf page does), and `hint` ids must be passed **bare** because MCM auto-prepend
 | `enabled` | check | true | — | master on/off |
 | `key_dik` | key_bind | `DIK_X` | — | identify key |
 | `modifier_index` | list | None | None/Ctrl/Shift/Alt | required held modifier |
-| `ui_style` | list | Card | Card/Minimal | card vs minimal dot |
+| `ui_style` | list | Card | Card/Minimal/Bodycam | card vs minimal dot vs head-outline box |
+| `box_area` | list | Head | Head/Body | bodycam outline rectangle region |
+| `box_thickness` | track | 2 | 1, 6, 0.5, 1 | bodycam outline edge thickness (px) |
+| `show_name` | check | true | — | show name line (all text styles) |
+| `show_faction` | check | true | — | show faction line (all text styles) |
+| `show_weapon` | check | true | — | show weapon+caliber line (all text styles) |
+| `auto_identify` | check | false | — | continuously identify all visible in-range targets, no keypress (LOS always required) |
 | `color_by_relation` | check | true | — | tint by relation vs flat neutral |
-| `show_weapon` | check | false | — | add held-weapon line, with caliber appended when derivable (Card only) |
 | `scan_time` | track | 0.35 | 0, 2, 0.05, 2 | base scan pulse (s) |
 | `fade_time` | track | 0.45 | 0.1, 2, 0.05, 2 | fade in/out (s) |
 | `hold_time` | track | 4.0 | 1, 15, 0.5, 1 | full-visible hold (s) |
@@ -293,7 +390,17 @@ leaf page does), and `hint` ids must be passed **bare** because MCM auto-prepend
 | `steady_time` | track | 0.6 | 0.2, 3, 0.1, 1 | steady-aim hold time (s) |
 | `binoc_boost` | check | true | — | binocs speed up + extend range |
 | `binoc_scan_mult` | track | 0.4 | 0.1, 1, 0.05, 2 | scan-speed mult w/ binocs |
-| `binoc_range_mult` | track | 2.5 | 1, 5, 0.1, 1 | range mult w/ binocs |
+| `binoc_range_mult` | track | 2.5 | 1, 5, 0.1, 1 | max/fade distance mult w/ binocs |
+| `ads_mode` | check | false | — | steady-aim auto-identify while ADS |
+| `ads_boost` | check | true | — | ADS speeds up + extends range |
+| `ads_scan_mult` | track | 0.6 | 0.1, 1, 0.05, 2 | scan-speed mult while ADS |
+| `ads_range_mult` | track | 1.6 | 1, 5, 0.1, 1 | max/fade distance mult while ADS (x1 base) |
+| `ads_zoom_scaling` | check | true | — | scale ADS range by scope magnification |
+| `box_color_source` | list | 1 | faction, relation | bodycam box colour source |
+| `pip_markers` | check | true | — | draw identification markers in a PiP scope |
+| `pip_redact` | check | true | — | draw redaction in a PiP scope |
+| `pip_hide_main` | check | false | — | hide all main-view drawing while a scope is up |
+| `ads_hide_main` | check | false | — | hide all main-view drawing while aiming down sight |
 | `card_scale` | track | 1.0 | 0.5, 2, 0.05, 2 | flat card size multiplier |
 | `mini_scale_cutoff` | track | 0.4 | 0.1, 1, 0.05, 2 | below this scale → dot only |
 | `dist_penalty` | check | true | — | distance slows scan |
@@ -325,7 +432,9 @@ Image widgets: `tag_shadow` (80×40, ii_shadow), `tag_plate` (80×40, ii_white,
 charcoal 24/22/19), `tag_accent` (3×26, relation bar), `tag_icon` (20×20, swapped
 to `<community>_icon` at runtime), `tag_line`/`tag_line_sh` (64×2, leader line),
 `tag_glow` (40×40, ii_dot), `tag_node` (10×10, ii_node, baked black ring),
-`tag_spinner` (20×20, ii_spinner). Text widgets (each with a `_sh` shadow twin):
+`tag_spinner` (20×20, ii_spinner), `tag_box_top`/`tag_box_bottom`/`tag_box_left`/
+`tag_box_right` (thin ii_white strips forming the Bodycam head-outline box, sized
+per frame). Text widgets (each with a `_sh` shadow twin):
 `tag_head` (letterica16, faction), `tag_name` (letterica18, personal name),
 `tag_rank` (letterica16, hidden for monsters), `tag_weap` (letterica16),
 `tag_sign` (letterica18, centered relation glyph for Minimal style).
@@ -402,10 +511,14 @@ Without this component (and the host mod) there is no XP and no effect.
 ## 8. Dev tooling
 
 - **`flake.nix`** — `devShells.default` provides `xmllint` (libxml2),
-  `lua-language-server`, `lua5_1`, `p7zip`. Three apps: **`check-xml`** runs
+  `lua-language-server`, `lua5_1`, `stylua`, `p7zip`. Apps: **`check-xml`** runs
   `xmllint --noout` over all mod XML (guards the recurring bare-`--`-in-XML-comment
-  crash), **`check-lua`** runs LuaLS headless at Warning level, **`package`**
-  reads `<Version>` from `info.xml` and zips a FOMOD bundle.
+  crash), **`check-lua`** runs LuaLS headless at Warning level, **`format`** /
+  **`check-format`** run StyLua over the `.script` sources (write / verify), and
+  **`package`** reads `<Version>` from `info.xml` and zips a FOMOD bundle.
+- **`stylua.toml`** — StyLua config: tabs, wide column (120), `AutoPreferDouble`,
+  `call_parentheses="Always"`. StyLua globs `.lua`, so the format apps pass the
+  `.script` files explicitly via `find`.
 - **`.luarc.json`** — Lua 5.1 runtime, `workspace.library=["types"]` for the
   EmmyLua engine stubs, and the key association trick
   `"files.associations": { "*.script": "lua" }` so LuaLS treats Anomaly's
@@ -490,7 +603,216 @@ Verify with `debug_log` on: the `[ii] aim(eye) ... ui=(x,y)` line should show an
 on-screen coordinate that tracks the target as you free-aim, while `aim(barrel)`
 is the off-screen cosmetic one.
 
-## 11. Known repo drift (flagged during analysis)
+## 11. Redaction (dead-body head effect, engine)
+
+The **Bodycam** style (`ui_style = 3`, §1) and **`auto_identify`** are pure Lua
+and work on any engine build. **Redaction** needs the custom bodycam exe. It is
+**fully decoupled from identification** — its own subsystem, no tag/box/identify
+involvement:
+
+- **`redact_dead`** (toggle) — draw an effect over **every visible dead body in
+  range**, no identify needed, persistent while visible, any UI style.
+- **`redact_style`** (list) — `redaction` / `pixelate` / `black` (§ shader below).
+- **`redact_area`** (list) — `head` (head/face box) or `body` (full-body box,
+  centred `BODY_CENTER_LIFT` above the origin with body-sized extents). `redact_box_for`
+  dispatches; both use the same `box_extents` projection with different metres.
+- **`redact_strength`** — master intensity.
+- **`redact_padding`** — extra margin around the region as a fraction of its size
+  (`add_redaction_box` expands `hw/hh` by `1 + redact_padding`), distance-independent.
+  The bodycam outline has the equivalent **`box_padding`** applied in `render`.
+
+**Two independent redaction features, one engine pass:**
+Both features share **`redact_range`** (default 100 m) — the redaction membership
+sweep uses it instead of the identify `max_dist`, since redaction is passive (no
+aiming) and should reach as far as a body/face is visible. A distant face still
+stops naturally once its box projects below ~1 px (`screen_box`).
+
+- **Corpse redaction** (`redact_dead`): dead NPCs/creatures in range, head or
+  full-body box (`redact_area`), `redact_padding`.
+- **Face redaction** (`redact_face`): the FACE of humanoids in range — **alive or
+  dead** — via `face_box_for` (a tighter head box, nudged forward along
+  `obj:direction()` so it sits over the face front, not the skull; humanoids only —
+  `head_center` is nil for monsters), own `redact_face_style` + `redact_face_padding`.
+  An entity already covered by corpse redaction this frame is skipped.
+  **Front-only**: `face_box_for` NEGATES its depth as a shader flag — the shader
+  then uses a tight, front-biased band (`FACE_FRONT`/`FACE_BACK`) so only the face
+  front + sides are redacted, not the back of the head. (Mod-side: the engine passes
+  the depth through untouched, so no rebuild.)
+
+`redact_style`/`redact_face_style` each pick pixelate/black, but the engine redaction
+pass has ONE mode per frame, so `feed_redaction` uses the corpse style when corpse
+boxes are present, else the face style; **truly independent simultaneous styles
+need a per-box mode in the engine** (pending). Intensity (`redact_strength`) is
+shared. One throttled sweep (`update_redact_membership`) builds both `corpse_ids`
+(dead) and `face_ids` (humanoid, alive/dead), gated per toggle.
+
+**Behavior.** `feed_redaction` runs every frame, builds the combined box list (both
+features, `add_redaction_box(…, box_fn, padding)`), and submits in one atomic batch —
+**no LOS check**: the shader's depth mask handles occlusion per-pixel (gating on
+`db.actor:see` was redundant and caused a pop-in delay). Ids cached, boxes
+re-projected every frame (tracks the settling ragdoll). Up to `REDACTION_MAX` (16)
+boxes total across both features.
+(Identification's own dead handling is unchanged: a tag is dropped the instant its
+target dies, `render`'s `remove = not alive`.)
+
+**Hiding tags out of sight** (`hide_unseen`, default on, all styles): `render`
+gates each active tag on `tag_visible(obj)` (a cheap cached `db.actor:see`) so an
+occluded/off-screen target's tag is hidden instead of floating on the wall until
+its timer expires; the `tracked` entry persists, so it reappears on re-sight.
+
+`hide_unseen` uses `tag_visible` = `db.actor:see` **AND** `has_clear_ray` (a
+fresh geometric static-ray) — `see` alone lags behind cover via its grace window,
+so the ray gives the near-instant drop; a `HIDE_GRACE_MS` (150) debounce rides
+out a one-frame ray flicker. **Full-body box** (`body_box_for`, used by both the
+bodycam outline and redaction) is the screen-space bounding box of the projected
+ragdoll bones (`BODY_BOX_BONES`) — so it tracks the physics ragdoll, unlike
+`obj:position()` which stays at the last-alive spot; falls back to a vertical
+origin span for non-bip01 rigs. Bodycam outline thickness is `box_thickness` (px,
+fixed not distance-scaled), drawn with butted (non-overlapping) corners and
+UI_KX-corrected vertical edges (`draw_head_box`).
+
+**Actor-death teardown**: `teardown_ui()` hides all tag slots, clears `tracked`,
+drops cached corpses, and clears the engine redaction. Driven two ways: an
+`actor_on_before_death` callback fires it at the **moment of death** (the death
+screen can freeze `actor_on_update` with the last frame's tags still drawn, so
+the poll alone leaves them on the death screen), plus `actor_on_update` polls
+`db.actor:alive()` as a backstop. Idempotent.
+
+**Lua → engine contract** (guarded by `rawget(_G,"bodycam")`, inert on a stock
+exe — the box still shows, just no distortion). Multi-rect, SVP-marker style:
+
+```
+bodycam.redaction_begin()                 -- start a frame's list
+bodycam.redaction_add(x0, y0, x1, y1)     -- one head box, NORMALISED [0,1], top-left origin
+bodycam.redaction_commit(intensity)       -- publish atomically (intensity 0 / empty list clears)
+-- legacy single-rect wrappers kept: set_redaction_rect(...), clear_redaction()
+```
+
+`redaction_submit()` converts each box's 1024×768 virtual-space centre/extents to
+`[0,1]` (divide by 1024/768, since that virtual space maps across the whole
+screen); `intensity` = `redact_strength`.
+
+**Effect variant** (`redact_style`, MCM list → engine mode via `bodycam.redaction_set_mode`,
+a separate binding so older exes degrade to redaction): `0` redaction, `1` pixelate
+(mosaic censor), `2` black box. Passed to the shader in `redaction_count.y`. (The
+engine binding names stay `redaction_*` — internal plumbing, unchanged by the
+mod-facing "redaction" rename.)
+
+**Depth mask (never over the viewmodel)**: each box also carries its **view-space
+depth** (`view_depth` in Lua = `(headPos − cam_pos)·cam_dir`, matching the engine's
+`s_position.z`), threaded through `redaction_add(…,depth)` → `g_bodycam_redaction_depths[]` →
+`set_ca("redaction_depths")`. The shader samples the scene depth (`s_position`,
+`r2_RT_P`, bound by the blender) and **draws only where the scene surface is within
+`band` metres of the box-centre depth, on BOTH sides** — cutting a foreground
+occluder (viewmodel, wall) in front AND the ground/background behind, so the effect
+hugs the body's depth *slab* instead of a flat rect over everything. `band` is
+**size-adaptive**: `band = clamp(max(span.x,span.y) × box-depth × REDACTION_BAND_K 0.8,
+REDACTION_BAND_MIN 0.45, REDACTION_BAND_MAX 2.5)` — it scales with the box's on-screen
+size × depth (a proxy for the object's own depth extent), so a close/angled body
+whose near end (feet/backpack) sits a metre-plus in front of its centre gets a band
+wide enough to cover its full depth, while a distant head stays tight. This evolved
+from a fixed 0.35 m margin (clipped the body front at angles) → a distance-relative
+`×0.55` (huge front gap at range) → the current size-adaptive two-sided band.
+Fundamental limit: a flat rect + depth slab still can't perfectly hug an angled 3D
+body; a per-object stencil mask would (bigger engine change, not done). A `continue`
+(not bail) lets an overlapping box still win. depth `0` = no test (the back-compat
+wrapper, and the in-scope SVP pass). The pixelate mode additionally re-checks each
+mosaic cell centre against the same slab so it never pulls an off-body colour into
+a block.
+
+**Shader** (ships as gamedata, this repo): `gamedata/shaders/r3/bodycam_redaction.ps` —
+loaded at runtime by filename, DX11 path (`getShaderPath()` returns `"r3\\"`).
+Samples the scene RT via the shared `s_image`/`smp_base`; **loops** the rect array
+and, inside the first box a pixel hits (and passing the depth mask), applies the
+mode's effect (redaction = banded tear + chromatic aberration + dropout +
+scanline/noise; pixelate = quantise box UV to cells and resample; black = solid),
+feathered at the edges, scene untouched elsewhere. Reads `float4 redaction_params (intensity,time,…)`, `float4 redaction_count
+(.x = n, .y = mode)`, and `float4 redaction_rects[16]` set from C++ (rect array via
+`set_ca`).
+
+**Engine side (custom exe — staged, applied against the fork).** Modeled on the
+fork's SVP `draw_scope` region-pass, itself a variant of the stock
+`phase_fakescope` (`rendertarget_phase_nightvision.cpp`) + its `CBlender_fakescope`
+(`blender_nightvision.cpp`, binds scene RT `r2_RT_generic0` → `s_image`):
+1. `CBlender_bodycam_redaction` binding `s_image` + selecting `bodycam_redaction.ps`; `ref_shader
+   s_redaction` created in `r4_rendertarget.cpp` (`s_redaction.create(b_redaction,
+   "r3\\bodycam_redaction")`).
+2. `CRenderTarget::phase_redaction()` — bind `dx10_msaa ? rt_Generic : rt_Color`,
+   draw the **fullscreen** `g_combine` quad, `set_c("redaction_rect"/"redaction_params",
+   …)`, then `CopyResource` back into `rt_Generic_0`. **No scissor**: the pass is
+   fullscreen and the region restriction lives in `bodycam_redaction.ps` (it returns the
+   scene untouched outside `redaction_rect`), because `CopyResource` copies the whole
+   RT back — a scissored draw would leave the area outside the box stale and
+   corrupt the scene on copy-back. Inject in `r4_rendertarget_phase_combine.cpp`
+   **after SMAA and TAA** (`phase_ssfx_taa`), immediately before the final
+   `combine_2` pass, gated on `g_bodycam_redaction_active && !svp_pass_now`. Placement is
+   load-bearing: running it *before* TAA (with the nightvision/fakescope FX) let
+   TAA's temporal history rectification clamp the churning redaction out as an
+   artifact (a stable overlay like fakescope survives, a per-frame redaction does
+   not). After TAA, `rt_Generic_0` holds the finished post-AA scene that
+   `combine_2` samples (`s_image = r2_RT_generic0`, `blender_combine.cpp`), so the
+   distortion survives straight to screen.
+3. Shared state as `ENGINE_API` globals in `xrEngine` (`xr_ioc_cmd.cpp`):
+   `g_redaction_rect` (Fvector4, normalised), `g_redaction_intensity`,
+   `g_redaction_active`; `bodycam_script.cpp` writes them, the R4 renderer `extern`s
+   and reads them (same cross-module channel as `ps_r2_sun_shafts_min`).
+4. `bodycam.set_redaction_rect`/`clear_redaction` added to `Bodycam::script_register`'s
+   `module(L,"bodycam")[…]`; that `script_register(L)` is called from
+   `script_engine_export.cpp`. New `.cpp` files → `xrGame.vcxproj` /
+   `xrRender_R4.vcxproj`; game exe target is `AnomalyDX11` (`xrEngine.vcxproj`).
+   `set_redaction_rect` stores the rect + sets `g_redaction_active=true`; renderer
+   multiplies the `[0,1]` rect by `Device.dwWidth/dwHeight` for the scissor and
+   passes the `[0,1]` rect straight to the shader.
+
+Engine changes **applied** to the fork (branch `freeaim-identify-binding`), 7
+files + the shader: `xr_ioc_cmd.cpp` (globals), `bodycam_script.cpp` (binding),
+`blender_nightvision.{h,cpp}` (`CBlender_bodycam_redaction`), `r4_rendertarget.{h,cpp}`
+(member/create/delete), `r4_rendertarget_phase_combine.cpp` (`phase_redaction` +
+call). Needs an `AnomalyDX11` rebuild (MSBuild). Step-by-step notes:
+`docs/engine-redaction-patch.md`.
+
+## 12. In-scope (SVP/PiP) identification markers (engine)
+
+The mod's `svp_ui_markers_begin/add/commit` + `is_svp_active` calls (gated by
+`PIP_AVAILABLE`, a `rawget` existence check) draw identification markers **inside a
+PiP scope**. These bindings were written against a PiP engine and **did not exist
+in the bodycam fork** — only `is_svp_active` — so `PIP_AVAILABLE` was `false` and
+the whole path was inert until Phase 1 built them.
+
+**Phase 1 (engine, validated in-game):** a Lua→shared-buffer→render-pass→shader
+pipeline (same shape as the redaction). `svp_ui_markers_*` (registered in
+`console_registrator_script.cpp` next to `is_svp_active`) stage a list of
+WORLD-space markers into `g_bodycam_svp_markers[16×12]` (12 floats: world xyz, fill
+rgba, radius, ring rgb, scanning). `CRenderTarget::phase_svp_markers` projects each
+through the **SVP camera** (`Device.matrices[1]`, `mul(mProject,mView)` + clip
+divide — the same recipe/source `svp_project_world_point_to_lens` and
+`phase_svp_capture` use) and draws a small alpha sprite per marker.
+
+Two placement facts were load-bearing (both cost a bringup cycle): the draw must
+go into **`rt_Generic_0`** (the RT `phase_svp_capture` copies into `rt_secondVP`
+for the lens to sample — not `rt_Color`/`rt_Generic`), and it must be injected at
+the **top of `phase_svp_capture`** (svp_optics.cpp), not the `phase_combine` tail,
+because `matrices[1]` is only the live scope camera at capture time. Viewport is
+the SVP target's `Width`/`Height`. Shader `gamedata/shaders/r3/bodycam_svp_marker.ps`
+(faction disc + relation ring + scanning arc; no in-scope text — infeasible in the
+pass). Debug: console `r__bodycam_svp_marker_debug 1`. **No Lua changes** — the mod's
+existing code drives it. Phase 2 (richer bracket/sign) not yet built.
+
+**In-scope redaction** (same commit): the dead-body redaction also runs in
+the scope. `bodycam.redaction_add` gained WORLD box args (`wcx,wcy,wcz,whw,whh`,
+stored in `g_bodycam_redaction_world[16×6]`); `phase_svp_redaction` (called in
+`phase_svp_capture`, before the markers) reprojects each world box's 4
+camera-facing corners through the SVP camera to a scope-normalised rect and reuses
+`bodycam_redaction.ps` **unchanged** (depth `0` = no viewmodel mask in-scope). Lua-side
+`head_box_for`/`body_box_for` now also return the box's world centre + world
+half-extents (`body_box_for` accumulates a world AABB of the bones, so the in-scope
+box tracks the ragdoll too), and `feed_redaction` no longer bails when scoped — the
+engine draws the main-camera rects in the main pass and the world boxes in the SVP
+pass; the lens only samples the SVP output, so there's no double-draw. Relies on
+`SetActive` remapping `r2_RT_generic0`/`r2_RT_P` to the SVP RTs so the shader
+samples the scope scene.
+
+## 13. Known repo drift (flagged during analysis)
 
 - **`README.md`** — verify its optional-component list matches the two components
   currently in `ModuleConfig.xml` (FactionID Neutralized, Perception Skill

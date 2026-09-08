@@ -1,0 +1,33 @@
+// ============================================================
+//  Bodycam -- UI overlay, viewmodel-masked (bodycam_overlay.ps)
+// ------------------------------------------------------------
+//  Flat-colour fill for the world-anchored bodycam UI rectangles.
+//
+//  NOT depth-aware against the world: the box DRAWS over walls/ground/geometry
+//  (a target behind a wall still shows its box). The ONLY thing it must not draw
+//  over is the VIEWMODEL (weapon / hands): those are rendered into the scene
+//  view-space position g-buffer (s_position / r2_RT_P) at a very NEAR depth --
+//  always nearer than any target -- while world geometry at the target sits far.
+//  So we discard the box pixel only where the scene surface is nearer than
+//  VIEWMODEL_MAX (the viewmodel), and draw everywhere else.
+//
+//  The HUD (crosshair, ammo, etc.) is drawn in a LATER 2D pass, so it already
+//  composites on top of this box -- no test needed for it here.
+//
+//  overlay_params is still set by the engine (target view depth) but unused now.
+// ============================================================
+
+#include "common.h"
+
+#define VIEWMODEL_MAX 2.0   // metres: scene surfaces nearer than this = the viewmodel -> box excluded
+
+float4 overlay_color;    // rgb + alpha
+float4 overlay_params;   // (engine sets target view depth in .x; unused here)
+
+float4 main(p_screen I, float4 pos2d : SV_Position) : SV_Target
+{
+	float sceneZ = s_position.Load(int3(pos2d.xy, 0), 0).z;
+	if (sceneZ > 0.001 && sceneZ < VIEWMODEL_MAX)
+		discard;   // over the viewmodel (gun/hands) -- don't paint on it
+	return overlay_color;
+}

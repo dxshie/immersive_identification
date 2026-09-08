@@ -1,0 +1,37 @@
+// ============================================================
+//  Bodycam -- depth-aware UI TEXT overlay (bodycam_text.ps)
+// ------------------------------------------------------------
+//  Composites the pre-rendered bodycam text (offscreen RT s_text) onto the scene,
+//  occluded per-pixel by the scene depth (s_position / r2_RT_P, incl. viewmodel):
+//  discard where a wall / the gun is nearer than the text's anchor depth
+//  (overlay_params.x). Text presence is keyed on the MAX colour channel (not pure
+//  alpha) so it works whether the font wrote alpha or only RGB into the RT.
+//  overlay_params.y > 0.5 = DEBUG: show the raw RT opaque (no discard, no depth),
+//  to confirm the font actually rendered into the RT.
+// ============================================================
+
+#include "common.h"
+
+Texture2D s_text;        // pre-rendered text RT ($user$bodycam_text), bound by the blender
+float4 overlay_params;   // .x = anchor view-space depth (m); .y = debug (>0.5 raw view)
+
+float4 main(p_screen I, float4 pos2d : SV_Position) : SV_Target
+{
+	float4 t = s_text.Sample(smp_base, I.tc0);
+	float m = max(max(t.r, t.g), max(t.b, t.a)); // text presence (any channel)
+
+	if (overlay_params.y > 0.5)
+		return float4(t.rgb, 1.0); // DEBUG: raw RT, opaque
+
+	if (m <= 0.02)
+		discard; // no text here
+
+	float d = overlay_params.x;
+	if (d > 0.0)
+	{
+		float sceneZ = s_position.Load(int3(pos2d.xy, 0), 0).z;
+		if (sceneZ > 0.001 && sceneZ < d - 0.15)
+			discard; // occluded
+	}
+	return float4(t.rgb, m);
+}

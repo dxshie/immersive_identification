@@ -545,6 +545,12 @@ function CUIStatic:GetFont() end
 ---@return boolean
 function is_svp_active() end
 
+--- Current PiP scope magnification (1.0 = 1x, up to ~8x), or -1 when not looking
+--- through a magnifying PiP scope. Backed by the engine's svp_mag "zoom scaled
+--- trigger" value. src/xrGame/console_registrator_script.cpp.
+---@return number
+function svp_scope_magnification() end
+
 --- Clears the current frame's pending UI-marker list, staged on the script/
 --- logic thread. Call once per frame before any svp_ui_markers_add() calls.
 function svp_ui_markers_begin() end

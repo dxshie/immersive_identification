@@ -5,38 +5,92 @@
 
 	<string id="ui_mcm_ii_title"><text>Immersive Identification</text></string>
 
+	<!-- MCM preset names (ui_mcm_prst_<id>), matching presets_ii.ltx sections. -->
+	<string id="ui_mcm_prst_ii_card"><text>Classic Card</text></string>
+	<string id="ui_mcm_prst_ii_minimal"><text>Minimal Dot</text></string>
+	<string id="ui_mcm_prst_ii_bodycam"><text>Tactical Bodycam</text></string>
+	<string id="ui_mcm_prst_ii_immersive"><text>Immersive (Hardcore)</text></string>
+
+	<string id="ui_mcm_ii_general_title"><text>General</text></string>
+	<string id="ui_mcm_ii_uistyle_title"><text>UI Style</text></string>
+	<string id="ui_mcm_ii_targeting_title"><text>Targeting</text></string>
+
 	<string id="ui_mcm_ii_enabled"><text>Enable identification</text></string>
 	<string id="ui_mcm_ii_enabled_desc"><text>Master on/off switch.</text></string>
 
 	<string id="ui_mcm_ii_key"><text>Identify key</text></string>
 	<string id="ui_mcm_ii_key_desc"><text>Click, then press a key to bind it.</text></string>
 
-	<string id="ui_mcm_ii_modifier"><text>Modifier</text></string>
-	<string id="ui_mcm_ii_modifier_desc"><text>Optional modifier held with the identify key.</text></string>
+	<string id="ui_mcm_ii_modifier_index"><text>Modifier</text></string>
+	<string id="ui_mcm_ii_modifier_index_desc"><text>Optional modifier held with the identify key.</text></string>
 
 	<string id="ui_mcm_ii_ui_style"><text>UI style</text></string>
-	<string id="ui_mcm_ii_ui_style_desc"><text>Card (full details) or Minimal (a faction-coloured dot with a relation sign).</text></string>
+	<string id="ui_mcm_ii_ui_style_desc"><text>Card (full details), Minimal (a faction-coloured dot with a relation sign), or Bodycam (a faction-coloured outline box locked to the head).</text></string>
+
+	<string id="ui_mcm_ii_box_area"><text>Bodycam box area</text></string>
+	<string id="ui_mcm_ii_box_area_desc"><text>Bodycam style: draw the outline rectangle around just the head/face, or around the full body.</text></string>
+	<string id="ii_main_box_area_lst_head"><text>Head / face</text></string>
+	<string id="ii_main_box_area_lst_body"><text>Full body</text></string>
+
+	<string id="ui_mcm_ii_box_color_source"><text>Bodycam box colour</text></string>
+	<string id="ui_mcm_ii_box_color_source_desc"><text>Bodycam style: colour the outline rectangle by faction, or by relationship (red enemy / green friendly / grey neutral).</text></string>
+	<string id="ii_main_box_color_source_lst_faction"><text>Faction colour</text></string>
+	<string id="ii_main_box_color_source_lst_relation"><text>Relationship (red/green/grey)</text></string>
+
+	<string id="ui_mcm_ii_box_thickness"><text>Box outline thickness</text></string>
+	<string id="ui_mcm_ii_box_thickness_desc"><text>Bodycam style: thickness of the outline rectangle's edges, in pixels.</text></string>
+
+	<string id="ui_mcm_ii_box_padding"><text>Box padding</text></string>
+	<string id="ui_mcm_ii_box_padding_desc"><text>Bodycam style: extra margin around the model so the outline isn't tight against it. A fraction of the box size (0 = tight, 0.20 = 20% larger each side), so it stays proportional at any distance.</text></string>
+
+	<string id="ui_mcm_ii_box_opacity"><text>Box opacity</text></string>
+	<string id="ui_mcm_ii_box_opacity_desc"><text>Bodycam style: opacity of the outline rectangle (1 = solid, lower = more transparent). The name/faction/weapon text is unaffected.</text></string>
+
+	<string id="ui_mcm_ii_auto_identify"><text>Auto-identify visible targets</text></string>
+	<string id="ui_mcm_ii_auto_identify_desc"><text>Continuously identify every visible target in range without pressing the key. Line of sight is always required. Pairs well with the Bodycam style.</text></string>
+
+	<string id="ui_mcm_ii_faceredact_title"><text>Face Redaction</text></string>
+	<string id="ui_mcm_ii_redact_face"><text>Redact faces</text></string>
+	<string id="ui_mcm_ii_redact_face_desc"><text>Draw a distortion over just the FACE of every humanoid in range -- ALIVE or dead. Independent of identification -- no need to aim at or identify anyone. The box sits over the front of the head (the face). Requires the custom bodycam engine build; inert without it.</text></string>
+	<string id="ui_mcm_ii_redact_face_style"><text>Redaction style</text></string>
+	<string id="ui_mcm_ii_redact_face_style_desc"><text>How a face is redacted: a pixelated (mosaic) censor, or a solid black box.</text></string>
+	<string id="ii_main_redact_face_style_lst_pixelate"><text>Pixelated</text></string>
+	<string id="ii_main_redact_face_style_lst_black"><text>Black Box</text></string>
+	<string id="ui_mcm_ii_redact_face_padding"><text>Face redaction padding</text></string>
+	<string id="ui_mcm_ii_redact_face_padding_desc"><text>Extra margin around the face box, as a fraction of its size (0 = tight on the face, 0.15 = 15% larger each side).</text></string>
+	<string id="ui_mcm_ii_redact_range"><text>Redaction range (m)</text></string>
+	<string id="ui_mcm_ii_redact_range_desc"><text>How far face redaction reaches. Independent of the identify Max range -- redaction is passive, so it can reach further than you can aim-identify. A distant face still stops once it's under ~1px on screen.</text></string>
+	<string id="ui_mcm_ii_redact_strength"><text>Redaction strength</text></string>
+	<string id="ui_mcm_ii_redact_strength_desc"><text>Master intensity of the redaction effect.</text></string>
 
 	<string id="ui_mcm_ii_color_by_relation"><text>Colour by relation</text></string>
-	<string id="ui_mcm_ii_color_by_relation_desc"><text>Red enemy, green friend, tan neutral.</text></string>
+	<string id="ui_mcm_ii_color_by_relation_desc"><text>Tint the tag by your relation to the target: red enemy, green friend, tan neutral.</text></string>
 
-	<string id="ui_mcm_ii_show_weapon"><text>Show held weapon</text></string>
-	<string id="ui_mcm_ii_show_weapon_desc"><text>Also show the target's currently-wielded weapon as a line on the card (Card style only).</text></string>
+	<string id="ui_mcm_ii_show_name"><text>Show name</text></string>
+	<string id="ui_mcm_ii_show_name_desc"><text>Show the target's name line. Applies to every style that draws text (Card and Bodycam).</text></string>
 
+	<string id="ui_mcm_ii_show_faction"><text>Show faction</text></string>
+	<string id="ui_mcm_ii_show_faction_desc"><text>Show the target's faction line. Applies to every style that draws text (Card and Bodycam).</text></string>
+
+	<string id="ui_mcm_ii_show_weapon"><text>Show weapon / caliber</text></string>
+	<string id="ui_mcm_ii_show_weapon_desc"><text>Show the target's currently-wielded weapon and its caliber. Applies to every style that draws text (Card and Bodycam).</text></string>
+
+	<string id="ui_mcm_ii_instant_identify"><text>Instant identify</text></string>
+	<string id="ui_mcm_ii_instant_identify_desc"><text>Skip the scan wait and spinner entirely -- the tag reveals immediately on identify. Overrides Scan delay and all its distance/rank/darkness modifiers.</text></string>
 	<string id="ui_mcm_ii_scan_time"><text>Scan delay (s)</text></string>
 	<string id="ui_mcm_ii_scan_time_desc"><text>How long the scan pulses before the tag reveals.</text></string>
 
-	<string id="ui_mcm_ii_fade_time"><text>Fade time (s)</text></string>
-	<string id="ui_mcm_ii_fade_time_desc"><text>Fade in/out duration.</text></string>
+	<string id="ui_mcm_ii_fade_time"><text>Fade duration (s)</text></string>
+	<string id="ui_mcm_ii_fade_time_desc"><text>Fade in/out duration of the tag.</text></string>
 
-	<string id="ui_mcm_ii_hold_time"><text>Hold time (s)</text></string>
-	<string id="ui_mcm_ii_hold_time_desc"><text>How long the tag stays fully visible.</text></string>
+	<string id="ui_mcm_ii_hold_time"><text>Identification visibility (s)</text></string>
+	<string id="ui_mcm_ii_hold_time_desc"><text>How long the tag stays fully visible after identification (while the target remains in sight; out-of-sight targets drop sooner, see "Drop tag when out of sight").</text></string>
 
 	<string id="ui_mcm_ii_max_dist"><text>Max range (m)</text></string>
-	<string id="ui_mcm_ii_max_dist_desc"><text>Max range identification works at.</text></string>
+	<string id="ui_mcm_ii_max_dist_desc"><text>Maximum range identification works at.</text></string>
 
-	<string id="ui_mcm_ii_fade_dist"><text>Fade start range (m)</text></string>
-	<string id="ui_mcm_ii_fade_dist_desc"><text>Range at which the tag starts fading out.</text></string>
+	<string id="ui_mcm_ii_fade_dist"><text>Fade-out range (m)</text></string>
+	<string id="ui_mcm_ii_fade_dist_desc"><text>Range at which the tag starts fading out with distance.</text></string>
 
 	<string id="ui_mcm_ii_fov_assist"><text>FOV target assist</text></string>
 	<string id="ui_mcm_ii_fov_assist_desc"><text>When you don't land a direct hit, identify the nearest target within the on-screen assist circle. Turn off to require aiming directly at the target.</text></string>
@@ -45,10 +99,13 @@
 	<string id="ui_mcm_ii_freeaim_assist_desc"><text>For bodycam / free-aim engines: center the assist circle on where the weapon actually points instead of the screen center. Leave off on a normal engine.</text></string>
 
 	<string id="ui_mcm_ii_fov_radius"><text>Target-assist radius (px)</text></string>
-	<string id="ui_mcm_ii_fov_radius_desc"><text>Aim tolerance for picking a target without a direct hit.</text></string>
+	<string id="ui_mcm_ii_fov_radius_desc"><text>Aim tolerance for picking a target without a direct hit. Measured as an angle from where you aim, so it works the same whether hip-firing or scoped at any magnification (0 = direct hit only).</text></string>
 
 	<string id="ui_mcm_ii_require_los"><text>Require line of sight</text></string>
 	<string id="ui_mcm_ii_require_los_desc"><text>Only pick targets you can actually see.</text></string>
+
+	<string id="ui_mcm_ii_hide_unseen"><text>Drop tag when out of sight</text></string>
+	<string id="ui_mcm_ii_hide_unseen_desc"><text>Remove an active tag as soon as its target goes out of sight (behind cover or off-screen), instead of waiting out the visibility duration. A brief occlusion is tolerated; re-identify (or auto-identify) brings it back.</text></string>
 
 	<string id="ui_mcm_ii_binocular_mode"><text>Binocular mode</text></string>
 	<string id="ui_mcm_ii_binocular_mode_desc"><text>Also auto-identify on a steady aim through raised binoculars, alongside the normal key.</text></string>
@@ -68,8 +125,32 @@
 	<string id="ui_mcm_ii_binoc_scan_mult"><text>Binoculars scan speed multiplier</text></string>
 	<string id="ui_mcm_ii_binoc_scan_mult_desc"><text>Scan speed multiplier while binoculars are raised.</text></string>
 
-	<string id="ui_mcm_ii_binoc_range_mult"><text>Binoculars range multiplier</text></string>
-	<string id="ui_mcm_ii_binoc_range_mult_desc"><text>Range multiplier while binoculars are raised.</text></string>
+	<string id="ui_mcm_ii_binoc_range_mult"><text>Binoculars max distance multiplier</text></string>
+	<string id="ui_mcm_ii_binoc_range_mult_desc"><text>Max (and fade-out) distance multiplier while binoculars are raised. A flat multiplier by default, or the x1 base when "Scale range by magnification" (below) is on.</text></string>
+	<string id="ui_mcm_ii_binoc_zoom_scaling"><text>Scale range by magnification</text></string>
+	<string id="ui_mcm_ii_binoc_zoom_scaling_desc"><text>Multiply the binocular range by the binocular's magnification (like the ADS option), so the range tracks the optical zoom instead of a flat multiplier. Off = flat "Binoculars max distance multiplier". On: set that multiplier to 1.0 for range = base x magnification.</text></string>
+
+	<string id="ui_mcm_ii_ads_title"><text>Aim Down Sight (ADS)</text></string>
+	<string id="ui_mcm_ii_ads_mode"><text>ADS mode</text></string>
+	<string id="ui_mcm_ii_ads_mode_desc"><text>Also auto-identify on a steady aim while aiming down sight, alongside the normal key.</text></string>
+	<string id="ui_mcm_ii_ads_boost"><text>ADS boosts identification</text></string>
+	<string id="ui_mcm_ii_ads_boost_desc"><text>Faster reveal and longer range while aiming down sight, any mode.</text></string>
+	<string id="ui_mcm_ii_ads_scan_mult"><text>ADS scan speed multiplier</text></string>
+	<string id="ui_mcm_ii_ads_scan_mult_desc"><text>Scan speed multiplier while aiming down sight (lower = faster).</text></string>
+	<string id="ui_mcm_ii_ads_range_mult"><text>ADS max distance multiplier (x1 base)</text></string>
+	<string id="ui_mcm_ii_ads_range_mult_desc"><text>Max (and fade-out) distance multiplier while aiming down sight. This is the base for a 1x sight; higher-power scopes scale it up if zoom scaling is on.</text></string>
+	<string id="ui_mcm_ii_ads_zoom_scaling"><text>Scale range by scope magnification</text></string>
+	<string id="ui_mcm_ii_ads_zoom_scaling_desc"><text>Multiply the ADS range by the scope's magnification (x2, x4, ...), so higher-power optics reach further. Works with PiP scopes and, on engines without PiP, from the aim FOV. Iron sights stay near the x1 base.</text></string>
+	<string id="ui_mcm_ii_ads_hide_main"><text>Hide main-view UI while aiming</text></string>
+	<string id="ui_mcm_ii_ads_hide_main_desc"><text>While aiming down sight, suppress all main-view drawing (identification tags and main-view redaction) for a clean sight picture. In-scope markers/redaction (if any) still draw.</text></string>
+
+	<string id="ui_mcm_ii_pip_title"><text>PiP Scope (in-scope UI)</text></string>
+	<string id="ui_mcm_ii_pip_markers"><text>Identification markers in scope</text></string>
+	<string id="ui_mcm_ii_pip_markers_desc"><text>Draw identification markers inside a Picture-in-Picture scope's lens. Needs a PiP-capable engine; when off, the mod behaves as if there were no PiP support (normal HUD, no in-scope markers).</text></string>
+	<string id="ui_mcm_ii_pip_redact"><text>Redaction in scope</text></string>
+	<string id="ui_mcm_ii_pip_redact_desc"><text>Draw the dead-body redaction effect inside a PiP scope's lens too. Independent of the markers toggle; the main-view redaction is unaffected either way.</text></string>
+	<string id="ui_mcm_ii_pip_hide_main"><text>Hide main-view UI when scope is up</text></string>
+	<string id="ui_mcm_ii_pip_hide_main_desc"><text>While a PiP scope is rendering, suppress all main-view drawing (identification tags and main-view redaction), leaving only the in-scope UI.</text></string>
 
 	<string id="ui_mcm_ii_distance_scaling_title"><text>Card Size</text></string>
 
@@ -129,6 +210,8 @@
 	<string id="ui_mcm_ii_debug_title"><text>Debug</text></string>
 	<string id="ui_mcm_ii_debug_log"><text>Log aim debug</text></string>
 	<string id="ui_mcm_ii_debug_log_desc"><text>Write aim/trace diagnostics to the game log (xray_*.log) on each identify attempt. For troubleshooting free-aim target acquisition. Leave off normally.</text></string>
+	<string id="ui_mcm_ii_debug_draw"><text>Debug draw</text></string>
+	<string id="ui_mcm_ii_debug_draw_desc"><text>On-screen visualiser for the FOV target-assist: a RED dot at the current aim point, a YELLOW ring showing the assist radius (fov_radius, with its value as text), and dots on the bones of every entity whose body falls inside the ring -- GREEN if within identify range, RED if the target is beyond max range -- each labelled with its distance in metres. Also shows the current scope magnification and the effective max range (base widened by the binocular/ADS boost). For tuning fov_radius / max range / diagnosing target acquisition. Leave off normally.</text></string>
 
 	<!-- List-content ids: MCM resolves each modifier_index dropdown entry as
 	     "<page>_<option>_lst_" + the bare label from ii_identify.MODIFIER_LIST,
@@ -140,6 +223,7 @@
 
 	<string id="ii_main_ui_style_lst_card"><text>Card</text></string>
 	<string id="ii_main_ui_style_lst_minimal"><text>Minimal</text></string>
+	<string id="ii_main_ui_style_lst_bodycam"><text>Bodycam</text></string>
 
 	<!-- Faction display names shown on the floating tag itself. -->
 	<string id="st_ii_faction_stalker"><text>Loner</text></string>
