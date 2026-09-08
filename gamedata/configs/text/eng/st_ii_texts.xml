@@ -49,33 +49,19 @@
 	<string id="ui_mcm_ii_auto_identify"><text>Auto-identify visible targets</text></string>
 	<string id="ui_mcm_ii_auto_identify_desc"><text>Continuously identify every visible target in range without pressing the key. Line of sight is always required. Pairs well with the Bodycam style.</text></string>
 
-	<string id="ui_mcm_ii_redact_title"><text>Corpse Redaction</text></string>
-	<string id="ui_mcm_ii_redact_range"><text>Redaction range (m)</text></string>
-	<string id="ui_mcm_ii_redact_range_desc"><text>How far redaction reaches, for both corpse and face redaction. Independent of the identify Max range -- redaction is passive, so it can reach further than you can aim-identify. A distant face still stops once it's under ~1px on screen.</text></string>
-	<string id="ui_mcm_ii_redact_dead"><text>Redact dead bodies</text></string>
-	<string id="ui_mcm_ii_redact_dead_desc"><text>Draw a distortion over every visible dead body in range (head or full body, see below). Fully independent of identification -- no need to aim at or identify a body. Requires the custom bodycam engine build; inert without it.</text></string>
-	<string id="ui_mcm_ii_redact_style"><text>Redaction style</text></string>
-	<string id="ui_mcm_ii_redact_style_desc"><text>How a body/face is redacted: a pixelated (mosaic) censor, or a solid black box. Shared by corpse and face redaction (the engine applies one style).</text></string>
-
 	<string id="ui_mcm_ii_faceredact_title"><text>Face Redaction</text></string>
 	<string id="ui_mcm_ii_redact_face"><text>Redact faces</text></string>
-	<string id="ui_mcm_ii_redact_face_desc"><text>Draw the redaction over just the FACE of every humanoid in range -- ALIVE or dead, separate from corpse redaction. The box sits over the front of the head (the face). Uses the shared redaction style/strength above. Requires the custom bodycam engine build.</text></string>
-	<string id="ui_mcm_ii_redact_face_style"><text>Face redaction style</text></string>
-	<string id="ui_mcm_ii_redact_face_style_desc"><text>How a face is redacted: a pixelated (mosaic) censor, or a solid black box. Applies on a face-only frame; when dead bodies are ALSO being redacted, both share the corpse style above (the engine applies one style per frame).</text></string>
+	<string id="ui_mcm_ii_redact_face_desc"><text>Draw a distortion over just the FACE of every humanoid in range -- ALIVE or dead. Independent of identification -- no need to aim at or identify anyone. The box sits over the front of the head (the face). Requires the custom bodycam engine build; inert without it.</text></string>
+	<string id="ui_mcm_ii_redact_face_style"><text>Redaction style</text></string>
+	<string id="ui_mcm_ii_redact_face_style_desc"><text>How a face is redacted: a pixelated (mosaic) censor, or a solid black box.</text></string>
 	<string id="ii_main_redact_face_style_lst_pixelate"><text>Pixelated</text></string>
 	<string id="ii_main_redact_face_style_lst_black"><text>Black Box</text></string>
 	<string id="ui_mcm_ii_redact_face_padding"><text>Face redaction padding</text></string>
 	<string id="ui_mcm_ii_redact_face_padding_desc"><text>Extra margin around the face box, as a fraction of its size (0 = tight on the face, 0.15 = 15% larger each side).</text></string>
-	<string id="ii_main_redact_style_lst_pixelate"><text>Pixelated</text></string>
-	<string id="ii_main_redact_style_lst_black"><text>Black Box</text></string>
-	<string id="ui_mcm_ii_redact_area"><text>Redaction area</text></string>
-	<string id="ui_mcm_ii_redact_area_desc"><text>How much of a dead body is covered: just the head/face, or the full body.</text></string>
-	<string id="ii_main_redact_area_lst_head"><text>Head / face</text></string>
-	<string id="ii_main_redact_area_lst_body"><text>Full body</text></string>
+	<string id="ui_mcm_ii_redact_range"><text>Redaction range (m)</text></string>
+	<string id="ui_mcm_ii_redact_range_desc"><text>How far face redaction reaches. Independent of the identify Max range -- redaction is passive, so it can reach further than you can aim-identify. A distant face still stops once it's under ~1px on screen.</text></string>
 	<string id="ui_mcm_ii_redact_strength"><text>Redaction strength</text></string>
 	<string id="ui_mcm_ii_redact_strength_desc"><text>Master intensity of the redaction effect.</text></string>
-	<string id="ui_mcm_ii_redact_padding"><text>Redaction padding</text></string>
-	<string id="ui_mcm_ii_redact_padding_desc"><text>Extra margin around the redacted region so the effect isn't tight against the body. A fraction of the region size (0 = tight, 0.15 = 15% larger each side), so it stays proportional at any distance.</text></string>
 
 	<string id="ui_mcm_ii_color_by_relation"><text>Colour by relation</text></string>
 	<string id="ui_mcm_ii_color_by_relation_desc"><text>Tint the tag by your relation to the target: red enemy, green friend, tan neutral.</text></string>
@@ -113,7 +99,7 @@
 	<string id="ui_mcm_ii_freeaim_assist_desc"><text>For bodycam / free-aim engines: center the assist circle on where the weapon actually points instead of the screen center. Leave off on a normal engine.</text></string>
 
 	<string id="ui_mcm_ii_fov_radius"><text>Target-assist radius (px)</text></string>
-	<string id="ui_mcm_ii_fov_radius_desc"><text>Aim tolerance for picking a target without a direct hit.</text></string>
+	<string id="ui_mcm_ii_fov_radius_desc"><text>Aim tolerance for picking a target without a direct hit. Measured as an angle from where you aim, so it works the same whether hip-firing or scoped at any magnification (0 = direct hit only).</text></string>
 
 	<string id="ui_mcm_ii_require_los"><text>Require line of sight</text></string>
 	<string id="ui_mcm_ii_require_los_desc"><text>Only pick targets you can actually see.</text></string>
@@ -140,7 +126,9 @@
 	<string id="ui_mcm_ii_binoc_scan_mult_desc"><text>Scan speed multiplier while binoculars are raised.</text></string>
 
 	<string id="ui_mcm_ii_binoc_range_mult"><text>Binoculars max distance multiplier</text></string>
-	<string id="ui_mcm_ii_binoc_range_mult_desc"><text>Max (and fade-out) distance multiplier while binoculars are raised.</text></string>
+	<string id="ui_mcm_ii_binoc_range_mult_desc"><text>Max (and fade-out) distance multiplier while binoculars are raised. A flat multiplier by default, or the x1 base when "Scale range by magnification" (below) is on.</text></string>
+	<string id="ui_mcm_ii_binoc_zoom_scaling"><text>Scale range by magnification</text></string>
+	<string id="ui_mcm_ii_binoc_zoom_scaling_desc"><text>Multiply the binocular range by the binocular's magnification (like the ADS option), so the range tracks the optical zoom instead of a flat multiplier. Off = flat "Binoculars max distance multiplier". On: set that multiplier to 1.0 for range = base x magnification.</text></string>
 
 	<string id="ui_mcm_ii_ads_title"><text>Aim Down Sight (ADS)</text></string>
 	<string id="ui_mcm_ii_ads_mode"><text>ADS mode</text></string>
@@ -223,7 +211,7 @@
 	<string id="ui_mcm_ii_debug_log"><text>Log aim debug</text></string>
 	<string id="ui_mcm_ii_debug_log_desc"><text>Write aim/trace diagnostics to the game log (xray_*.log) on each identify attempt. For troubleshooting free-aim target acquisition. Leave off normally.</text></string>
 	<string id="ui_mcm_ii_debug_draw"><text>Debug draw</text></string>
-	<string id="ui_mcm_ii_debug_draw_desc"><text>On-screen visualiser for the FOV target-assist: a RED dot at the current aim point, a YELLOW ring showing the assist radius (fov_radius, with its value as text), and dots on the bones of every entity whose body falls inside the ring -- GREEN if within identify range, RED if the target is beyond max range -- each labelled with its distance in metres. For tuning fov_radius / max range / diagnosing target acquisition. Leave off normally.</text></string>
+	<string id="ui_mcm_ii_debug_draw_desc"><text>On-screen visualiser for the FOV target-assist: a RED dot at the current aim point, a YELLOW ring showing the assist radius (fov_radius, with its value as text), and dots on the bones of every entity whose body falls inside the ring -- GREEN if within identify range, RED if the target is beyond max range -- each labelled with its distance in metres. Also shows the current scope magnification and the effective max range (base widened by the binocular/ADS boost). For tuning fov_radius / max range / diagnosing target acquisition. Leave off normally.</text></string>
 
 	<!-- List-content ids: MCM resolves each modifier_index dropdown entry as
 	     "<page>_<option>_lst_" + the bare label from ii_identify.MODIFIER_LIST,

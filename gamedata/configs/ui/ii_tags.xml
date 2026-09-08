@@ -147,4 +147,7 @@
 	<dbg_text>
 		<text font="letterica16" align="l" width="200" height="16" />
 	</dbg_text>
+	<dbg_status>
+		<text font="letterica16" align="l" width="360" height="16" />
+	</dbg_status>
 </w>

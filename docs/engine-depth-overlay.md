@@ -32,6 +32,16 @@ STATUS:
   ALSO the RT uv, so the composite samples where the glyph is. Also font "hud_font_di"
   -> "stat_font" (proven in svp_stats). Composite bbox is a fixed 380x19 virtual
   region (RT transparent outside glyphs). Needs rebuild.
+  DIAGNOSIS (debug 3 = black RT even after v2.36.0 clean-state): dxFontRender::OnRender
+  sets ONLY the shader -- it inherits the current STATE **and TRANSFORM**. Mid-combine
+  the xform is the 3D camera, which mangles the font's screen-space verts -> empty RT.
+  Clean state alone (v2.36.0) didn't fix it -> it's the transform.
+  v2.38 FIX (engine, needs rebuild): CAPTURE the 2D UI transform (get_xform_world/
+  view/project) at frame-end in r4_R_render.cpp (right before svp_stats::draw_overlay,
+  where the font provably renders) into g_bodycam_ui_xform_{w,v,p}; RESTORE it in
+  phase_bodycam_text before F.OnRender() (save/restore around it). Capture-and-replay
+  avoids guessing the ortho matrix. Debug: r__bodycam_text_debug 1 logs the captured P
+  matrix diag (ortho vs perspective). Verify with debug 3 (raw RT) after rebuild.
 - v2.30.1 FIX: switched from a HARDWARE depth test (relied on stub_screen_space VS
   preserving the vertex z -- it does NOT, so the box drew over everything) to a
   PIXEL-SHADER depth test like bodycam_redaction: sample s_position at SV_Position,
@@ -39,6 +49,27 @@ STATUS:
   (r2_RT_P); the pass computes the anchor's view depth (dot(anchor-camPos,camDir))
   and passes it as overlay_params.x; no depth buffer / set_Z needed. Kill switch:
   `r__bodycam_overlay 0`. Virtual→pixel scale (×dwWidth/1024) matches world2ui.
+- v2.34.0 (box clipped by ground): tried ANCHOR mode -- pass re-projects the head
+  world anchor to a screen pixel (overlay_params.yzw) and the shader samples
+  s_position THERE (not SV_Position) so the whole box shows/hides on head visibility.
+  REVERTED in v2.37.1: the engine's re-projection (mFullTransform at combine-tail)
+  didn't reliably match where Lua drew the box (Lua's world2ui runs at game-update
+  with the prev-frame transform + possible convention mismatch), so the anchor pixel
+  landed off the head -> sceneZ never indicated occlusion -> the WHOLE box stopped
+  being depth-aware. Shader reverted to per-pixel (bias 0.15), runtime-loaded, NO
+  rebuild. Ground clipping returns (acceptable -- depth-awareness > ground cosmetic).
+  PROPER anchor fix (deferred, needs rebuild): don't re-project in the engine -- have
+  Lua pass its OWN computed screen anchor (box_cx,box_cy from world2ui) through the
+  overlay_rect binding (add ax,ay params); engine samples s_position at (ax*kx,ay*ky).
+  Guarantees the sample matches the drawn box. Then all 4 edges test the head pixel
+  -> whole box occludes on head visibility, no ground clip.
+- v2.38.0 (final box behaviour, shader-only, no rebuild): DROPPED world depth-awareness
+  entirely. The box now DRAWS over walls/ground (target behind a wall still shows its
+  box) but is masked off the VIEWMODEL: s_position at the box pixel < VIEWMODEL_MAX
+  (2.0 m, tunable #define) = the gun/hands (rendered near) -> discard; world geometry
+  at the target is far, so it's kept. HUD/crosshair draw in a later 2D pass -> already
+  on top. overlay_params still set by the engine but unused. This is the user's chosen
+  final behaviour (no ground clip, no wall occlusion, just never over the gun/HUD).
 
 
 Goal: the bodycam UI (faction-coloured head rectangle + name/weapon text) must be
