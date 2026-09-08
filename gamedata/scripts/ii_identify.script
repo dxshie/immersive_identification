@@ -1519,6 +1519,13 @@ end
 local FOV_ZOOM_RATIO = 0.7 -- current fov must drop below this fraction of baseline to count as zoomed
 local _fov_baseline = 60 -- self-corrects within moments of normal (unzoomed) play either way
 
+-- ADS (aim-down-sight) state, tracked from STOCK engine callbacks so it works on ANY
+-- exe -- same idea as detecting binoculars from active_item(). The engine fires
+-- actor_on_weapon_zoom_in/out (WeaponMagazined -> eOnWeaponZoomIn/Out) the instant the
+-- sight is raised/lowered, for EVERY weapon including 1x optics that change no FOV. Set
+-- by the handlers registered in on_game_start; read by is_ads_active below.
+local _ads = { zoomed = false }
+
 local function update_fov_baseline()
 	if is_binoc_held() then
 		return
@@ -1553,10 +1560,15 @@ local function is_ads_active()
 	if is_binoc_held() then
 		return false
 	end
-	-- Trust the bodycam engine's real ADS flag ONLY when its camera logic is ACTIVE.
-	-- When the bodycam is DISABLED, get_state() still returns an `ads` field but it's
-	-- stale/false, so trusting it wrongly reports "hip" while aiming -- gate on
-	-- st.active and otherwise fall through to the zoom-based detection below.
+	-- PRIMARY: the weapon-zoom flag driven by the stock actor_on_weapon_zoom_in/out
+	-- callbacks (see _ads above). Works on ANY exe and for 1x optics that change no FOV
+	-- -- the case the heuristics below can't detect. When true we are aiming, period.
+	if _ads.zoomed then
+		return true
+	end
+	-- Fallbacks, in case a given build doesn't dispatch the zoom callbacks:
+	-- Bodycam camera ADS flag, ONLY when its logic is ACTIVE (when disabled the
+	-- get_state() ads field is stale/false and would wrongly report "hip").
 	local bc = rawget(_G, "bodycam")
 	if bc and bc.get_state then
 		local ok, st = pcall(bc.get_state)
@@ -1565,15 +1577,15 @@ local function is_ads_active()
 		end
 	end
 	-- A live PiP scope means we're aiming down a sight: it doesn't narrow the MAIN
-	-- camera FOV (the zoom lives in the second viewport), so the FOV heuristic below
-	-- can't see it -- detect it directly.
+	-- camera FOV (the zoom lives in the second viewport), so the FOV heuristic can't
+	-- see it -- detect it directly.
 	if PIP_AVAILABLE then
 		local ok, a = pcall(is_svp_active)
 		if ok and a then
 			return true
 		end
 	end
-	-- Non-PiP optic / iron sights: the main camera FOV narrows when aiming down sight.
+	-- Non-PiP magnifying optic: the main camera FOV narrows when aiming down sight.
 	local dev = device and device()
 	local fov = dev and dev.fov
 	if not fov or fov <= 0 then
@@ -4191,4 +4203,12 @@ function on_game_start()
 	RegisterScriptCallback("on_option_change", on_option_change)
 	RegisterScriptCallback("save_state", save_state)
 	RegisterScriptCallback("load_state", load_state)
+	-- Stock weapon-zoom callbacks -> ADS flag (see _ads / is_ads_active). Anonymous
+	-- handlers so they add no top-level locals (Lua 5.1's 200-per-chunk limit).
+	RegisterScriptCallback("actor_on_weapon_zoom_in", function()
+		_ads.zoomed = true
+	end)
+	RegisterScriptCallback("actor_on_weapon_zoom_out", function()
+		_ads.zoomed = false
+	end)
 end
