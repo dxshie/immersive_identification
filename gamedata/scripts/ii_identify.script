@@ -94,13 +94,20 @@ DEFAULTS = {
 	steady_time = 0.6, -- seconds: how long the aim must hold still (binocular mode) before auto-identifying
 	card_scale = 1.0, -- flat size multiplier for the whole card (manual, not distance-based)
 	mini_scale_cutoff = 0.4, -- below this scale, show just the relation dot instead of the full card
+	ui_offset_x = 0, -- virtual-px (1024-wide) horizontal nudge for the on-screen UI elements
+	ui_offset_y = 0, -- virtual-px (768-tall) vertical nudge for the on-screen UI elements
+	mini_dist_scale = true, -- Minimal (dot) style: scale the dot with distance so a far target's dot
+	-- isn't oversized (near = bigger, far = smaller); off = flat card_scale like the other styles
 	binoc_boost = true, -- binoculars speed up + extend identify range, independent of binocular_mode
 	binoc_scan_mult = 0.4, -- scan_time multiplier while binoculars are raised (lower = faster reveal)
 	binoc_range_mult = 4.4, -- max_dist/fade_dist multiplier while binoculars are raised (flat, OR the
 	-- x1 base when binoc_zoom_scaling is on)
 	binoc_zoom_scaling = false, -- scale the binocular range multiplier by the binocular's magnification
 	-- (like ads_zoom_scaling): off = flat binoc_range_mult; on = binoc_range_mult * magnification
-	ads_mode = false, -- auto-trigger identify on a steady ADS (aim-down-sight) aim, like binocular_mode
+	ads_mode = false, -- auto-trigger identify while aiming down sight, once a target has been held
+	-- under the aim (or inside the FOV assist range when that's on) for ads_hold_time seconds
+	ads_hold_time = 0.6, -- seconds: how long a target must stay on-aim / in FOV-assist range while
+	-- ADS before auto-identifying (ADS mode). Dwell-on-target, distinct from binocular steady_time
 	ads_boost = true, -- aiming down sight speeds up + extends identify range, independent of ads_mode
 	ads_scan_mult = 0.6, -- scan_time multiplier while aiming down sight (gentler than binoculars)
 	ads_range_mult = 1.6, -- max_dist/fade_dist multiplier while aiming down sight (the x1 base)
@@ -155,12 +162,13 @@ local PIP_AVAILABLE = rawget(_G, "is_svp_active") ~= nil
 -- Marker size in the shader's lens-UV space (0..1 of the disc radius, see
 -- svp_ui_markers_add()'s C++-side comment) -- a flat constant rather than an
 -- MCM slider for now, since this whole feature is still an in-progress
--- engine patch. PIP_MARKER_LIFT floats the marker above the head instead of
+-- engine patch. PIP_MARKER.lift floats the marker above the head instead of
 -- sitting on it (metres, on top of anchor_pos()'s own ANCHOR_LIFT), separate
 -- from the main HUD's anchor so the normal card/dot isn't affected by it.
 -- PIP_MARKER_RADIUS is the size AT the reference distance below.
-local PIP_MARKER_RADIUS = 0.03
-local PIP_MARKER_LIFT = 0.22
+-- Bundled into one local (radius/lift/ref-dist/scale floor+ceiling) to spare top-level
+-- locals (Lua 5.1's 200-per-chunk limit).
+local PIP_MARKER = { radius = 0.03, lift = 0.22, ref = 15, smin = 0.25, smax = 1.3 }
 
 -- Distance scaling for the PiP marker. The radius is a fixed fraction of the lens
 -- (screen space), so without this a far target -- whose head is small on screen --
@@ -169,20 +177,17 @@ local PIP_MARKER_LIFT = 0.22
 -- radius needs it. Scale ~ REF_DIST/dist (like apparent size), clamped so a very close
 -- target doesn't balloon and a distant one doesn't vanish. PIP_MARKER_RADIUS is the
 -- size at PIP_MARKER_REF_DIST metres (tuned so nearby targets look right).
-local PIP_MARKER_REF_DIST = 15 -- metres: distance at which PIP_MARKER_RADIUS is used as-is
-local PIP_MARKER_SCALE_MIN = 0.25 -- floor (far targets keep a visible dot)
-local PIP_MARKER_SCALE_MAX = 1.3 -- ceiling (very close targets don't balloon)
 local function pip_marker_radius(dist)
 	if not dist or dist <= 0 then
-		return PIP_MARKER_RADIUS
+		return PIP_MARKER.radius
 	end
-	local s = PIP_MARKER_REF_DIST / dist
-	if s < PIP_MARKER_SCALE_MIN then
-		s = PIP_MARKER_SCALE_MIN
-	elseif s > PIP_MARKER_SCALE_MAX then
-		s = PIP_MARKER_SCALE_MAX
+	local s = PIP_MARKER.ref / dist
+	if s < PIP_MARKER.smin then
+		s = PIP_MARKER.smin
+	elseif s > PIP_MARKER.smax then
+		s = PIP_MARKER.smax
 	end
-	return PIP_MARKER_RADIUS * s
+	return PIP_MARKER.radius * s
 end
 
 -- Fallback key when key_dik hasn't been captured yet (fresh install, or MCM
@@ -211,6 +216,7 @@ UI_STYLE_LIST = {
 	{ label = "card" },
 	{ label = "minimal" },
 	{ label = "bodycam" },
+	{ label = "simple2" },
 }
 
 -- Which distortion the redaction draws. Index order IS the engine mode passed to
@@ -320,16 +326,26 @@ local UI_KX = 1
 
 local _prev_on_key_press = nil
 
-local _p = vector2()
-local _s = vector2()
+-- Shared scratch vectors bundled into ONE local (not nine) to stay well under Lua 5.1's
+-- 200-local-per-chunk limit. Each field is a single reusable scratch used in exactly one
+-- place (P/S, project_world, the box/aim/body helpers); reused, never per-call allocated.
+local _v = {
+	p = vector2(),
+	s = vector2(),
+	scratch = vector(),
+	box_c = vector(),
+	body_pt = vector(),
+	aim_pos = vector(),
+	aim_dir = vector(),
+	bb_pt = vector(),
+	face_c = vector(),
+}
 local function P(x, y)
-	return _p:set(x, y)
+	return _v.p:set(x, y)
 end
 local function S(x, y)
-	return _s:set(x, y)
+	return _v.s:set(x, y)
 end
-
-local _scratch = vector()
 
 -- --------------------------------------------------------------------------
 -- Config
@@ -445,6 +461,24 @@ end
 -- fabricated one. Localised via "st_rank_" + id, the same convention this
 -- engine's own Discord Rich Presence integration uses (Actor.cpp:1442-1449),
 -- so it matches the game's own terminology instead of inventing new labels.
+-- Rank -> colour for the Simple 2 style's rank bar. A rarity-style gradient from grey
+-- (novice) through green/blue/purple/orange/red up to gold (legend). Keyed by the
+-- engine rank id (obj:rank_name); anything unknown / rankless falls back to grey.
+local RANK_COLOR = {
+	novice = { 165, 165, 165 }, -- grey
+	trainee = { 205, 205, 205 }, -- light grey
+	experienced = { 120, 200, 120 }, -- green
+	professional = { 90, 165, 235 }, -- blue
+	veteran = { 175, 120, 225 }, -- purple
+	expert = { 235, 165, 70 }, -- orange
+	master = { 225, 80, 70 }, -- red
+	legend = { 240, 205, 90 }, -- gold
+}
+local function rank_color(obj)
+	local rid = safe_call(obj.rank_name, obj)
+	return (rid and RANK_COLOR[rid]) or { 150, 150, 150 }
+end
+
 local function rank_label(obj)
 	local rid = safe_call(obj.rank_name, obj)
 	if not rid or rid == "" then
@@ -591,7 +625,7 @@ local function project_world(pos)
 	if not w2u then
 		return nil
 	end
-	local ui = w2u(_scratch:set(pos), false, false)
+	local ui = w2u(_v.scratch:set(pos), false, false)
 	if not ui or ui.x < -9000 then
 		return nil
 	end
@@ -643,8 +677,6 @@ end
 local BOX_HALF_W = 0.17
 local BOX_HALF_H = 0.22
 
-local _box_c = vector()
-
 -- Screen bounding box (1024x768 virtual space) of a box of metric half-extents
 -- hw_m/hh_m centred at world `center`, as cx,cy,hw,hh.
 --
@@ -667,7 +699,7 @@ local function screen_box(center, hw_m, hh_m)
 	for sx = -1, 1, 2 do
 		for sy = -1, 1, 2 do
 			local px, py = project_world(
-				_box_c:set(
+				_v.box_c:set(
 					center.x + cr.x * hw_m * sx + ct.x * hh_m * sy,
 					center.y + cr.y * hw_m * sx + ct.y * hh_m * sy,
 					center.z + cr.z * hw_m * sx + ct.z * hh_m * sy
@@ -892,7 +924,6 @@ local BODY_BONES = {
 	"bip01_l_calf",
 	"bip01_r_calf",
 }
-local _body_pt = vector() -- scratch for the monster vertical-span fallback (debug draw)
 
 -- --------------------------------------------------------------------------
 -- Debug (MCM "Log aim debug"): on every identify attempt, dump the trace/aim
@@ -1362,8 +1393,6 @@ end
 -- the caller fall through to the camera trace / FOV assist) when the aim ray or
 -- ray_pick is unavailable, the ray hits geometry first, or it hits a non-NPC.
 local _aim_ray = nil
-local _aim_pos = vector()
-local _aim_dir = vector()
 local function freeaim_target(max_dist)
 	local px, py, pz, dx, dy, dz = freeaim_ray()
 	if not (px and py and pz and dx and dy and dz) then
@@ -1384,8 +1413,8 @@ local function freeaim_target(max_dist)
 		if db.actor then
 			_aim_ray:set_ignore_object(db.actor)
 		end
-		_aim_ray:set_position(_aim_pos:set(px, py, pz))
-		_aim_ray:set_direction(_aim_dir:set(dx, dy, dz))
+		_aim_ray:set_position(_v.aim_pos:set(px, py, pz))
+		_aim_ray:set_direction(_v.aim_dir:set(dx, dy, dz))
 		_aim_ray:set_range(max_dist)
 		if _aim_ray:query() then
 			return _aim_ray:get_object()
@@ -2125,6 +2154,7 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 		name = display_name(obj, comm),
 		icon = faction_icon_id(comm),
 		rank = rank_label(obj),
+		rank_col = rank_color(obj),
 		weap = held_weapon_label(obj),
 		scan_ms = eff_scan_ms,
 		max_dist = eff_max_dist,
@@ -2287,6 +2317,11 @@ local STEADY_MAX_D2 = 0.002 -- squared-distance tolerance between unit vectors, 
 local steady_anchor = nil -- vector(), the camera direction steadiness is measured against
 local steady_start_tg = nil
 local steady_last_sweep_tg = 0 -- last time the steady sweep ran (throttle)
+local STEADY_SWEEP_MS = 250 -- re-sweep cadence while the trigger stays armed
+-- ADS-mode dwell state (bundled to spare top-level locals): armed = a valid target is
+-- currently under the aim; start = when it first appeared; last = last identify tick;
+-- check = last presence re-evaluation (throttles the per-frame raycasts).
+local _ads_dwell = { armed = false, start = 0, last = 0, check = 0 }
 
 local function reset_steady()
 	steady_anchor = nil
@@ -2329,15 +2364,67 @@ local function sweep_identify_in_fov(tg)
 	end)
 end
 
--- Steady-aim auto-identify for both binocular mode and ADS mode: once the aim holds
--- still for steady_time, sweep-identify EVERY target in the FOV (not just the one at
--- the crosshair), and keep re-sweeping (throttled) while the aim stays steady -- so
--- targets that come into range / into view, or that you move closer to, get picked up
--- instead of being missed by a one-shot trigger. Either mode can drive it.
-local STEADY_SWEEP_MS = 250 -- re-sweep cadence while the aim holds steady
+-- ADS-mode dwell trigger: keep a valid target under the aim -- directly (crosshair on
+-- it) or, when fov_assist is on, inside the FOV assist range -- CONTINUOUSLY for
+-- ads_hold_time, then auto-identify (and keep identifying, throttled, while a target
+-- stays there). Unlike the binocular steadiness trigger below, this is dwell-on-target:
+-- holding the aim still on empty air does nothing; a target must actually be present, but
+-- you CAN track a moving one. Resets the instant no valid target is under the aim.
+local function update_ads_dwell(tg)
+	if not (C.ads_mode and is_ads_active()) or not db.actor then
+		_ads_dwell.armed = false
+		return
+	end
+	-- Throttle the raycast presence check (dwell timing still uses tg, so it's exact);
+	-- 100 ms is well under any sane hold time and keeps ADS cheap.
+	if tg - _ads_dwell.check < 100 then
+		return
+	end
+	_ads_dwell.check = tg
+	local binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	if C.require_binoculars and not binoc then
+		_ads_dwell.armed = false
+		return
+	end
+	-- Is a valid target under the aim right now? Direct hit, or the FOV-assist pick when
+	-- fov_assist is on (get_target_obj handles both via allow_fov).
+	local obj = get_target_obj(eff_max_dist, C.fov_assist)
+	local present = false
+	if obj and obj:id() ~= db.actor:id() and safe_call(obj.alive, obj) then
+		local comm = safe_call(obj.character_community, obj)
+		present = comm and comm ~= "" and has_los(obj) and true or false
+	end
+	if not present then
+		_ads_dwell.armed = false -- nothing valid on aim -> reset the dwell
+		return
+	end
+	if not _ads_dwell.armed then
+		_ads_dwell.armed = true
+		_ads_dwell.start = tg
+		_ads_dwell.last = 0
+		return
+	end
+	-- Held long enough: identify (throttled). fov_assist on -> sweep everyone in the FOV
+	-- assist range; off -> just the target directly under the aim.
+	if (tg - _ads_dwell.start) >= (C.ads_hold_time or 0.6) * 1000 then
+		if tg - _ads_dwell.last >= STEADY_SWEEP_MS then
+			_ads_dwell.last = tg
+			if C.fov_assist then
+				sweep_identify_in_fov(tg)
+			else
+				try_identify(true)
+			end
+		end
+	end
+end
+
+-- Steady-aim auto-identify. Binocular mode uses camera STEADINESS (hold the aim still for
+-- steady_time, then sweep-identify the FOV); ADS mode uses target DWELL (update_ads_dwell
+-- above). Both run every frame; each self-gates on its own toggle.
 local function update_binocular_scan(tg)
-	local mode_active = (C.binocular_mode and is_binoc_active()) or (C.ads_mode and is_ads_active())
-	if not mode_active then
+	update_ads_dwell(tg)
+
+	if not (C.binocular_mode and is_binoc_active()) then
 		reset_steady()
 		return
 	end
@@ -2362,20 +2449,12 @@ local function update_binocular_scan(tg)
 		return
 	end
 
-	-- Held steady long enough (throttled while steady). Respect the FOV target-assist
-	-- toggle (context-sensitive: fov_assist_binoc through binoculars, fov_assist
-	-- otherwise -- same rule as the manual key path):
-	--   * assist ON  -> sweep-identify every target inside the assist ring.
-	--   * assist OFF -> require a DIRECT aim: identify only the target under the
-	--     crosshair (try_identify with allow_fov off does exactly that). No ring assist.
+	-- Held steady long enough (throttled). Respect the binocular FOV-assist toggle:
+	-- on -> sweep-identify every target inside the assist ring; off -> a DIRECT aim only.
 	if (tg - steady_start_tg) >= C.steady_time * 1000 then
 		if tg - steady_last_sweep_tg >= STEADY_SWEEP_MS then
 			steady_last_sweep_tg = tg
-			local allow_fov = C.fov_assist
-			if is_binoc_active() then
-				allow_fov = C.fov_assist_binoc
-			end
-			if allow_fov then
+			if C.fov_assist_binoc then
 				sweep_identify_in_fov(tg)
 			else
 				try_identify(true) -- direct aim only (allow_fov off inside try_identify)
@@ -2470,6 +2549,10 @@ function IiTags:InitControls()
 		local box_bottom = self.xml:InitStatic("tag_box_bottom", self)
 		local box_left = self.xml:InitStatic("tag_box_left", self)
 		local box_right = self.xml:InitStatic("tag_box_right", self)
+		-- Simple 2 style shapes.
+		local s2_circle = self.xml:InitStatic("tag_s2_circle", self)
+		local s2_tri = self.xml:InitStatic("tag_s2_tri", self)
+		local s2_bar = self.xml:InitStatic("tag_s2_bar", self)
 		self.slots[i] = {
 			shadow = shadow,
 			line_sh = line_sh,
@@ -2494,6 +2577,9 @@ function IiTags:InitControls()
 			box_bottom = box_bottom,
 			box_left = box_left,
 			box_right = box_right,
+			s2_circle = s2_circle,
+			s2_tri = s2_tri,
+			s2_bar = s2_bar,
 		}
 		-- hidden starts unset (falsy) so this first hide_slot() call actually
 		-- runs the Show(false) calls below, instead of short-circuiting on its
@@ -2568,6 +2654,14 @@ local function hide_box_widgets(s)
 	end
 end
 
+-- Simple 2 style shapes (circle, triangle, rank bar). Hidden every frame at the top of
+-- draw_slot; only the simple2 branch re-shows them.
+local function hide_s2_widgets(s)
+	s.s2_circle:Show(false)
+	s.s2_tri:Show(false)
+	s.s2_bar:Show(false)
+end
+
 function IiTags:hide_slot(i)
 	local s = self.slots[i]
 	if not s or s.hidden then
@@ -2576,6 +2670,7 @@ function IiTags:hide_slot(i)
 	s.hidden = true
 	hide_card_widgets(s)
 	hide_box_widgets(s)
+	hide_s2_widgets(s)
 	s.glow:Show(false)
 	s.node:Show(false)
 	s.spinner:Show(false)
@@ -2723,7 +2818,7 @@ function IiTags:draw_debug()
 					end
 					if not drew then -- monster / non-bip01 rig: the vertical-span fallback
 						for _, lift in ipairs({ 0.3, 0.9, 1.5 }) do
-							local sx, sy = project_world(_body_pt:set(base.x, base.y + lift, base.z))
+							local sx, sy = project_world(_v.body_pt:set(base.x, base.y + lift, base.z))
 							if sx then
 								tx, ty = tx or sx, ty or sy
 								if not dot(sx, sy, 6, 200, cr, cg, cb) then
@@ -2903,6 +2998,22 @@ local SPIN_PERIOD_MS = 900 -- one full rotation
 -- that same "blob" problem.
 local NODE_SCALE_MAX = 1.4
 
+-- Minimal (dot) style distance scale: 1.0 at ~20 m, larger up close, smaller far, so a
+-- distant target's dot isn't oversized. Clamped both ways. Constants inline to spare
+-- top-level locals (Lua 5.1's 200-per-chunk limit).
+local function mini_dist_scale_factor(dist)
+	if not dist or dist <= 0 then
+		return 1
+	end
+	local s = 20 / dist
+	if s < 0.4 then
+		s = 0.4
+	elseif s > 1.6 then
+		s = 1.6
+	end
+	return s
+end
+
 local function draw_node_glow(s, hx, hy, scale, alpha, r, g, b)
 	local node_scale = math.min(scale, NODE_SCALE_MAX)
 	local ns = 7 * node_scale
@@ -3035,7 +3146,8 @@ function IiTags:draw_slot(
 	box_hh,
 	box_wx,
 	box_wy,
-	box_wz
+	box_wz,
+	rank_col
 )
 	local s = self.slots[i]
 	if not s then
@@ -3043,6 +3155,7 @@ function IiTags:draw_slot(
 	end
 	s.hidden = false
 	hide_box_widgets(s) -- box only ever re-shown by the bodycam branch below
+	hide_s2_widgets(s) -- Simple 2 shapes only ever re-shown by the simple2 branch below
 
 	local r, g, b = col[1], col[2], col[3]
 	scale = scale or 1
@@ -3173,6 +3286,50 @@ function IiTags:draw_slot(
 				)
 			end
 		end
+		return
+	end
+
+	-- Simple 2 style: over the head -- a faction-coloured circle and a relation-coloured
+	-- (red enemy / green friendly / grey neutral) triangle side by side, with a thin
+	-- rank-coloured bar spanning them above. Distance-scaled (scale) and anchored at the
+	-- head like the PiP markers. Shape WIDTHS are UI_KX-corrected so the circle/triangle
+	-- stay round/undistorted on wide screens (the virtual->screen stretch, same trick as
+	-- the node dot); heights aren't.
+	if C.ui_style == 4 then
+		hide_card_widgets(s)
+		s.glow:Show(false)
+		s.node:Show(false)
+		local sc = scale
+		local cd = 12 * sc -- circle diameter (also the row height driver)
+		local tw, th = 13 * sc, 11 * sc -- triangle width / height
+		local gap = 3 * sc -- gap between circle and triangle
+		local bh = math.max(2, 3 * sc) -- rank bar height
+		local bgap = 3 * sc -- gap between the bar and the shapes
+		local kx = UI_KX
+		local cw = math.max(2, math.floor(cd * kx + 0.5)) -- circle screen width (kept round)
+		local twx = math.max(2, math.floor(tw * kx + 0.5)) -- triangle screen width
+		local gpx = gap * kx
+		local roww = cw + gpx + twx
+		local left = hx - roww / 2
+		local rowh = math.max(cd, th)
+		local cy = hy - rowh / 2 - 2 * sc -- sit the shapes just above the head anchor
+
+		s.s2_circle:SetWndSize(S(cw, cd))
+		s.s2_circle:SetWndPos(P(math.floor(left), math.floor(cy - cd / 2)))
+		s.s2_circle:SetTextureColor(GetARGB(alpha, fcol[1], fcol[2], fcol[3]))
+		s.s2_circle:Show(true)
+
+		local rc = SIGN_COLOR[sign] or COL_NEUTRAL
+		s.s2_tri:SetWndSize(S(twx, th))
+		s.s2_tri:SetWndPos(P(math.floor(left + cw + gpx), math.floor(cy - th / 2)))
+		s.s2_tri:SetTextureColor(GetARGB(alpha, rc[1], rc[2], rc[3]))
+		s.s2_tri:Show(true)
+
+		local rk = rank_col or { 150, 150, 150 }
+		s.s2_bar:SetWndSize(S(math.floor(roww), math.floor(bh)))
+		s.s2_bar:SetWndPos(P(math.floor(left), math.floor(cy - rowh / 2 - bgap - bh)))
+		s.s2_bar:SetTextureColor(GetARGB(alpha, rk[1], rk[2], rk[3]))
+		s.s2_bar:Show(true)
 		return
 	end
 
@@ -3541,7 +3698,6 @@ local BODY_BOX_BONES = {
 	"bip01_l_foot",
 	"bip01_r_foot",
 }
-local _bb_pt = vector()
 local function body_box_for(obj)
 	local base = obj:position()
 	local minx, miny, maxx, maxy
@@ -3595,7 +3751,7 @@ local function body_box_for(obj)
 	if not minx then
 		-- monster / non-bip01 rig: bound a vertical span at the origin instead.
 		for _, lift in ipairs({ 0.2, 0.8, 1.5 }) do
-			local sx, sy = project_world(_bb_pt:set(base.x, base.y + lift, base.z))
+			local sx, sy = project_world(_v.bb_pt:set(base.x, base.y + lift, base.z))
 			if sx then
 				if not minx then
 					minx, miny, maxx, maxy = sx, sy, sx, sy
@@ -3660,7 +3816,6 @@ end
 local FACE_HALF_W = 0.12 -- the face is narrower/shorter than the whole head box
 local FACE_HALF_H = 0.15
 local FACE_FWD = 0.08 -- metres to push the box toward the face front, along facing
-local _face_c = vector()
 local function face_box_for(obj)
 	local hc = head_center(obj)
 	if not hc then
@@ -3668,7 +3823,7 @@ local function face_box_for(obj)
 	end
 	local dir = safe_call(obj.direction, obj)
 	if dir then
-		hc = _face_c:set(hc.x + dir.x * FACE_FWD, hc.y + dir.y * FACE_FWD, hc.z + dir.z * FACE_FWD)
+		hc = _v.face_c:set(hc.x + dir.x * FACE_FWD, hc.y + dir.y * FACE_FWD, hc.z + dir.z * FACE_FWD)
 	end
 	local cx, cy, hw, hh, depth = screen_box(hc, FACE_HALF_W, FACE_HALF_H)
 	if not cx then
@@ -3932,7 +4087,7 @@ local function render(tg)
 					local alpha = scanning and (0.9 * dist_fade) or (phase_alpha * dist_fade)
 					svp_ui_markers_add(
 						pos.x,
-						pos.y + PIP_MARKER_LIFT,
+						pos.y + PIP_MARKER.lift,
 						pos.z,
 						fcol[1] / 255,
 						fcol[2] / 255,
@@ -3948,10 +4103,27 @@ local function render(tg)
 
 				active_n = active_n + 1
 				local a = active_pool[active_n]
-				a.hx, a.hy, a.header, a.name = sx, sy, e.header, e.name
+				-- User X/Y nudge (virtual px) for all on-screen UI elements.
+				local off_x, off_y = C.ui_offset_x or 0, C.ui_offset_y or 0
+				a.hx, a.hy, a.header, a.name = sx + off_x, sy + off_y, e.header, e.name
 				a.a = math.floor(255 * phase_alpha * dist_fade + 0.5)
 				a.col, a.icon, a.scanning = e.col, e.icon, scanning
-				a.scale, a.rank = C.card_scale, e.rank
+				-- Minimal (dot, style 2, opt-in) and Simple 2 (style 4, always) scale with
+				-- distance so a far target's marker isn't oversized; other styles keep the
+				-- flat card_scale.
+				if (C.ui_style == 2 and C.mini_dist_scale) or C.ui_style == 4 then
+					a.scale = C.card_scale * mini_dist_scale_factor(dist)
+					-- Pull the marker DOWN toward the head as the target gets far. Its size is
+					-- floored to stay visible while the head keeps shrinking, so without this
+					-- the floored marker floats high over the now-tiny head. Close range (raw
+					-- >= ~0.85, under ~24 m) is untouched.
+					local raw = 20 / math.max(dist, 1)
+					a.hy = a.hy + math.min(16, math.max(0, 0.85 - raw) * 20)
+				else
+					a.scale = C.card_scale
+				end
+				a.rank = e.rank
+				a.rank_col = e.rank_col
 				a.fcol, a.sign = e.fcol, e.sign
 				a.weap = e.weap
 
@@ -3965,7 +4137,8 @@ local function render(tg)
 						-- Loosen the box off the model by box_padding (a fraction of
 						-- its size, so it stays proportional at any distance).
 						local bp = 1 + (C.box_padding or 0)
-						a.box_cx, a.box_cy, a.box_hw, a.box_hh = bcx, bcy, bhw * bp, bhh * bp
+						a.box_cx, a.box_cy = bcx + off_x, bcy + off_y
+						a.box_hw, a.box_hh = bhw * bp, bhh * bp
 						-- World anchor for depth-aware overlay drawing (engine occlusion).
 						a.box_wx, a.box_wy, a.box_wz = bwx, bwy, bwz
 					else
@@ -4050,7 +4223,8 @@ local function render(tg)
 				ai.box_hh,
 				ai.box_wx,
 				ai.box_wy,
-				ai.box_wz
+				ai.box_wz,
+				ai.rank_col
 			)
 		end
 	end

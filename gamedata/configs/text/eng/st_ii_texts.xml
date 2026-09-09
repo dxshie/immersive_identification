@@ -132,7 +132,9 @@
 
 	<string id="ui_mcm_ii_ads_title"><text>Aim Down Sight (ADS)</text></string>
 	<string id="ui_mcm_ii_ads_mode"><text>ADS mode</text></string>
-	<string id="ui_mcm_ii_ads_mode_desc"><text>Also auto-identify on a steady aim while aiming down sight, alongside the normal key.</text></string>
+	<string id="ui_mcm_ii_ads_mode_desc"><text>Auto-identify while aiming down sight once a target has been held on your aim (or inside the FOV assist range, if that's on) for the hold time below, alongside the normal key. You can track a moving target; aiming at empty air does nothing.</text></string>
+	<string id="ui_mcm_ii_ads_hold_time"><text>ADS hold time (s)</text></string>
+	<string id="ui_mcm_ii_ads_hold_time_desc"><text>How long (seconds) a target must stay on your aim (or in FOV assist range) while aiming down sight before it auto-identifies, in ADS mode.</text></string>
 	<string id="ui_mcm_ii_ads_boost"><text>ADS boosts identification</text></string>
 	<string id="ui_mcm_ii_ads_boost_desc"><text>Faster reveal and longer range while aiming down sight, any mode.</text></string>
 	<string id="ui_mcm_ii_ads_scan_mult"><text>ADS scan speed multiplier</text></string>
@@ -159,6 +161,12 @@
 
 	<string id="ui_mcm_ii_mini_scale_cutoff"><text>Mini mode cutoff</text></string>
 	<string id="ui_mcm_ii_mini_scale_cutoff_desc"><text>Below this scale, show just the relation dot instead of the full card.</text></string>
+	<string id="ui_mcm_ii_mini_dist_scale"><text>Minimal: scale dot with distance</text></string>
+	<string id="ui_mcm_ii_mini_dist_scale_desc"><text>In the Minimal (dot) style, size the dot by distance so a far target's dot isn't oversized (near = bigger, far = smaller). Off = a flat size like the other styles.</text></string>
+	<string id="ui_mcm_ii_ui_offset_x"><text>UI offset X (px)</text></string>
+	<string id="ui_mcm_ii_ui_offset_x_desc"><text>Horizontal nudge for the on-screen UI elements (card / dot / box), in virtual pixels. Negative = left.</text></string>
+	<string id="ui_mcm_ii_ui_offset_y"><text>UI offset Y (px)</text></string>
+	<string id="ui_mcm_ii_ui_offset_y_desc"><text>Vertical nudge for the on-screen UI elements (card / dot / box), in virtual pixels. Negative = up.</text></string>
 
 	<string id="ui_mcm_ii_binoc_title"><text>Binoculars</text></string>
 	<string id="ui_mcm_ii_dist_penalty_title"><text>Distance Penalty</text></string>
@@ -224,6 +232,7 @@
 	<string id="ii_main_ui_style_lst_card"><text>Card</text></string>
 	<string id="ii_main_ui_style_lst_minimal"><text>Minimal</text></string>
 	<string id="ii_main_ui_style_lst_bodycam"><text>Bodycam</text></string>
+	<string id="ii_main_ui_style_lst_simple2"><text>Simple 2</text></string>
 
 	<!-- Faction display names shown on the floating tag itself. -->
 	<string id="st_ii_faction_stalker"><text>Loner</text></string>
