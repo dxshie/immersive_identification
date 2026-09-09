@@ -72,7 +72,7 @@ DEFAULTS = {
 	-- aim source that reflects free aim -- either level.ETraceTarget.Weapon
 	-- (absent on the tested bodycam build) or a bodycam.get_fire_ray() engine
 	-- binding (see SPEC "Free-aim support"). Inert / harmless without either
-	fov_radius = 110, -- virtual-space px (1024-wide): target-assist size. Calibrated at the
+	fov_radius = 90, -- virtual-space px (1024-wide): target-assist size (MCM range 0-90). Calibrated at the
 	-- unzoomed FOV into an angular cone (aim_cone_rad), so the assist is magnification-
 	-- invariant -- works the same hip-firing or scoped at high zoom (see aim_angle_to_body)
 	require_los = true, -- target-assist fallback only picks targets with clear line of sight
@@ -897,7 +897,9 @@ end
 
 -- The point the FOV target-assist circle is measured from this frame: the
 -- weapon's real aim point when free-aim assist is enabled and available,
--- otherwise the fixed screen centre.
+-- otherwise the fixed screen centre. NOTE: the live assist is now angular
+-- (aim_angle_to_body / aim_cone_rad) -- this and weapon_aim_ui above only feed the
+-- debug visualiser (draw_debug) and the aim-debug dump now, not target selection.
 local function aim_center()
 	if C.freeaim_assist then
 		local sx, sy = weapon_aim_ui()
@@ -1276,7 +1278,7 @@ end
 -- only ever returned when nothing else in the FOV circle qualifies at all.
 -- Forward declarations, defined after _fov_baseline + the aim-ray helpers below:
 --   aim_angle_to_body(obj) -> smallest ANGLE (radians) from the true aim ray to any
---     sampled body point, or nil. The angular analogue of screen_dist_to_body.
+--     sampled body point, or nil (the angular measure the assist selects on).
 --   aim_cone_rad() -> the assist tolerance as an angle (fov_radius calibrated at the
 --     unzoomed FOV), so it's a CONSTANT real angle -- magnification-invariant.
 -- The assist is measured angularly (from where the scope/gun actually points) rather
@@ -1593,6 +1595,13 @@ local function is_ads_active()
 	-- callbacks (see _ads above). Works on ANY exe and for 1x optics that change no FOV
 	-- -- the case the heuristics below can't detect. When true we are aiming, period.
 	if _ads.zoomed then
+		-- Self-heal a stuck flag: zoom_out normally clears it, but a build that skips that
+		-- callback on holster/weapon-switch could leave it set at hipfire. An empty hand
+		-- (no active item) is never ADS, so reset and treat as lowered.
+		if db.actor and not safe_call(db.actor.active_item, db.actor) then
+			_ads.zoomed = false
+			return false
+		end
 		return true
 	end
 	-- Fallbacks, in case a given build doesn't dispatch the zoom callbacks:
@@ -1679,7 +1688,7 @@ end
 -- virtual UI height that spans the vertical FOV, so px/768 * fov = the subtended angle.
 -- At 1x this matches the old screen ring exactly, so hip-fire feel is unchanged.
 function aim_cone_rad()
-	local base = C.fov_radius or 110
+	local base = C.fov_radius or 90
 	local fov_deg = (_fov_baseline and _fov_baseline > 0) and _fov_baseline or 60
 	return (base / 768) * (fov_deg * math.pi / 180)
 end
@@ -1711,45 +1720,57 @@ local function aim_ray_world()
 	return _aim.o, _aim.d
 end
 
+-- Vertical lift samples (metres) for backing up a non-bip01 rig (monster) with a span
+-- at its origin, shared by aim_angle_to_body and body_box_for.
+local MONSTER_SPAN = { 0.3, 0.9, 1.5 }
+
+-- Angle (radians) between a ray (origin ox,oy,oz + UNIT dir dx,dy,dz) and a world point.
+-- 0 when the point is essentially on the origin (dead-centre). Module-level so the
+-- per-candidate sweeps don't allocate a fresh closure each call (hot path).
+local function ray_point_angle(ox, oy, oz, dx, dy, dz, px, py, pz)
+	local bx, by, bz = px - ox, py - oy, pz - oz
+	local m = math.sqrt(bx * bx + by * by + bz * bz)
+	if m < 0.01 then
+		return 0
+	end
+	local dot = (bx * dx + by * dy + bz * dz) / m
+	if dot > 1 then
+		dot = 1
+	elseif dot < -1 then
+		dot = -1
+	end
+	return math.acos(dot)
+end
+
 -- Smallest angle (radians) from the aim ray to any sampled body point (head, torso,
 -- pelvis, limbs -- so aiming anywhere on the entity counts), or nil. Angular analogue of
--- screen_dist_to_body; a vertical span at the origin backs up monsters without bip01.
+-- the old screen-distance test; a vertical span at the origin backs up monsters without bip01.
 function aim_angle_to_body(obj)
 	local o, dir = aim_ray_world()
 	if not o or not dir then
 		return nil
 	end
+	local ox, oy, oz = o.x, o.y, o.z
+	local dx, dy, dz = dir.x, dir.y, dir.z
 	local base = obj:position()
 	local best = nil
-	local function test(px, py, pz)
-		local bx, by, bz = px - o.x, py - o.y, pz - o.z
-		local m = math.sqrt(bx * bx + by * by + bz * bz)
-		if m < 0.01 then
-			best = 0 -- essentially on the aim origin: count as dead-centre
-			return
-		end
-		local dot = (bx * dir.x + by * dir.y + bz * dir.z) / m
-		if dot > 1 then
-			dot = 1
-		elseif dot < -1 then
-			dot = -1
-		end
-		local a = math.acos(dot)
-		if not best or a < best then
-			best = a
-		end
-	end
 	local found = false
 	for _, bone in ipairs(BODY_BONES) do
 		local p = safe_call(obj.bone_position, obj, bone)
 		if p and p:distance_to_sqr(base) < 16 then -- sane bone (within 4 m of origin)
 			found = true
-			test(p.x, p.y, p.z)
+			local a = ray_point_angle(ox, oy, oz, dx, dy, dz, p.x, p.y, p.z)
+			if not best or a < best then
+				best = a
+			end
 		end
 	end
 	if not found then -- monster / non-bip01 rig: sample a vertical span at the origin
-		for _, lift in ipairs({ 0.3, 0.9, 1.5 }) do
-			test(base.x, base.y + lift, base.z)
+		for _, lift in ipairs(MONSTER_SPAN) do
+			local a = ray_point_angle(ox, oy, oz, dx, dy, dz, base.x, base.y + lift, base.z)
+			if not best or a < best then
+				best = a
+			end
 		end
 	end
 	return best
@@ -2226,7 +2247,7 @@ local function try_identify(auto_mode)
 	end
 	debug_dump_aim()
 	debug_dump_candidates()
-	local binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
 	if C.require_binoculars and not binoc then
 		return
 	end
@@ -2284,7 +2305,7 @@ local function update_auto_identify(tg)
 		return
 	end
 
-	local binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
 	if C.require_binoculars and not binoc then
 		return
 	end
@@ -2339,7 +2360,7 @@ local function sweep_identify_in_fov(tg)
 	if not db.actor or not level.iterate_nearest then
 		return
 	end
-	local binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
 	if C.require_binoculars and not binoc then
 		return
 	end
@@ -2381,7 +2402,7 @@ local function update_ads_dwell(tg)
 		return
 	end
 	_ads_dwell.check = tg
-	local binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
 	if C.require_binoculars and not binoc then
 		_ads_dwell.armed = false
 		return
@@ -2713,7 +2734,7 @@ end
 --     target is OUTSIDE max range (rejected for distance),
 --   * the distance (metres) to each candidate as text on it,
 --   * the radius value as text.
--- Distances match find_nearest_in_fov exactly (screen_dist_to_body vs fov_radius),
+-- The test matches find_nearest_in_fov exactly (aim_angle_to_body vs aim_cone_rad),
 -- so what you see is precisely what the assist tests. Pure debug: gated on
 -- C.debug_draw, iterates once per frame, dot/text pools reused (no per-frame alloc).
 function IiTags:draw_debug()
@@ -2817,7 +2838,7 @@ function IiTags:draw_debug()
 						end
 					end
 					if not drew then -- monster / non-bip01 rig: the vertical-span fallback
-						for _, lift in ipairs({ 0.3, 0.9, 1.5 }) do
+						for _, lift in ipairs(MONSTER_SPAN) do
 							local sx, sy = project_world(_v.body_pt:set(base.x, base.y + lift, base.z))
 							if sx then
 								tx, ty = tx or sx, ty or sy
@@ -3698,32 +3719,38 @@ local BODY_BOX_BONES = {
 	"bip01_l_foot",
 	"bip01_r_foot",
 }
+-- Reused world-AABB accumulator for body_box_for: a module-level scratch so the
+-- per-frame box build allocates neither a table nor a closure (hot path). bbw_add
+-- grows it; body_box_for resets _bbw.has = false at the start of each build.
+local _bbw = { has = false, minx = 0, miny = 0, minz = 0, maxx = 0, maxy = 0, maxz = 0 }
+local function bbw_add(px, py, pz)
+	if not _bbw.has then
+		_bbw.has = true
+		_bbw.minx, _bbw.miny, _bbw.minz = px, py, pz
+		_bbw.maxx, _bbw.maxy, _bbw.maxz = px, py, pz
+		return
+	end
+	if px < _bbw.minx then
+		_bbw.minx = px
+	elseif px > _bbw.maxx then
+		_bbw.maxx = px
+	end
+	if py < _bbw.miny then
+		_bbw.miny = py
+	elseif py > _bbw.maxy then
+		_bbw.maxy = py
+	end
+	if pz < _bbw.minz then
+		_bbw.minz = pz
+	elseif pz > _bbw.maxz then
+		_bbw.maxz = pz
+	end
+end
 local function body_box_for(obj)
 	local base = obj:position()
 	local minx, miny, maxx, maxy
-	-- World-space AABB of the same bones, for the in-scope reprojection.
-	local wminx, wminy, wminz, wmaxx, wmaxy, wmaxz
-	local function acc_world(px, py, pz)
-		if not wminx then
-			wminx, wminy, wminz, wmaxx, wmaxy, wmaxz = px, py, pz, px, py, pz
-		else
-			if px < wminx then
-				wminx = px
-			elseif px > wmaxx then
-				wmaxx = px
-			end
-			if py < wminy then
-				wminy = py
-			elseif py > wmaxy then
-				wmaxy = py
-			end
-			if pz < wminz then
-				wminz = pz
-			elseif pz > wmaxz then
-				wmaxz = pz
-			end
-		end
-	end
+	-- World-space AABB of the same bones (in _bbw), for the in-scope reprojection.
+	_bbw.has = false
 	for _, bone in ipairs(BODY_BOX_BONES) do
 		local p = safe_call(obj.bone_position, obj, bone)
 		if p and p:distance_to_sqr(base) < 25 then -- sane bone (within 5 m of origin)
@@ -3743,14 +3770,14 @@ local function body_box_for(obj)
 						maxy = sy
 					end
 				end
-				acc_world(p.x, p.y, p.z)
+				bbw_add(p.x, p.y, p.z)
 			end
 		end
 	end
 
 	if not minx then
 		-- monster / non-bip01 rig: bound a vertical span at the origin instead.
-		for _, lift in ipairs({ 0.2, 0.8, 1.5 }) do
+		for _, lift in ipairs(MONSTER_SPAN) do
 			local sx, sy = project_world(_v.bb_pt:set(base.x, base.y + lift, base.z))
 			if sx then
 				if not minx then
@@ -3767,7 +3794,7 @@ local function body_box_for(obj)
 						maxy = sy
 					end
 				end
-				acc_world(base.x, base.y + lift, base.z)
+				bbw_add(base.x, base.y + lift, base.z)
 			end
 		end
 		if not minx then
@@ -3787,10 +3814,10 @@ local function body_box_for(obj)
 	-- widest of the X/Z spans, vertical = Y span), padded a touch, for the
 	-- in-scope reprojection. Falls back to a metric guess if no world data.
 	local wcx, wcy, wcz, whw, whh
-	if wminx then
-		wcx, wcy, wcz = (wminx + wmaxx) * 0.5, (wminy + wmaxy) * 0.5, (wminz + wmaxz) * 0.5
-		whw = math.max(wmaxx - wminx, wmaxz - wminz) * 0.5 + 0.1
-		whh = (wmaxy - wminy) * 0.5 + 0.1
+	if _bbw.has then
+		wcx, wcy, wcz = (_bbw.minx + _bbw.maxx) * 0.5, (_bbw.miny + _bbw.maxy) * 0.5, (_bbw.minz + _bbw.maxz) * 0.5
+		whw = math.max(_bbw.maxx - _bbw.minx, _bbw.maxz - _bbw.minz) * 0.5 + 0.1
+		whh = (_bbw.maxy - _bbw.miny) * 0.5 + 0.1
 	else
 		wcx, wcy, wcz, whw, whh = base.x, base.y + 0.9, base.z, 0.45, 0.95
 	end
@@ -3905,7 +3932,7 @@ end
 -- camera), so the same submission feeds both. The main-pass rects are simply
 -- against the wrong picture inside the lens, but the lens only samples the SVP
 -- pass's output, so there's no conflict.
-local function feed_redaction(tg, pip_active, suppress_main)
+local function feed_redaction(suppress_main)
 	local bc = redaction_binding()
 	if not bc then
 		return
@@ -4160,11 +4187,10 @@ local function render(tg)
 		svp_ui_markers_commit()
 	end
 
-	-- Drive the engine redaction pass with every visible corpse's head box (custom
-	-- bodycam exe only; inert otherwise). feed_redaction clears it when nothing
-	-- qualifies or a PiP scope is up (the main-camera rects would be against the
-	-- wrong picture then, same reasoning as the card/dot).
-	feed_redaction(tg, pip_active, suppress_main)
+	-- Drive the engine redaction pass with every in-range face box (custom bodycam exe
+	-- only; inert otherwise). Submits every frame -- an empty set clears the pass -- and
+	-- feeds both the main pass and the SVP pass (see feed_redaction's own comment).
+	feed_redaction(suppress_main)
 
 	if pip_active or suppress_main then
 		for i = 1, MAX_TAGS do
