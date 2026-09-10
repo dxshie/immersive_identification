@@ -279,7 +279,7 @@ local COL_NEUTRAL = { 214, 194, 140 }
 -- distinctly enough to stay readable alongside them.
 local FACTION_COLOR = {
 	stalker = { 220, 130, 40 }, -- loner orange
-	bandit = { 170, 130, 80 }, -- bandit tan/brown
+	bandit = { 150, 150, 150 }, -- bandit grey
 	dolg = { 195, 45, 45 }, -- duty red
 	freedom = { 90, 170, 70 }, -- freedom green
 	csky = { 120, 190, 230 }, -- clear sky pale blue
@@ -350,15 +350,27 @@ end
 -- --------------------------------------------------------------------------
 -- Config
 -- --------------------------------------------------------------------------
+-- Every MCM leaf-page id in ii_mcm.script, in tab order. read_config tries each to
+-- resolve an option's storage path ("ii/<page>/<key>"). MUST list every page ii_mcm
+-- defines -- a page missing here means that page's options silently never load. Global
+-- (not local) so it costs no top-level-local slot (Lua 5.1's 200-per-chunk limit).
+MCM_PAGES = { "general", "uistyle", "targeting", "binoc", "ads", "pip", "faceredact", "scantime", "debug", "colors" }
+
 local function read_config()
 	for key, default in pairs(DEFAULTS) do
 		local v = default
 		if ui_mcm and ui_mcm.get then
-			-- Option storage path mirrors the menu shape in ii_mcm.script: the
-			-- single "main" page nests options under "ii/main/<key>".
-			local got = ui_mcm.get("ii/main/" .. key)
-			if got ~= nil then
-				v = got
+			-- The menu is split into per-section leaf PAGES (ii_mcm.script), so each option
+			-- stores under "ii/<page>/<key>". Rather than track which page owns which key,
+			-- try each page and take the first hit: every option id is unique and lives on
+			-- exactly one page, and get() returns nil for a path with no option there. Only
+			-- runs on load / option-change, so the extra lookups cost nothing per frame.
+			for _, pg in ipairs(MCM_PAGES) do
+				local got = ui_mcm.get("ii/" .. pg .. "/" .. key)
+				if got ~= nil then
+					v = got
+					break
+				end
 			end
 		end
 		C[key] = v
@@ -373,6 +385,24 @@ local function read_config()
 	local w = dev and dev.width or 0
 	local h = dev and dev.height or 0
 	UI_KX = (w > 0 and h > 0) and ((h / w) / (768 / 1024)) or 1
+
+	-- Apply the "Colors" section: mutate each live colour table IN PLACE (never
+	-- reassign -- SIGN_COLOR and tracked tags alias these refs). custom_colors off
+	-- restores the built-in default so toggling it needs no relaunch. Global lookup,
+	-- so it works regardless of this file's source order (COLOR_DEFS is defined below).
+	if COLOR_DEFS then
+		local on = C.custom_colors
+		for _, cd in ipairs(COLOR_DEFS) do
+			local d = cd.def
+			if on then
+				cd.tbl[1] = C["col_" .. cd.id .. "_r"] or d[1]
+				cd.tbl[2] = C["col_" .. cd.id .. "_g"] or d[2]
+				cd.tbl[3] = C["col_" .. cd.id .. "_b"] or d[3]
+			else
+				cd.tbl[1], cd.tbl[2], cd.tbl[3] = d[1], d[2], d[3]
+			end
+		end
+	end
 end
 
 -- C.key_dik comes straight from MCM's key-capture widget (whatever DIK/mouse
@@ -477,6 +507,54 @@ local RANK_COLOR = {
 local function rank_color(obj)
 	local rid = safe_call(obj.rank_name, obj)
 	return (rid and RANK_COLOR[rid]) or { 150, 150, 150 }
+end
+
+-- User-configurable colours (MCM "Colors" section). MCM has no colour-picker
+-- widget, so each colour is exposed as three 0-255 R/G/B tracks. This registry is
+-- the single source of truth for BOTH the runtime apply (read_config) and the menu
+-- generation (ii_mcm.script reads ii_identify.COLOR_DEFS): each entry points `tbl`
+-- at a LIVE colour table above, so applying overrides mutates it IN PLACE -- the
+-- faction/rank/relation tables are shared by reference (SIGN_COLOR aliases COL_*,
+-- tracked tags hold the same refs), so one in-place update recolours everything,
+-- including in-flight tags. Global (not local) so it costs no top-level-local slot.
+COLOR_DEFS = {
+	{ id = "rel_enemy", group = "rel", tbl = COL_ENEMY },
+	{ id = "rel_friend", group = "rel", tbl = COL_FRIEND },
+	{ id = "rel_neutral", group = "rel", tbl = COL_NEUTRAL },
+	{ id = "fac_stalker", group = "fac", tbl = FACTION_COLOR.stalker },
+	{ id = "fac_bandit", group = "fac", tbl = FACTION_COLOR.bandit },
+	{ id = "fac_dolg", group = "fac", tbl = FACTION_COLOR.dolg },
+	{ id = "fac_freedom", group = "fac", tbl = FACTION_COLOR.freedom },
+	{ id = "fac_csky", group = "fac", tbl = FACTION_COLOR.csky },
+	{ id = "fac_ecolog", group = "fac", tbl = FACTION_COLOR.ecolog },
+	{ id = "fac_killer", group = "fac", tbl = FACTION_COLOR.killer },
+	{ id = "fac_military", group = "fac", tbl = FACTION_COLOR.military },
+	{ id = "fac_monolith", group = "fac", tbl = FACTION_COLOR.monolith },
+	{ id = "fac_renegade", group = "fac", tbl = FACTION_COLOR.renegade },
+	{ id = "fac_zombied", group = "fac", tbl = FACTION_COLOR.zombied },
+	{ id = "fac_greh", group = "fac", tbl = FACTION_COLOR.greh },
+	{ id = "fac_trader", group = "fac", tbl = FACTION_COLOR.trader },
+	{ id = "fac_monster", group = "fac", tbl = FACTION_COLOR.monster },
+	{ id = "fac_isg", group = "fac", tbl = FACTION_COLOR.isg },
+	{ id = "fac_arena", group = "fac", tbl = FACTION_COLOR.arena },
+	{ id = "rank_novice", group = "rank", tbl = RANK_COLOR.novice },
+	{ id = "rank_trainee", group = "rank", tbl = RANK_COLOR.trainee },
+	{ id = "rank_experienced", group = "rank", tbl = RANK_COLOR.experienced },
+	{ id = "rank_professional", group = "rank", tbl = RANK_COLOR.professional },
+	{ id = "rank_veteran", group = "rank", tbl = RANK_COLOR.veteran },
+	{ id = "rank_expert", group = "rank", tbl = RANK_COLOR.expert },
+	{ id = "rank_master", group = "rank", tbl = RANK_COLOR.master },
+	{ id = "rank_legend", group = "rank", tbl = RANK_COLOR.legend },
+}
+
+-- Capture each colour's built-in default (for the custom_colors=off restore) and
+-- register its three MCM-backed keys so read_config picks them up generically.
+DEFAULTS.custom_colors = false -- master toggle: off = built-in colours, on = the overrides below
+for _, cd in ipairs(COLOR_DEFS) do
+	cd.def = { cd.tbl[1], cd.tbl[2], cd.tbl[3] }
+	DEFAULTS["col_" .. cd.id .. "_r"] = cd.tbl[1]
+	DEFAULTS["col_" .. cd.id .. "_g"] = cd.tbl[2]
+	DEFAULTS["col_" .. cd.id .. "_b"] = cd.tbl[3]
 end
 
 local function rank_label(obj)
@@ -3062,16 +3140,14 @@ local function draw_shadowed_text(main, sh, x, y, alpha, r, g, b, shadow_a)
 	main:Show(true)
 end
 
--- Depth-aware TEXT: DISABLED -> text uses the normal CUIStatic path (always visible),
--- so text always shows. The engine font-to-RT path (bodycam.overlay_text) never
--- rendered mid-combine: dxFontRender::OnRender inherits state + transform, and NEITHER
--- the clean-render-state fix (v2.36) NOR the captured-2D-transform replay (v2.38) made
--- the font draw into rt_bodycam_text (debug 3 stayed a black/empty RT). The font asset
--- itself is fine (stat_font is a core engine font). The box stays viewmodel-masked (its
--- own engine path works). Re-enable only with the glyph-emitter rework (build glyph
--- quads through the proven stub_screen_space path, bypassing CGameFont). See
--- docs/engine-depth-overlay.md.
-local DEPTH_TEXT = false
+-- Depth-aware TEXT: ENABLED via the engine glyph-emitter (custom bodycam exe).
+-- overlay_text_add submits each line (virtual coords + world anchor); the engine's
+-- phase_bodycam_text rasterises the glyphs directly as screen-space quads (atlas UVs,
+-- bypassing CGameFont::OnRender -- the transform-inheritance that left rt_bodycam_text
+-- empty across v2.31..v2.38), then composites depth-tested (occluded by walls +
+-- viewmodel, like the box). Inert on a stock exe: overlay_text_add is absent there, so
+-- draw_bodycam_line falls back to the flat CUIStatic text. See docs/engine-depth-overlay.md.
+local DEPTH_TEXT = true
 
 -- Draw one bodycam text line either depth-aware (engine overlay, occluded by
 -- walls/viewmodel) or, when disabled/absent, as the flat CUIStatic shadowed text.

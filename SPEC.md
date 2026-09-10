@@ -419,24 +419,25 @@ defaults, the modifier dropdown, and the UI-style dropdown are read from
 default is resolved here (not in `DEFAULTS`) because `DIK_keys` isn't populated
 when `ii_identify.script` is first parsed (27-31).
 
-**Presets:** the leaf page carries a `presets = { "ii_card", "ii_minimal",
-"ii_bodycam", "ii_immersive" }` list, which makes MCM show a preset dropdown at
-the top of the page. Names resolve from `ui_mcm_prst_<id>` strings; **values live
-in LTX**, not Lua — MCM reads `configs/presets/includes.ltx` (which we ship with a
-wildcard `#include "presets_*.ltx"` so other mods coexist) → `presets_ii.ltx`,
-whose `[<preset_id>]` sections key options by their storage path (`ii/main/<id>`,
-values by type: check→bool, track/list→number). A preset only overrides the
-options it lists. Adding an option to a preset = one LTX line; no code change.
+**Presets:** the General leaf page carries a `presets = { "ii_card", "ii_minimal",
+"ii_bodycam", "ii_immersive" }` list, which makes MCM show a preset dropdown (it
+applies across all pages, not just General). Names resolve from `ui_mcm_prst_<id>`
+strings; **values live in LTX**, not Lua — MCM reads `configs/presets/includes.ltx`
+(which we ship with a wildcard `#include "presets_*.ltx"` so other mods coexist) →
+`presets_ii.ltx`, whose `[<preset_id>]` sections key options by their storage path
+(`ii/<page>/<id>` — see the multi-page note below; values by type: check→bool,
+track/list→number). A preset only overrides the options it lists. Adding an option
+to a preset = one LTX line; no code change.
 
-**Tree:** root node `id="ii"` (no `sh`) → one leaf page `id="main"` (`sh=true`)
-holding a `gr` of options, grouped by `type="slide"` section headers: **General**
-(enable/key/modifier/instant/scan-fade-hold/hide-unseen/range), **UI Style** (style,
-box area/colour/thickness/padding/opacity, show name/faction/weapon,
-colour-by-relation, card size, mini cutoff, mini dist-scale, UI X/Y offset),
-**Targeting** (FOV assist, free-aim, FOV radius, LOS, auto-identify),
-**Binoculars**, **Aim Down Sight (ADS)**, **PiP Scope**, **Face Redaction**, then
-the scan-time modifier sections (distance/rank/night/familiarity/perception) and
-**Debug**. Three MCM traps encoded in comments:
+**Tree:** root node `id="ii"` (no `sh`) → **one leaf page (`sh=true`) per section**,
+each rendering as its own tab (tab label = `ui_mcm_menu_<page_id>`): **general**,
+**uistyle**, **targeting**, **binoc**, **ads**, **pip**, **faceredact**, **scantime**
+(the distance/rank/night/familiarity/perception modifier sub-headers), **debug**, and
+**colors** (the per-faction/rank/relation RGB overrides, generated from
+`ii_identify.COLOR_DEFS`). Because an option's MCM storage path is
+`ii/<page>/<option_id>`, options are NOT all under `ii/main/*` — `read_config` resolves
+each key by trying every page in `MCM_PAGES` (first non-nil wins), and the preset LTX
+paths use the per-page ids. Three MCM traps encoded in comments:
 the top node must **not** carry `sh` (only the leaf page does); an option's
 **`hint` is the BARE base id** (`"ii_<id>"`) — MCM resolves its caption from
 `ui_mcm_<hint>` and its **hover tooltip** from `ui_mcm_<hint>_desc`, so passing a

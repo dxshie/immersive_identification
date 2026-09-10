@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="windows-1251"?>
 <string_table>
 	<string id="ui_mcm_menu_ii"><text>Immersive Identification</text></string>
+	<string id="ui_mcm_menu_general"><text>General</text></string>
+	<string id="ui_mcm_menu_uistyle"><text>UI Style</text></string>
+	<string id="ui_mcm_menu_targeting"><text>Targeting</text></string>
+	<string id="ui_mcm_menu_binoc"><text>Binoculars</text></string>
+	<string id="ui_mcm_menu_ads"><text>Aim Down Sight</text></string>
+	<string id="ui_mcm_menu_pip"><text>PiP Scope</text></string>
+	<string id="ui_mcm_menu_faceredact"><text>Face Redaction</text></string>
+	<string id="ui_mcm_menu_scantime"><text>Scan Time</text></string>
+	<string id="ui_mcm_menu_debug"><text>Debug</text></string>
+	<string id="ui_mcm_menu_colors"><text>Colors</text></string>
 	<string id="ui_mcm_menu_main"><text>Main</text></string>
 
 	<string id="ui_mcm_ii_title"><text>Immersive Identification</text></string>
@@ -29,13 +39,13 @@
 
 	<string id="ui_mcm_ii_box_area"><text>Bodycam box area</text></string>
 	<string id="ui_mcm_ii_box_area_desc"><text>Bodycam style: draw the outline rectangle around just the head/face, or around the full body.</text></string>
-	<string id="ii_main_box_area_lst_head"><text>Head / face</text></string>
-	<string id="ii_main_box_area_lst_body"><text>Full body</text></string>
+	<string id="ii_uistyle_box_area_lst_head"><text>Head / face</text></string>
+	<string id="ii_uistyle_box_area_lst_body"><text>Full body</text></string>
 
 	<string id="ui_mcm_ii_box_color_source"><text>Bodycam box colour</text></string>
 	<string id="ui_mcm_ii_box_color_source_desc"><text>Bodycam style: colour the outline rectangle by faction, or by relationship (red enemy / green friendly / grey neutral).</text></string>
-	<string id="ii_main_box_color_source_lst_faction"><text>Faction colour</text></string>
-	<string id="ii_main_box_color_source_lst_relation"><text>Relationship (red/green/grey)</text></string>
+	<string id="ii_uistyle_box_color_source_lst_faction"><text>Faction colour</text></string>
+	<string id="ii_uistyle_box_color_source_lst_relation"><text>Relationship (red/green/grey)</text></string>
 
 	<string id="ui_mcm_ii_box_thickness"><text>Box outline thickness</text></string>
 	<string id="ui_mcm_ii_box_thickness_desc"><text>Bodycam style: thickness of the outline rectangle's edges, in pixels.</text></string>
@@ -54,8 +64,8 @@
 	<string id="ui_mcm_ii_redact_face_desc"><text>Draw a distortion over just the FACE of every humanoid in range -- ALIVE or dead. Independent of identification -- no need to aim at or identify anyone. The box sits over the front of the head (the face). Requires the custom bodycam engine build; inert without it.</text></string>
 	<string id="ui_mcm_ii_redact_face_style"><text>Redaction style</text></string>
 	<string id="ui_mcm_ii_redact_face_style_desc"><text>How a face is redacted: a pixelated (mosaic) censor, or a solid black box.</text></string>
-	<string id="ii_main_redact_face_style_lst_pixelate"><text>Pixelated</text></string>
-	<string id="ii_main_redact_face_style_lst_black"><text>Black Box</text></string>
+	<string id="ii_faceredact_redact_face_style_lst_pixelate"><text>Pixelated</text></string>
+	<string id="ii_faceredact_redact_face_style_lst_black"><text>Black Box</text></string>
 	<string id="ui_mcm_ii_redact_face_padding"><text>Face redaction padding</text></string>
 	<string id="ui_mcm_ii_redact_face_padding_desc"><text>Extra margin around the face box, as a fraction of its size (0 = tight on the face, 0.15 = 15% larger each side).</text></string>
 	<string id="ui_mcm_ii_redact_range"><text>Redaction range (m)</text></string>
@@ -223,16 +233,16 @@
 
 	<!-- List-content ids: MCM resolves each modifier_index dropdown entry as
 	     "<page>_<option>_lst_" + the bare label from ii_identify.MODIFIER_LIST,
-	     i.e. "ii_main_modifier_index_lst_none" for the "none" entry. -->
-	<string id="ii_main_modifier_index_lst_none"><text>None</text></string>
-	<string id="ii_main_modifier_index_lst_ctrl"><text>Ctrl</text></string>
-	<string id="ii_main_modifier_index_lst_shift"><text>Shift</text></string>
-	<string id="ii_main_modifier_index_lst_alt"><text>Alt</text></string>
+	     i.e. "ii_general_modifier_index_lst_none" for the "none" entry. -->
+	<string id="ii_general_modifier_index_lst_none"><text>None</text></string>
+	<string id="ii_general_modifier_index_lst_ctrl"><text>Ctrl</text></string>
+	<string id="ii_general_modifier_index_lst_shift"><text>Shift</text></string>
+	<string id="ii_general_modifier_index_lst_alt"><text>Alt</text></string>
 
-	<string id="ii_main_ui_style_lst_card"><text>Card</text></string>
-	<string id="ii_main_ui_style_lst_minimal"><text>Minimal</text></string>
-	<string id="ii_main_ui_style_lst_bodycam"><text>Bodycam</text></string>
-	<string id="ii_main_ui_style_lst_simple2"><text>Simple 2</text></string>
+	<string id="ii_uistyle_ui_style_lst_card"><text>Card</text></string>
+	<string id="ii_uistyle_ui_style_lst_minimal"><text>Minimal</text></string>
+	<string id="ii_uistyle_ui_style_lst_bodycam"><text>Bodycam</text></string>
+	<string id="ii_uistyle_ui_style_lst_simple2"><text>Simple 2</text></string>
 
 	<!-- Faction display names shown on the floating tag itself. -->
 	<string id="st_ii_faction_stalker"><text>Loner</text></string>
@@ -251,5 +261,42 @@
 	<string id="st_ii_faction_monster"><text>Mutant</text></string>
 	<string id="st_ii_faction_isg"><text>UNISG</text></string>
 	<string id="st_ii_faction_arena"><text>Arena</text></string>
+
+	<string id="ui_mcm_ii_colors_title"><text>Colors</text></string>
+	<string id="ui_mcm_ii_custom_colors"><text>Use custom colors</text></string>
+	<string id="ui_mcm_ii_custom_colors_desc"><text>Override the built-in faction, rank, and relation colors with your own R/G/B values below. Off = use the mod's default colors (the sliders are ignored). Applies live, no restart.</text></string>
+	<string id="ui_mcm_ii_col_ch_r"><text>Red</text></string>
+	<string id="ui_mcm_ii_col_ch_g"><text>Green</text></string>
+	<string id="ui_mcm_ii_col_ch_b"><text>Blue</text></string>
+	<string id="ui_mcm_ii_colgrp_rel"><text>- Relation colors -</text></string>
+	<string id="ui_mcm_ii_colgrp_fac"><text>- Faction colors -</text></string>
+	<string id="ui_mcm_ii_colgrp_rank"><text>- Rank colors -</text></string>
+	<string id="ui_mcm_ii_col_rel_enemy"><text>Enemy</text></string>
+	<string id="ui_mcm_ii_col_rel_friend"><text>Friendly</text></string>
+	<string id="ui_mcm_ii_col_rel_neutral"><text>Neutral</text></string>
+	<string id="ui_mcm_ii_col_fac_stalker"><text>Loner</text></string>
+	<string id="ui_mcm_ii_col_fac_bandit"><text>Bandit</text></string>
+	<string id="ui_mcm_ii_col_fac_dolg"><text>Duty</text></string>
+	<string id="ui_mcm_ii_col_fac_freedom"><text>Freedom</text></string>
+	<string id="ui_mcm_ii_col_fac_csky"><text>Clear Sky</text></string>
+	<string id="ui_mcm_ii_col_fac_ecolog"><text>Ecologists</text></string>
+	<string id="ui_mcm_ii_col_fac_killer"><text>Mercenaries</text></string>
+	<string id="ui_mcm_ii_col_fac_military"><text>Military</text></string>
+	<string id="ui_mcm_ii_col_fac_monolith"><text>Monolith</text></string>
+	<string id="ui_mcm_ii_col_fac_renegade"><text>Renegades</text></string>
+	<string id="ui_mcm_ii_col_fac_zombied"><text>Zombified</text></string>
+	<string id="ui_mcm_ii_col_fac_greh"><text>Sin</text></string>
+	<string id="ui_mcm_ii_col_fac_trader"><text>Trader</text></string>
+	<string id="ui_mcm_ii_col_fac_monster"><text>Mutant</text></string>
+	<string id="ui_mcm_ii_col_fac_isg"><text>UNISG</text></string>
+	<string id="ui_mcm_ii_col_fac_arena"><text>Arena</text></string>
+	<string id="ui_mcm_ii_col_rank_novice"><text>Novice</text></string>
+	<string id="ui_mcm_ii_col_rank_trainee"><text>Trainee</text></string>
+	<string id="ui_mcm_ii_col_rank_experienced"><text>Experienced</text></string>
+	<string id="ui_mcm_ii_col_rank_professional"><text>Professional</text></string>
+	<string id="ui_mcm_ii_col_rank_veteran"><text>Veteran</text></string>
+	<string id="ui_mcm_ii_col_rank_expert"><text>Expert</text></string>
+	<string id="ui_mcm_ii_col_rank_master"><text>Master</text></string>
+	<string id="ui_mcm_ii_col_rank_legend"><text>Legend</text></string>
 
 </string_table>
