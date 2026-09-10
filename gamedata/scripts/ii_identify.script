@@ -131,6 +131,25 @@ DEFAULTS = {
 	show_weapon = true, -- show the target's currently-wielded weapon + caliber line (card + bodycam)
 	debug_log = false, -- write aim/trace diagnostics to the game log on each identify attempt
 	debug_draw = false, -- on-screen target-assist visualiser: aim dot, FOV ring, in-ring bone dots
+
+	-- st-wearable-devices compatibility (tier system). Only take effect when the optional
+	-- WD compat component is installed AND drives ii_identify.tier_provider (via
+	-- get_wd_tier_cfg below); completely inert otherwise. Retune every default tier here.
+	wd_require_kit = true, -- block identification entirely unless the full scanner kit is worn/assembled
+	wd_proc_t1 = 1.5, -- process-module tier 1/2/3 base scan time (seconds)
+	wd_proc_t2 = 1.0,
+	wd_proc_t3 = 0.5,
+	wd_scan_t1 = 10, -- scanner tier 1/2/3 identify range (metres)
+	wd_scan_t2 = 20,
+	wd_scan_t3 = 30,
+	wd_feat_faction = 1, -- process tier that unlocks each DISPLAY feature (1..3)
+	wd_feat_distance = 1,
+	wd_feat_relationship = 2,
+	wd_feat_rank = 2,
+	wd_feat_weapon = 3,
+	wd_scanner_ads = 2, -- scanner tier that unlocks scope/ADS support (1..3)
+	wd_scanner_mag = 2, -- scanner tier that unlocks the magnification range boost (1..3)
+	wd_scanner_nonight = 3, -- scanner tier that removes the night penalty (1..3)
 }
 
 -- Section name of the stock binoculars item (confirmed from this engine's
@@ -354,7 +373,70 @@ end
 -- resolve an option's storage path ("ii/<page>/<key>"). MUST list every page ii_mcm
 -- defines -- a page missing here means that page's options silently never load. Global
 -- (not local) so it costs no top-level-local slot (Lua 5.1's 200-per-chunk limit).
-MCM_PAGES = { "general", "uistyle", "targeting", "binoc", "ads", "pip", "faceredact", "scantime", "debug", "colors" }
+MCM_PAGES = {
+	"general",
+	"uistyle",
+	"targeting",
+	"binoc",
+	"ads",
+	"pip",
+	"faceredact",
+	"scantime",
+	"debug",
+	"wdcompat",
+	"colors",
+}
+
+-- Optional external TIER SYSTEM (st-wearable-devices compatibility). A compat addon
+-- assigns `ii_identify.tier_provider = function() ... end` returning either nil (system
+-- inactive -> normal behaviour) or an override table:
+--   { scan_base=<s>, max_dist=<m>, ignore_night=<bool>, allow_ads=<bool>, mag_boost=<bool>,
+--     feat = { faction=, distance=, relationship=, rank=, weapon= } }  -- feat gates the display
+-- actor_on_update snapshots it once per frame into _tier; every override point reads _tier
+-- and, when nil, behaves exactly as before -- so the whole feature is inert without the addon.
+-- Three states: provider returns nil (addon not intervening -> normal II); a table with
+-- active=true (kit assembled -> tier params drive identification); or a table with
+-- active~=true (addon installed but the kit isn't worn/assembled -> identification BLOCKED,
+-- since the scanner IS the identify device). tier_active/tier_blocked encode that.
+---@class ii_tier_override
+---@field active boolean kit assembled/worn -> tier params drive identification
+---@field scan_base number? fixed base scan time (seconds), from the process tier
+---@field max_dist number? identify range (metres), from the scanner tier
+---@field ignore_night boolean? scanner's no-night tier
+---@field allow_ads boolean? scanner unlocks scope/ADS support
+---@field mag_boost boolean? scanner unlocks the magnification range boost
+---@field feat table? per-feature display gates { faction, distance, relationship, rank, weapon }
+
+tier_provider = nil -- global (set by the compat script) so it costs no top-level-local slot
+---@type ii_tier_override|nil
+local _tier = nil -- this frame's tier_provider() result, or nil
+
+-- Resolved tier configuration for the WD compat driver (which lives in the optional
+-- component and can't read the local C). Returns the live MCM-backed values so the
+-- driver builds tier tables from the user's overrides. Global so the driver can call it.
+function get_wd_tier_cfg()
+	return {
+		require_kit = C.wd_require_kit,
+		proc = { C.wd_proc_t1, C.wd_proc_t2, C.wd_proc_t3 },
+		scan = { C.wd_scan_t1, C.wd_scan_t2, C.wd_scan_t3 },
+		feat = {
+			faction = C.wd_feat_faction,
+			distance = C.wd_feat_distance,
+			relationship = C.wd_feat_relationship,
+			rank = C.wd_feat_rank,
+			weapon = C.wd_feat_weapon,
+		},
+		scanner_ads = C.wd_scanner_ads,
+		scanner_mag = C.wd_scanner_mag,
+		scanner_nonight = C.wd_scanner_nonight,
+	}
+end
+local function tier_active()
+	return _tier ~= nil and _tier.active == true
+end
+local function tier_blocked()
+	return _tier ~= nil and _tier.active ~= true
+end
 
 local function read_config()
 	for key, default in pairs(DEFAULTS) do
@@ -609,7 +691,9 @@ end
 -- id is the fallback. Returns nil (no line) rather than a placeholder when
 -- there's no weapon to show.
 local function held_weapon_label(obj)
-	if not C.show_weapon then
+	-- Under the tier system the weapon feature is gated at snapshot (feat.weapon), so
+	-- skip the C.show_weapon MCM gate here; otherwise it's the normal user toggle.
+	if not tier_active() and not C.show_weapon then
 		return nil
 	end
 	local wpn = safe_call(obj.best_weapon, obj)
@@ -1977,6 +2061,9 @@ end
 -- night_penalty_max in the dead of night), scaled by darkness_factor above so
 -- the slowdown eases in over dusk instead of snapping on.
 local function night_scan_mult()
+	if _tier and _tier.active and _tier.ignore_night then
+		return 1 -- scanner's no-night tier
+	end
 	if not C.night_penalty then
 		return 1
 	end
@@ -2173,6 +2260,11 @@ end
 -- a non-empty community id; (boosted, eff_max_dist, eff_fade_dist) come from
 -- the caller's boost_params() snapshot.
 local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, scan_mult, auto_mode)
+	-- Tier system installed but the kit isn't assembled/worn: the scanner IS the identify
+	-- device, so block all identification. Single choke point -- every path commits here.
+	if tier_blocked() then
+		return
+	end
 	local dist = safe_call(function()
 		return obj:position():distance_to(db.actor:position())
 	end)
@@ -2189,24 +2281,36 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 	-- perception skill level (if the Skill System integration is present)
 	-- shaves a further fraction off, and finally familiarity (below) discounts
 	-- a target you've identified before.
-	local eff_scan_ms = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max_dist))
-	eff_scan_ms = math.floor(eff_scan_ms * rank_scan_mult(obj))
-	eff_scan_ms = math.floor(eff_scan_ms * night_scan_mult())
-	if boosted then
-		eff_scan_ms = math.floor(eff_scan_ms * (scan_mult or 1.0))
+	local eff_scan_ms
+	if tier_active() then
+		-- Tier system (WD compat): the process-module tier sets a FIXED base scan time;
+		-- only the night penalty still applies (and only below the scanner's no-night
+		-- tier). The MCM scan-time modifiers (distance/rank/familiarity/perception/boost/
+		-- instant) are intentionally ignored here -- the tiers govern scan speed.
+		local t = _tier ---@cast t ii_tier_override
+		local base_ms = t.scan_base and math.floor(t.scan_base * 1000) or SCAN_MS
+		eff_scan_ms = math.floor(base_ms * night_scan_mult())
+	else
+		eff_scan_ms = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max_dist))
+		eff_scan_ms = math.floor(eff_scan_ms * rank_scan_mult(obj))
+		eff_scan_ms = math.floor(eff_scan_ms * night_scan_mult())
+		if boosted then
+			eff_scan_ms = math.floor(eff_scan_ms * (scan_mult or 1.0))
+		end
+		eff_scan_ms = math.floor(eff_scan_ms * perception_scan_mult())
 	end
-	eff_scan_ms = math.floor(eff_scan_ms * perception_scan_mult())
 
 	local id = obj:id()
 	local tg = time_global()
 
-	if C.familiarity_boost and remembered[id] then
+	if not tier_active() and C.familiarity_boost and remembered[id] then
 		eff_scan_ms = math.floor(eff_scan_ms * C.familiarity_scan_mult)
 	end
 
 	-- Instant identify: skip the whole scanning phase (no spinner, no wait) so
-	-- the tag reveals immediately. Overrides every scan-time factor above.
-	if C.instant_identify then
+	-- the tag reveals immediately. Overrides every scan-time factor above. Ignored
+	-- under the tier system (the tier base scan time governs instead).
+	if not tier_active() and C.instant_identify then
 		eff_scan_ms = 0
 	end
 
@@ -2244,17 +2348,31 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 		tracked[oldest_id] = nil
 	end
 
+	-- Which data lines this tag shows. Under the tier system (WD compat) each feature is
+	-- gated by the module tiers (_tier.feat.*), IGNORING the C.show_* MCM toggles; without
+	-- it, the normal user toggles apply (rank/relationship always shown, distance never --
+	-- distance is a tier-only readout). The gate is folded into the snapshot here so the
+	-- draw code just checks field presence (see draw_slot). ft nil => non-tier path.
+	local ft = (_tier and _tier.active) and _tier.feat or nil
+	local show_faction = ft and (ft.faction == true) or (not ft and C.show_faction)
+	local show_name = ft and true or C.show_name
+	local show_rank = ft and (ft.rank == true) or (not ft and true)
+	local show_weapon = ft and (ft.weapon == true) or (not ft and C.show_weapon)
+	local show_rel = ft and (ft.relationship == true) or not ft
+	local show_dist = ft and (ft.distance == true) or false
+
 	tracked[id] = {
 		t0 = tg,
-		col = relation_color(obj),
+		col = show_rel and relation_color(obj) or COL_NEUTRAL,
 		fcol = faction_color(comm),
-		sign = relation_sign(obj),
-		header = faction_label(comm),
-		name = display_name(obj, comm),
+		sign = show_rel and relation_sign(obj) or "o",
+		header = show_faction and faction_label(comm) or nil,
+		name = show_name and display_name(obj, comm) or nil,
 		icon = faction_icon_id(comm),
-		rank = rank_label(obj),
+		rank = show_rank and rank_label(obj) or nil,
 		rank_col = rank_color(obj),
-		weap = held_weapon_label(obj),
+		weap = show_weapon and held_weapon_label(obj) or nil,
+		want_dist = show_dist,
 		scan_ms = eff_scan_ms,
 		max_dist = eff_max_dist,
 		fade_dist = eff_fade_dist,
@@ -2280,6 +2398,24 @@ end
 -- active scan_time multiplier. Binoculars take priority over ADS so the two never
 -- stack. Each boost carries its own scan + range multipliers from its MCM section.
 local function boost_params()
+	if tier_active() then
+		-- Tier system: range comes from the scanner tier (t.max_dist). Binoculars are
+		-- not part of it; ADS counts only when the scanner unlocks scope/ADS support
+		-- (allow_ads), and the magnification range boost only at the scanner's mag tier
+		-- (mag_boost). scan_mult is unused (identify_target's tier branch sets scan time).
+		local t = _tier ---@cast t ii_tier_override
+		local base_max = t.max_dist or C.max_dist
+		local ads = t.allow_ads and is_ads_active() or false
+		local range_mult = 1.0
+		if ads and t.mag_boost then
+			local mag = scope_magnification()
+			if mag and mag > 1 then
+				range_mult = mag
+			end
+		end
+		local eff = base_max * range_mult
+		return false, ads, ads, eff, eff, 1.0
+	end
 	local binoc = is_binoc_active()
 	local ads = (not binoc) and is_ads_active()
 	local boosted = false
@@ -2326,7 +2462,7 @@ local function try_identify(auto_mode)
 	debug_dump_aim()
 	debug_dump_candidates()
 	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
-	if C.require_binoculars and not binoc then
+	if C.require_binoculars and not tier_active() and not binoc then
 		return
 	end
 
@@ -2384,7 +2520,7 @@ local function update_auto_identify(tg)
 	end
 
 	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
-	if C.require_binoculars and not binoc then
+	if C.require_binoculars and not tier_active() and not binoc then
 		return
 	end
 
@@ -2439,7 +2575,7 @@ local function sweep_identify_in_fov(tg)
 		return
 	end
 	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
-	if C.require_binoculars and not binoc then
+	if C.require_binoculars and not tier_active() and not binoc then
 		return
 	end
 	local cone = aim_cone_rad()
@@ -2481,7 +2617,7 @@ local function update_ads_dwell(tg)
 	end
 	_ads_dwell.check = tg
 	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
-	if C.require_binoculars and not binoc then
+	if C.require_binoculars and not tier_active() and not binoc then
 		_ads_dwell.armed = false
 		return
 	end
@@ -3329,7 +3465,7 @@ function IiTags:draw_slot(
 			local tx = math.floor(box_cx + box_hw + BODYCAM_TEXT_PAD)
 			local ty = math.floor(box_cy - box_hh)
 			local shadow_a = math.floor(180 * alpha / 255)
-			if C.show_name and name and name ~= "" then
+			if name and name ~= "" then
 				draw_bodycam_line(
 					s.name,
 					s.name_sh,
@@ -3347,7 +3483,7 @@ function IiTags:draw_slot(
 				)
 				ty = ty + BODYCAM_LINE_H
 			end
-			if C.show_faction and header and header ~= "" then
+			if header and header ~= "" then
 				draw_bodycam_line(
 					s.head,
 					s.head_sh,
@@ -3365,7 +3501,7 @@ function IiTags:draw_slot(
 				)
 				ty = ty + BODYCAM_LINE_H
 			end
-			if C.show_weapon and weap and weap ~= "" then
+			if weap and weap ~= "" then
 				draw_bodycam_line(
 					s.weap,
 					s.weap_sh,
@@ -3447,13 +3583,13 @@ function IiTags:draw_slot(
 		s.icon_key = icon_id
 	end
 
-	-- Which lines this style shows (the toggles are generic across the text
-	-- styles): faction (header), name and weapon are user toggles; rank shows
-	-- whenever the target has one. The faction icon patch stays regardless.
-	local has_head = C.show_faction and header and header ~= ""
-	local has_name = C.show_name and name and name ~= ""
+	-- Which lines this style shows. Presence of each field already encodes its show
+	-- decision (folded in at snapshot time: the C.show_* toggles, or the tier feature
+	-- gates under WD compat -- see identify_target). So here it's pure field-presence.
+	local has_head = header and header ~= ""
+	local has_name = name and name ~= ""
 	local has_rank = rank and rank ~= ""
-	local has_weap = C.show_weapon and weap and weap ~= ""
+	local has_weap = weap and weap ~= ""
 	local pad, accent_w = 8, 3
 	local iw = 16 * scale
 	local lead = 5 * scale
@@ -4208,7 +4344,16 @@ local function render(tg)
 				local a = active_pool[active_n]
 				-- User X/Y nudge (virtual px) for all on-screen UI elements.
 				local off_x, off_y = C.ui_offset_x or 0, C.ui_offset_y or 0
-				a.hx, a.hy, a.header, a.name = sx + off_x, sy + off_y, e.header, e.name
+				-- Distance-to-target readout (tier system's distance feature). LIVE (recomputed
+				-- each frame), appended to the name line so it needs no extra widget; rounded to
+				-- whole metres so the card's text-width cache only rebusts once per metre walked.
+				-- Only the text styles (card/bodycam) draw the name line, so it shows only there.
+				local nm = e.name
+				if e.want_dist and dist then
+					local m = string.format("%dm", math.floor(dist + 0.5))
+					nm = (nm and nm ~= "") and (nm .. "  " .. m) or m
+				end
+				a.hx, a.hy, a.header, a.name = sx + off_x, sy + off_y, e.header, nm
 				a.a = math.floor(255 * phase_alpha * dist_fade + 0.5)
 				a.col, a.icon, a.scanning = e.col, e.icon, scanning
 				-- Minimal (dot, style 2, opt-in) and Simple 2 (style 4, always) scale with
@@ -4398,6 +4543,15 @@ end
 
 local function actor_on_update()
 	update_fov_baseline() -- keep this warm even while the mod is disabled
+
+	-- Snapshot the optional external tier system (WD compat) once for this frame. Every
+	-- override point reads _tier; nil = the addon isn't driving us -> normal behaviour.
+	if tier_provider then
+		local ok, r = pcall(tier_provider)
+		_tier = (ok and type(r) == "table") and r or nil
+	else
+		_tier = nil
+	end
 
 	-- Actor death: clear everything we drew so no tag/box/redaction lingers on
 	-- the death screen. Polled here (idempotent); also fires if the actor object

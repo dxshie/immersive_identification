@@ -1,0 +1,120 @@
+-- Register the identification modules with WD's Promin so they show + install in the
+-- bracer customize UI, WITHOUT adding new Promin bays (a fourth bay crashes WD's customize
+-- screen, which builds a fixed cell per bay and only ships XML for three).
+--
+-- Instead we REPURPOSE WD's two functionally-empty bays. WD's own `conn` and `side`
+-- modules have no pages/sensors/effects at all (only `map` does anything), so we replace
+-- those two MODULES entries: the antenna takes the `conn` bay, the process module takes
+-- the `side` bay (its three tiers share it -> one process module at a time). The Promin
+-- keeps exactly three bays/cells, so nothing in WD's UI changes; antenna shows in the
+-- `conn` cell and the process module in the `side` cell, installed via WD's own use-menu.
+--
+-- Because they use WD's bays, WD's d_promin.has_module() drives detection, and WD persists
+-- the installed set itself (no save state needed here). Requires a tier-2 Promin unless we
+-- also make the bays active on tier 1 (we do, below).
+
+local ANTENNA = { name = "ii_ant", section = "ii_wd_antenna", bay = "conn" }
+local PROCESS = {
+	{ name = "ii_proc_t1", section = "ii_wd_process_t1", bay = "side" },
+	{ name = "ii_proc_t2", section = "ii_wd_process_t2", bay = "side" },
+	{ name = "ii_proc_t3", section = "ii_wd_process_t3", bay = "side" },
+}
+
+local done = false
+
+local function remove_wd_module(modules, name)
+	for i = #modules, 1, -1 do
+		if modules[i].name == name then
+			table.remove(modules, i)
+		end
+	end
+end
+
+local function ensure_module(modules, m)
+	for _, e in ipairs(modules) do
+		if e.section == m.section then
+			return
+		end
+	end
+	modules[#modules + 1] = m
+end
+
+function register()
+	if done then
+		return
+	end
+	local cfg = rawget(_G, "d_promin_config")
+	if not (cfg and cfg.MODULES and cfg.TIERS) then
+		return -- WD absent / unexpected shape: stay inert
+	end
+	done = true
+
+	-- Repurpose the two empty bays: drop WD's inert conn/side modules, install ours.
+	remove_wd_module(cfg.MODULES, "conn")
+	remove_wd_module(cfg.MODULES, "side")
+	ensure_module(cfg.MODULES, ANTENNA)
+	for _, m in ipairs(PROCESS) do
+		ensure_module(cfg.MODULES, m)
+	end
+
+	-- Make the conn/side bays active on EVERY Promin tier so the kit works on a tier-1
+	-- Promin too (WD only grants them on tier 2). No new bays -> no extra UI cells.
+	for _, tier in ipairs(cfg.TIERS) do
+		tier.bays = tier.bays or {}
+		for _, bay in ipairs({ "conn", "side" }) do
+			local present = false
+			for _, id in ipairs(tier.bays) do
+				if id == bay then
+					present = true
+					break
+				end
+			end
+			if not present then
+				tier.bays[#tier.bays + 1] = bay
+			end
+		end
+	end
+end
+
+-- use1_action_functor for the PROCESS items: install this tier, first removing any other
+-- process tier already installed (all three share the `side` bay, and WD doesn't enforce
+-- one-module-per-bay, so without this you could stack all three -- and swapping tiers
+-- would be clumsy). The removed tier's item is returned to inventory by WD's remove.
+-- (The antenna installs via WD's d_promin.install_module directly -- no exclusivity.)
+function install_process(obj)
+	local dp = rawget(_G, "d_promin")
+	if not (dp and dp.get_installed_modules and dp.remove_module_at and dp.install_module) then
+		return
+	end
+	-- Remove any currently-installed process tier (iterate high->low; remove_module_at
+	-- shifts indices, so going backwards is safe).
+	local names = dp.get_installed_modules()
+	for i = #names, 1, -1 do
+		if type(names[i]) == "string" and names[i]:find("^ii_proc_") then
+			dp.remove_module_at(i)
+		end
+	end
+	dp.install_module(obj)
+end
+
+-- ---- Driver accessors (via WD's own installed-module state) ----------------------
+
+function has_antenna()
+	local dp = rawget(_G, "d_promin")
+	return dp ~= nil and dp.has_module ~= nil and dp.has_module("ii_ant") and true or false
+end
+
+function process_tier()
+	local dp = rawget(_G, "d_promin")
+	if not (dp and dp.has_module) then
+		return nil
+	end
+	if dp.has_module("ii_proc_t3") then
+		return 3
+	elseif dp.has_module("ii_proc_t2") then
+		return 2
+	elseif dp.has_module("ii_proc_t1") then
+		return 1
+	end
+	return nil
+end

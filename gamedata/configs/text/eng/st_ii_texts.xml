@@ -10,6 +10,7 @@
 	<string id="ui_mcm_menu_faceredact"><text>Face Redaction</text></string>
 	<string id="ui_mcm_menu_scantime"><text>Scan Time</text></string>
 	<string id="ui_mcm_menu_debug"><text>Debug</text></string>
+	<string id="ui_mcm_menu_wdcompat"><text>Wearable Devices</text></string>
 	<string id="ui_mcm_menu_colors"><text>Colors</text></string>
 	<string id="ui_mcm_menu_main"><text>Main</text></string>
 
@@ -261,6 +262,42 @@
 	<string id="st_ii_faction_monster"><text>Mutant</text></string>
 	<string id="st_ii_faction_isg"><text>UNISG</text></string>
 	<string id="st_ii_faction_arena"><text>Arena</text></string>
+
+	<string id="ui_mcm_ii_wdcompat_title"><text>Wearable Devices (st-wearable-devices)</text></string>
+	<string id="ui_mcm_ii_wd_require_kit"><text>Require scanner kit to identify</text></string>
+	<string id="ui_mcm_ii_wd_require_kit_desc"><text>When the wearable-devices compatibility is installed: block ALL identification unless the full kit is worn/assembled (scanner worn + Promin antenna module + a process module). Off = identification still works normally when the kit isn't complete, and the tiers only enhance it while the kit is worn. Only affects you if st-wearable-devices and the compatibility component are installed.</text></string>
+	<string id="ui_mcm_ii_wd_proc_title"><text>- Process module: scan time per tier (s) -</text></string>
+	<string id="ui_mcm_ii_wd_proc_t1"><text>Tier 1 scan time (s)</text></string>
+	<string id="ui_mcm_ii_wd_proc_t1_desc"><text>Base scan time with a Tier 1 process module. Default 1.5s.</text></string>
+	<string id="ui_mcm_ii_wd_proc_t2"><text>Tier 2 scan time (s)</text></string>
+	<string id="ui_mcm_ii_wd_proc_t2_desc"><text>Base scan time with a Tier 2 process module. Default 1.0s.</text></string>
+	<string id="ui_mcm_ii_wd_proc_t3"><text>Tier 3 scan time (s)</text></string>
+	<string id="ui_mcm_ii_wd_proc_t3_desc"><text>Base scan time with a Tier 3 process module. Default 0.5s.</text></string>
+	<string id="ui_mcm_ii_wd_scan_title"><text>- Scanner: identify range per tier (m) -</text></string>
+	<string id="ui_mcm_ii_wd_scan_t1"><text>Tier 1 range (m)</text></string>
+	<string id="ui_mcm_ii_wd_scan_t1_desc"><text>Identify range with a Tier 1 scanner. Default 10m.</text></string>
+	<string id="ui_mcm_ii_wd_scan_t2"><text>Tier 2 range (m)</text></string>
+	<string id="ui_mcm_ii_wd_scan_t2_desc"><text>Identify range with a Tier 2 scanner. Default 20m.</text></string>
+	<string id="ui_mcm_ii_wd_scan_t3"><text>Tier 3 range (m)</text></string>
+	<string id="ui_mcm_ii_wd_scan_t3_desc"><text>Identify range with a Tier 3 scanner. Default 30m.</text></string>
+	<string id="ui_mcm_ii_wd_feat_title"><text>- Process tier that unlocks each data feature -</text></string>
+	<string id="ui_mcm_ii_wd_feat_faction"><text>Faction unlock tier</text></string>
+	<string id="ui_mcm_ii_wd_feat_faction_desc"><text>Which process-module tier reveals the target's faction. Default Tier 1.</text></string>
+	<string id="ui_mcm_ii_wd_feat_distance"><text>Distance unlock tier</text></string>
+	<string id="ui_mcm_ii_wd_feat_distance_desc"><text>Which process-module tier shows the distance to the target. Default Tier 1.</text></string>
+	<string id="ui_mcm_ii_wd_feat_relationship"><text>Relationship unlock tier</text></string>
+	<string id="ui_mcm_ii_wd_feat_relationship_desc"><text>Which process-module tier reveals relationship (friend / enemy / neutral). Default Tier 2.</text></string>
+	<string id="ui_mcm_ii_wd_feat_rank"><text>Rank unlock tier</text></string>
+	<string id="ui_mcm_ii_wd_feat_rank_desc"><text>Which process-module tier reveals the target's rank. Default Tier 2.</text></string>
+	<string id="ui_mcm_ii_wd_feat_weapon"><text>Weapon unlock tier</text></string>
+	<string id="ui_mcm_ii_wd_feat_weapon_desc"><text>Which process-module tier reveals the target's weapon and caliber. Default Tier 3.</text></string>
+	<string id="ui_mcm_ii_wd_scanner_title"><text>- Scanner tier that unlocks each feature -</text></string>
+	<string id="ui_mcm_ii_wd_scanner_ads"><text>Scope / ADS support tier</text></string>
+	<string id="ui_mcm_ii_wd_scanner_ads_desc"><text>Which scanner tier enables identifying while aiming down sights / through a scope. Default Tier 2.</text></string>
+	<string id="ui_mcm_ii_wd_scanner_mag"><text>Magnification boost tier</text></string>
+	<string id="ui_mcm_ii_wd_scanner_mag_desc"><text>Which scanner tier enables the scope-magnification range boost (reach further at higher zoom). Default Tier 2.</text></string>
+	<string id="ui_mcm_ii_wd_scanner_nonight"><text>No night penalty tier</text></string>
+	<string id="ui_mcm_ii_wd_scanner_nonight_desc"><text>Which scanner tier removes the darkness scan-time penalty entirely. Default Tier 3.</text></string>
 
 	<string id="ui_mcm_ii_colors_title"><text>Colors</text></string>
 	<string id="ui_mcm_ii_custom_colors"><text>Use custom colors</text></string>

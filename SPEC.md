@@ -527,6 +527,16 @@ Listed in MCM display order (`ii_mcm.script`); ranges are `(min, max, step, prec
 | **Debug** | | | | |
 | `debug_log` | check | false | — | write aim/trace diagnostics to a dedicated log file |
 | `debug_draw` | check | false | — | on-screen target-assist visualiser |
+| **Wearable Devices** (page `wdcompat`; only bites when the WD compat add-on is installed, §7.3) | | | | |
+| `wd_require_kit` | check | true | — | block identification entirely unless the full scanner kit is worn/assembled |
+| `wd_proc_t1/t2/t3` | track | 1.5 / 1.0 / 0.5 | 0.1, 5, 0.1, 1 | process-module tier base scan time (s) |
+| `wd_scan_t1/t2/t3` | track | 10 / 20 / 30 | 5, 100, 5 | scanner tier identify range (m) |
+| `wd_feat_faction/distance/relationship/rank/weapon` | track | 1/1/2/2/3 | 1, 3, 1 | process tier that unlocks each data feature |
+| `wd_scanner_ads/mag/nonight` | track | 2/2/3 | 1, 3, 1 | scanner tier that unlocks scope-ADS / mag-boost / no-night |
+
+The `wd_*` keys back the tier system's defaults and are exposed to the add-on via the
+`ii_identify.get_wd_tier_cfg()` global (the add-on's driver can't read the local `C`).
+See §7.3.
 
 ---
 
@@ -583,10 +593,11 @@ Zombified, Sin, Trader, Mutant, UNISG, Arena).
 
 - **Required:** `gamedata → gamedata` (self-contained drop-in, no required
   choices).
-- **One step** "Optional Components" → group "Compatibility" (`SelectAny`), two
+- **One step** "Optional Components" → group "Compatibility" (`SelectAny`), three
   optional plugins (all unchecked by default):
   1. **Neutralize FactionID HUD** → installs `FactionID Neutralized/gamedata`.
   2. **Skill System: Perception** → installs `Perception Skill Integration/gamedata`.
+  3. **st-wearable-devices Compatibility** → installs `WD Compatibility/gamedata` (§7.3).
 
 ---
 
@@ -623,6 +634,62 @@ overlays, with **zero edits** to the host mod:
   haru_skills' `ui_skills_icon_<skill>` convention.
 
 Without this component (and the host mod) there is no XP and no effect.
+
+### 7.3 st-wearable-devices Compatibility (`WD Compatibility/`)
+
+Gates identification behind wearable scanner gear from the **st-wearable-devices**
+(WD) mod, via a small **provider seam** in core: `ii_identify` calls the optional
+global `ii_identify.tier_provider()` once per `actor_on_update` and snapshots the
+result into `_tier`. Every override point reads `_tier`; when it's `nil` the mod
+behaves exactly as normal, so core stays inert without this add-on. The provider
+returns one of: `nil` (don't intervene), `{ active = false }` (installed but the kit
+isn't assembled → identification **blocked** at the single `identify_target` choke
+point), or `{ active = true, scan_base, max_dist, ignore_night, allow_ads, mag_boost,
+feat = {...} }` (tier params drive identification). When active, the tier values
+**replace** the matching MCM settings (scan-time chain, range, night penalty, ADS/mag
+enablement, and the faction/distance/relationship/rank/weapon display gates); the rest
+of the MCM (UI style, colours, key bind, …) is untouched.
+
+**New items** (all placeholder art — see the component `README`):
+- **Promin Antenna Module** + **Promin Process Module T1/T2/T3** — real WD Promin
+  bay-modules, installed via WD's own system (item use menu / bracer customize screen),
+  so they appear in the customize cells with their icons. `ii_wd_modules.register()`
+  **repurposes WD's two functionally-empty bays**: it drops WD's do-nothing `conn`/`side`
+  `MODULES` entries and adds the antenna (`conn` bay) + the process tiers (all sharing the
+  `side` bay), keeping the Promin at exactly three bays so **no customize-UI XML changes**
+  are needed (adding a fourth bay would crash it — it builds one fixed `module_open_<N>`
+  cell per `d_promin_config.BAYS` entry and ships XML for only three). The process items'
+  install action is wrapped (`install_process`) to remove any other process tier first, so
+  a new tier swaps the old (WD doesn't enforce one-module-per-bay). `conn`/`side` are made
+  active on every Promin tier so the kit works on a tier-1 Promin too. WD persists the
+  installed set; detection is `d_promin.has_module("ii_ant"/"ii_proc_tN")`.
+- **Identification Scanner T1/T2/T3** — a worn device mounted on the bracer,
+  `d_ii_scanner.script` mirroring WD's `d_vektor`/`d_bracer` pattern (`wd_worn` +
+  `wd_slots.register_device` + `wd_exo`), on its own logical slot. It attaches **no worn
+  model** (invisible — a placeholder mesh showed a duplicate bracer); it's a logical
+  device tracked by `wd_worn`. It registers its own callbacks from `on_game_start` (this
+  component isn't in WD's hardcoded `wd_boot` device list, and `wd_core.start()` wires
+  only once).
+
+**Driver** (`ii_wd_compat.script`): polls WD state — `d_ii_scanner.worn_tier()` (1/2/3),
+`ii_wd_modules.process_tier()` / `has_antenna()`, `d_bracer.is_worn()`,
+`d_promin.is_worn()/is_powered()` — and the user's tier values via
+`ii_identify.get_wd_tier_cfg()`, then builds the override table (cached, refreshed every
+~250 ms, so the per-frame `tier_provider` call doesn't rescan inventory). Full kit =
+bracer worn + Promin worn & powered + antenna + a process module installed + a worn scanner.
+Process tier → `scan_base` + the display-feature unlocks; scanner tier → `max_dist` +
+`allow_ads` (T2) + `mag_boost` (T2) + `ignore_night` (T3). All WD calls are
+`rawget`/`pcall`-guarded so the component is inert (returns `nil`) when WD or II is absent,
+and never throws into core's per-frame path.
+
+**Bootstrap gotcha** (fixed): `on_game_start` is auto-called by the engine for every
+script, but `actor_on_first_update` is a callback that must be wired via
+`RegisterScriptCallback` — an early version defined it as a bare global, so its body never
+ran. All wiring now happens in `on_game_start`.
+
+**Untestable / placeholder** (flagged in the component `README`): the scanner is invisible
+(no worn model — re-enable + tune the attach in `sync_attachment` for real art); item
+icons are one shared generated placeholder DDS. Neither affects the tier **logic**.
 
 ---
 
@@ -924,5 +991,6 @@ SVP output, so there's no double-draw. Relies on `SetActive` remapping
   point into `ii_identify.script` at that revision — treat them as "near here",
   since the file changes often; the function names are the durable anchors. For a
   release-by-release view of behaviour changes, see **`CHANGELOG.md`**.
-- **`README.md`** — verify its optional-component list matches the two components in
-  `ModuleConfig.xml` (FactionID Neutralized, Perception Skill Integration).
+- **`README.md`** — verify its optional-component list matches the three components in
+  `ModuleConfig.xml` (FactionID Neutralized, Perception Skill Integration,
+  st-wearable-devices Compatibility).

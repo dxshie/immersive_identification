@@ -204,6 +204,31 @@ function on_mcm_load()
 				opt_check("debug_log"),
 				opt_check("debug_draw"),
 			}),
+			-- st-wearable-devices compatibility: override the module/scanner tier values.
+			-- Inert unless the optional WD compat component is installed (it reads these via
+			-- ii_identify.get_wd_tier_cfg and drives the tier system). See that component.
+			page("wdcompat", {
+				opt_title("ui_mcm_ii_wdcompat_title"),
+				opt_check("wd_require_kit"),
+				opt_title("ui_mcm_ii_wd_proc_title"),
+				opt_track("wd_proc_t1", 0.1, 5, 0.1, 1),
+				opt_track("wd_proc_t2", 0.1, 5, 0.1, 1),
+				opt_track("wd_proc_t3", 0.1, 5, 0.1, 1),
+				opt_title("ui_mcm_ii_wd_scan_title"),
+				opt_track("wd_scan_t1", 5, 100, 5),
+				opt_track("wd_scan_t2", 5, 100, 5),
+				opt_track("wd_scan_t3", 5, 100, 5),
+				opt_title("ui_mcm_ii_wd_feat_title"),
+				opt_track("wd_feat_faction", 1, 3, 1),
+				opt_track("wd_feat_distance", 1, 3, 1),
+				opt_track("wd_feat_relationship", 1, 3, 1),
+				opt_track("wd_feat_rank", 1, 3, 1),
+				opt_track("wd_feat_weapon", 1, 3, 1),
+				opt_title("ui_mcm_ii_wd_scanner_title"),
+				opt_track("wd_scanner_ads", 1, 3, 1),
+				opt_track("wd_scanner_mag", 1, 3, 1),
+				opt_track("wd_scanner_nonight", 1, 3, 1),
+			}),
 		},
 	}
 

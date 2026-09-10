@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### st-wearable-devices compatibility (new optional FOMOD component)
+- Gates identification behind wearable scanner gear from the **st-wearable-devices** mod
+  via a module/scanner **tier system**. New items (placeholder art): a Promin **Antenna**
+  module, a 3-tier Promin **Process** module (scan speed + progressive data unlocks:
+  faction/distance → relationship/rank → weapon), and a 3-tier worn **Identification
+  Scanner** (range 10/20/30 m; scope-ADS + magnification boost at T2; no night penalty
+  at T3). With the full kit assembled, the tiers drive identification and override the
+  matching MCM settings; `wd_require_kit` (default on) blocks identification without it.
+- New **Wearable Devices** MCM page overrides every default tier value (process scan
+  times, scanner ranges, and which tier unlocks each feature).
+- Core: an optional `ii_identify.tier_provider` seam (snapshotted per frame) + a new
+  **distance-to-target** readout on the name line; both fully inert without the add-on.
+- Modules install into the Promin through WD's own system and **show in the bracer
+  customize screen** (with their icons) — done by repurposing WD's two functionally-empty
+  Promin bays (`conn`→antenna, `side`→process), so no new bays and no customize-UI crash.
+  Process tiers are mutually exclusive (installing one swaps out the other). The scanner is
+  a worn bracer device but **invisible** (no worn model).
+- Custom generated inventory icons for the antenna (broadcast antenna) and process module
+  (IC chip); the scanner keeps a placeholder icon.
+- **Not verified in-game** — the WD device/slot integration follows WD's patterns but
+  needs in-game iteration. See `WD Compatibility/README.md`.
+
 ## 2.53.0 — everything since 2.0.1
 
 This summarizes the changes from **v2.0.1** (first bodycam aim-logic build) up to

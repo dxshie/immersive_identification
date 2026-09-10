@@ -1,0 +1,113 @@
+-- Immersive Identification <-> st-wearable-devices: the tier DRIVER + bootstrap.
+--
+-- Each frame, Immersive Identification calls ii_identify.tier_provider() (if set) and
+-- snapshots the result. We install a provider that reads the current WD device state
+-- (scanner worn + tier, Promin worn/powered, antenna + a process module carried) and the
+-- user's tier values (ii_identify.get_wd_tier_cfg), and returns either:
+--   nil             -> we're not intervening; Immersive Identification behaves normally
+--   { active=false }-> installed but the kit isn't assembled -> identification blocked
+--   { active=true, scan_base=, max_dist=, ignore_night=, allow_ads=, mag_boost=, feat=}
+--                   -> the tier params drive identification
+--
+-- Everything is soft-guarded via rawget/pcall: with WD or II absent, the provider returns
+-- nil and nothing here errors, so shipping this component without one of them is harmless.
+
+-- Call fn in pcall, treating only a truthy successful return as true (poll WD getters
+-- without letting a WD API change throw into II's per-frame path).
+local function safe_pcall_true(fn)
+	local ok, r = pcall(fn)
+	return ok and r and true or false
+end
+
+-- The provider is called every frame by II, but the WD state (worn devices, inventory
+-- scan for modules) only needs re-reading a few times a second. Cache the computed result
+-- and refresh on a timer.
+local REFRESH_MS = 250
+local cached = nil
+local next_refresh = 0
+
+local function compute()
+	local dp = rawget(_G, "d_promin")
+	local scn = rawget(_G, "d_ii_scanner")
+	local mods = rawget(_G, "ii_wd_modules")
+	local ii = rawget(_G, "ii_identify")
+	if not (dp and scn and mods and ii and ii.get_wd_tier_cfg) then
+		return nil -- can't drive: leave Immersive Identification alone
+	end
+
+	local cfg = ii.get_wd_tier_cfg()
+
+	-- Full kit: bracer worn + Promin worn & powered + antenna + a process module carried +
+	-- a worn scanner. pcall-guarded so a WD API change can't throw into II's frame path.
+	local ok_st, scanner_tier = pcall(scn.worn_tier)
+	scanner_tier = ok_st and scanner_tier or nil
+	local ok_pt, pt = pcall(mods.process_tier)
+	pt = ok_pt and pt or nil
+
+	local dbr = rawget(_G, "d_bracer")
+	local kit = scanner_tier ~= nil
+		and pt ~= nil
+		and dbr ~= nil
+		and safe_pcall_true(dbr.is_worn)
+		and safe_pcall_true(dp.is_worn)
+		and safe_pcall_true(dp.is_powered)
+		and safe_pcall_true(mods.has_antenna)
+
+	if not kit then
+		-- Incomplete: block identification if the user requires the kit, else fall through
+		-- to normal Immersive Identification behaviour.
+		if cfg.require_kit then
+			return { active = false }
+		end
+		return nil
+	end
+
+	local st = scanner_tier
+	local function feat_at(key)
+		return pt >= (cfg.feat[key] or 99)
+	end
+	return {
+		active = true,
+		scan_base = cfg.proc[pt], -- process tier -> fixed base scan time
+		max_dist = cfg.scan[st], -- scanner tier -> identify range
+		ignore_night = st >= (cfg.scanner_nonight or 3),
+		allow_ads = st >= (cfg.scanner_ads or 2),
+		mag_boost = st >= (cfg.scanner_mag or 2),
+		feat = {
+			faction = feat_at("faction"),
+			distance = feat_at("distance"),
+			relationship = feat_at("relationship"),
+			rank = feat_at("rank"),
+			weapon = feat_at("weapon"),
+		},
+	}
+end
+
+local function provider()
+	local now = time_global()
+	if now >= next_refresh then
+		next_refresh = now + REFRESH_MS
+		cached = compute()
+	end
+	return cached
+end
+
+function on_game_start()
+	-- Wire the scanner device (this component isn't in WD's hardcoded wd_boot list).
+	local scn = rawget(_G, "d_ii_scanner")
+	if scn and scn.register then
+		pcall(scn.register)
+	end
+	-- Register the identification modules with WD's Promin (repurposes its two empty bays;
+	-- config tables are built at file load, so on_game_start is safe). WD persists the
+	-- installed set itself, so no save/load hooks are needed here.
+	local mods = rawget(_G, "ii_wd_modules")
+	if mods and mods.register then
+		pcall(mods.register)
+	end
+	-- Install the tier provider into Immersive Identification (inert if II absent).
+	local ii = rawget(_G, "ii_identify")
+	if ii then
+		ii.tier_provider = provider
+	end
+end

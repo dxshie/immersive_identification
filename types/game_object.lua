@@ -43,6 +43,12 @@ function game_object:set_bodycam_redact(on) end
 ---@return boolean
 function game_object:alive() end
 
+--- The inventory item this object (a CInventoryOwner: actor/NPC) carries with the
+--- given section, or nil. script_game_object3.cpp (bound as `object`).
+---@param section string
+---@return game_object|nil
+function game_object:object(section) end
+
 --- Community/faction id string, e.g. "stalker", "bandit", "dolg". Only valid
 --- for CInventoryOwner-derived objects (NPCs/actor).
 --- script_game_object_inventory_owner.cpp:1039, bound script_game_object_script3.cpp:324.

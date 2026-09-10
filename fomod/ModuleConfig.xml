@@ -31,6 +31,15 @@
 								<type name="Optional" />
 							</typeDescriptor>
 						</plugin>
+						<plugin name="st-wearable-devices Compatibility">
+							<description>Gates identification behind wearable scanner gear from the st-wearable-devices mod. Adds a Promin Antenna module, a 3-tier Promin Process module, and a 3-tier worn Identification Scanner. With the full kit assembled (bracer worn + Promin with antenna and a process module + a worn scanner), identification runs on a tier system: the process tier sets scan speed and gradually unlocks the data shown (faction, distance, relationship, rank, weapon); the scanner tier sets range and unlocks scope/ADS support, a magnification range boost, and no-night-penalty. Tune every tier value on the mod's "Wearable Devices" MCM page. Only install this if you also have st-wearable-devices installed. Uses placeholder item art/models.</description>
+							<files>
+								<folder source="WD Compatibility/gamedata" destination="gamedata" />
+							</files>
+							<typeDescriptor>
+								<type name="Optional" />
+							</typeDescriptor>
+						</plugin>
 					</plugins>
 				</group>
 			</optionalFileGroups>
