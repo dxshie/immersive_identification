@@ -9,9 +9,18 @@ and a module tier system. See `SPEC.md` §7.3 for the full design.
 - **Promin Antenna Module** — establishes the scanner↔Promin link (required).
 - **Promin Process Module (Tier 1/2/3)** — sets scan speed and gradually unlocks the
   data shown: faction + distance (T1), + relationship + rank (T2), + weapon (T3).
-- **Identification Scanner (Tier 1/2/3)** — worn on the bracer; sets range
-  (10/20/30 m) and unlocks scope/ADS support + a magnification range boost (T2) and
-  no-night-penalty (T3).
+- **AR Scanner (Tier 1/2/3)** — a **worn** bracer device; identification is shown **on
+  entities** the usual way (tags/overlays). Sets range (10/20/30 m) and unlocks scope/ADS
+  support + a magnification range boost (T2) and no-night-penalty (T3). Needs the antenna
+  + a process module in the Promin.
+- **OSD Scanner Module (Tier 1/2/3)** — a **Promin module** (not worn); identification is
+  shown **only on the Promin IDENTIFICATION page** — no on-entity UI at all (no tags, no
+  in-scope markers). Same 3 tiers as the AR scanner. It occupies the Promin's `conn` bay,
+  which it **shares with the antenna** (mutually exclusive — installing one evicts the
+  other): that shared bay *is* the AR-vs-OSD switch. The OSD path needs **only the OSD
+  scanner module + a process module** (no antenna, no worn scanner, no bracer). The Promin
+  ident readout is the OSD channel (shows "install OSD scanner" without one). Face
+  redaction is independent of the scanner.
 
 With the full kit assembled (bracer worn + Promin worn & powered + an antenna and a
 process module **installed** + a worn scanner), identification runs on the tiers. Tune
@@ -41,6 +50,35 @@ ships XML for three — a fourth bay is a fatal `XML node module_open_4 not foun
 the two empty bays avoids that entirely. Trade-offs: WD's (do-nothing) `conn`/`side`
 module items become non-installable, and the reused bays render WD's placeholder null mesh
 on the Promin.
+
+## Promin IDENTIFICATION tab
+
+Installing the antenna adds a third page to the Promin screen — **IDENTIFICATION**,
+cycled with the other tabs (double-tap the Promin key, default). It mirrors the
+NAVIGATION page's layout: the **biomonitor stays on the left**, and the
+**last-identified target** is shown in the **right panel where the map normally is** — a
+**portrait** (the NPC's `character_icon`) plus name, faction, rank, position, distance,
+and weapon + caliber. Fields the current process tier hasn't unlocked show `---` (the
+page respects the same tier gating as the on-screen tags); monsters have no portrait so
+it's hidden for them.
+
+The Promin's tab strip (BIOMONITOR / NAVIGATION) is **baked into the background
+texture**, which leaves an empty tab slot to their left; the page draws its own
+"IDENTIFICATION" label into that slot. The layout constants (right-panel rect, portrait
+box, row/glyph metrics, and the `TAB` position/size) are all at the top of
+`d_ii_promin_ident.script` and will likely need in-game tuning — the `TAB` `x`/`y`/`adv`
+in particular, to line the label up inside the empty slot.
+
+The Promin CRT screen has no font (WD renders numbers as pre-baked digit textures), so
+this ships a **monospace glyph atlas** (`ii_wd_font.dds` + `ii_wd_font_textures.xml`,
+one texture id per ASCII code) and a text compositor (`ii_wd_text.script`) that draws
+strings by binding per-character glyph textures onto slot widgets — the same mechanism
+as WD's clock, extended to the full alphabet. The page is a **VFS override of WD's
+`d_promin_ui.script`** (its page-builder table is a file-local with no registration seam)
+— a verbatim copy plus two marked `II-COMPAT` additions; **re-sync it if WD updates that
+file**. Cosmetic limitation: WD's baked tab-label strip (BIOMONITOR / NAVIGATION) isn't
+extended, so the tab is identified by the page's own "IDENTIFICATION" title rather than an
+entry in that strip.
 
 ## Placeholder art
 

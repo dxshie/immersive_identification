@@ -449,12 +449,27 @@ function CUIScriptWnd:SetWndRect(rect) end
 ---@param auto_delete boolean
 function CUIScriptWnd:SetAutoDelete(auto_delete) end
 
+--- Per-frame update hook (subclasses call CUIScriptWnd.Update(self) then their own logic).
+function CUIScriptWnd:Update() end
+
+---@param show boolean
+function CUIScriptWnd:Show(show) end
+
+---@param enable boolean
+function CUIScriptWnd:Enable(enable) end
+
 --- Parses a UI xml template file (relative to gamedata/configs/ui).
 ---@class CScriptXmlInit
 local CScriptXmlInitMethods = {}
 
 ---@param file_name string
 function CScriptXmlInitMethods:ParseFile(file_name) end
+
+--- Binds a top-level window node onto a parent dialog.
+---@param node_path string
+---@param index number
+---@param parent CUIScriptWnd
+function CScriptXmlInitMethods:InitWindow(node_path, index, parent) end
 
 --- Instantiates a static/texture element from a named xml node.
 ---@param node_path string

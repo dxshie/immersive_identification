@@ -49,6 +49,11 @@ function game_object:alive() end
 ---@return game_object|nil
 function game_object:object(section) end
 
+--- Portrait icon texture id (a registered ui_npc_u_* region). Only valid for
+--- CInventoryOwners (actor/NPCs); errors on monsters. script_game_object_inventory_owner.cpp:921.
+---@return string
+function game_object:character_icon() end
+
 --- Community/faction id string, e.g. "stalker", "bandit", "dolg". Only valid
 --- for CInventoryOwner-derived objects (NPCs/actor).
 --- script_game_object_inventory_owner.cpp:1039, bound script_game_object_script3.cpp:324.

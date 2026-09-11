@@ -1,0 +1,27 @@
+; Crafting recipes for the identification gear. Format mirrors WD's own
+; mod_craft_wearables.ltx (same modpack, same crafting system), so it parses identically:
+;   ![1]                         ; append into crafting category 1 (where WD's wearables live)
+;   x_<result> = <count>, <recipe_condition>, <mat>,<qty>, <mat>,<qty>, ...
+; The x_ key prefix resolves to the crafted item section. <recipe_condition> is the TOOL
+; tier required at the workbench: recipe_basic_2 = basic tools, recipe_advanced_2 = advanced
+; tools, recipe_expert_2 = expert tools (basic_2/advanced_2 are the tokens WD itself uses;
+; expert_2 follows the same recipe_<tier>_2 pattern). Tool tier by item tier:
+;   Tier 1 -> basic, Tier 2 -> advanced, Tier 3 -> expert (the antenna is untiered = basic).
+; Ingredients use ONLY sections known to exist here (WD's own parts + our tier items).
+
+![1]
+; --- Basic tools (Tier 1 + the untiered antenna) ---
+x_ii_wd_antenna        = 1, recipe_basic_2, prt_i_copper,2,prt_i_fasteners,2,prt_i_scrap,4
+x_ii_wd_process_t1     = 1, recipe_basic_2, prt_i_copper,3,prt_i_fasteners,2,prt_i_scrap,5
+x_ii_wd_scanner_t1     = 1, recipe_basic_2, prt_i_copper,4,prt_i_fasteners,3,prt_i_scrap,6
+x_ii_wd_osd_scanner_t1 = 1, recipe_basic_2, prt_i_copper,4,prt_i_fasteners,3,prt_i_scrap,6
+
+; --- Advanced tools (Tier 2); each consumes the previous tier + Promin tech ---
+x_ii_wd_process_t2     = 1, recipe_advanced_2, ii_wd_process_t1,1,wd_promin_upgrade_kit,1,prt_i_copper,3,prt_i_scrap,6
+x_ii_wd_scanner_t2     = 1, recipe_advanced_2, ii_wd_scanner_t1,1,wd_promin_upgrade_kit,1,prt_i_copper,4,prt_i_scrap,7
+x_ii_wd_osd_scanner_t2 = 1, recipe_advanced_2, ii_wd_osd_scanner_t1,1,wd_promin_upgrade_kit,1,prt_i_copper,4,prt_i_scrap,7
+
+; --- Expert tools (Tier 3); each consumes the previous tier + more Promin tech ---
+x_ii_wd_process_t3     = 1, recipe_expert_2, ii_wd_process_t2,1,wd_promin_upgrade_kit,2,prt_i_copper,4,prt_i_scrap,8
+x_ii_wd_scanner_t3     = 1, recipe_expert_2, ii_wd_scanner_t2,1,wd_promin_upgrade_kit,2,prt_i_copper,5,prt_i_scrap,9
+x_ii_wd_osd_scanner_t3 = 1, recipe_expert_2, ii_wd_osd_scanner_t2,1,wd_promin_upgrade_kit,2,prt_i_copper,5,prt_i_scrap,9

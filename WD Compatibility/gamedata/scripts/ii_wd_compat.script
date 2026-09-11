@@ -37,32 +37,50 @@ local function compute()
 
 	local cfg = ii.get_wd_tier_cfg()
 
-	-- Full kit: bracer worn + Promin worn & powered + antenna + a process module carried +
-	-- a worn scanner. pcall-guarded so a WD API change can't throw into II's frame path.
-	local ok_st, scanner_tier = pcall(scn.worn_tier)
-	scanner_tier = ok_st and scanner_tier or nil
+	-- Common requirement: a process module installed + Promin worn & powered. pcall-guarded
+	-- so a WD API change can't throw into II's per-frame path.
 	local ok_pt, pt = pcall(mods.process_tier)
 	pt = ok_pt and pt or nil
+	local promin_up = pt ~= nil and safe_pcall_true(dp.is_worn) and safe_pcall_true(dp.is_powered)
 
-	local dbr = rawget(_G, "d_bracer")
-	local kit = scanner_tier ~= nil
-		and pt ~= nil
-		and dbr ~= nil
-		and safe_pcall_true(dbr.is_worn)
-		and safe_pcall_true(dp.is_worn)
-		and safe_pcall_true(dp.is_powered)
-		and safe_pcall_true(mods.has_antenna)
+	-- Two mutually-exclusive channels (the antenna and the OSD-scanner module share the
+	-- Promin `conn` bay, so only one can be installed):
+	--   OSD: OSD-scanner MODULE installed  -> identify shown only on the Promin ident page.
+	--   AR : antenna installed + AR SCANNER worn on the bracer -> shown on entities as usual.
+	local osd_scanner = nil
+	if mods.osd_scanner_tier then
+		local ok_o, o = pcall(mods.osd_scanner_tier)
+		osd_scanner = ok_o and o or nil
+	end
 
-	if not kit then
-		-- Incomplete: block identification if the user requires the kit, else fall through
-		-- to normal Immersive Identification behaviour.
+	local osd_only, st
+	if promin_up and osd_scanner ~= nil then
+		-- OSD path: no antenna, no worn scanner, no bracer -- just the module + process.
+		osd_only, st = true, osd_scanner
+	else
+		-- AR path: antenna + a worn AR scanner + the bracer.
+		local ok_st, scanner_tier = pcall(scn.worn_tier)
+		scanner_tier = ok_st and scanner_tier or nil
+		local dbr = rawget(_G, "d_bracer")
+		local ar_ready = promin_up
+			and scanner_tier ~= nil
+			and dbr ~= nil
+			and safe_pcall_true(dbr.is_worn)
+			and safe_pcall_true(mods.has_antenna)
+		if ar_ready then
+			osd_only, st = false, scanner_tier
+		end
+	end
+
+	if st == nil then
+		-- Incomplete kit: block identification if the user requires the kit, else fall
+		-- through to normal Immersive Identification behaviour.
 		if cfg.require_kit then
 			return { active = false }
 		end
 		return nil
 	end
 
-	local st = scanner_tier
 	local function feat_at(key)
 		return pt >= (cfg.feat[key] or 99)
 	end
@@ -73,6 +91,7 @@ local function compute()
 		ignore_night = st >= (cfg.scanner_nonight or 3),
 		allow_ads = st >= (cfg.scanner_ads or 2),
 		mag_boost = st >= (cfg.scanner_mag or 2),
+		osd_only = osd_only, -- OSD channel: identify, but show only on the Promin
 		feat = {
 			faction = feat_at("faction"),
 			distance = feat_at("distance"),

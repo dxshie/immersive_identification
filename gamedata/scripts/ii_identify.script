@@ -102,8 +102,10 @@ DEFAULTS = {
 	binoc_scan_mult = 0.4, -- scan_time multiplier while binoculars are raised (lower = faster reveal)
 	binoc_range_mult = 4.4, -- max_dist/fade_dist multiplier while binoculars are raised (flat, OR the
 	-- x1 base when binoc_zoom_scaling is on)
-	binoc_zoom_scaling = false, -- scale the binocular range multiplier by the binocular's magnification
-	-- (like ads_zoom_scaling): off = flat binoc_range_mult; on = binoc_range_mult * magnification
+	binoc_zoom_scaling = false, -- use the binocular's REAL magnification (from a custom-exe engine
+	-- binding) as the range multiplier instead of the flat binoc_range_mult. Inert without that
+	-- binding (falls back to binoc_range_mult). NOT FOV-derived -- the camera FOV ratio is the raw
+	-- angular zoom (~19.6x), not the intended range factor (~4.4x), so it over-inflated the range.
 	ads_mode = false, -- auto-trigger identify while aiming down sight, once a target has been held
 	-- under the aim (or inside the FOV assist range when that's on) for ads_hold_time seconds
 	ads_hold_time = 0.6, -- seconds: how long a target must stay on-aim / in FOV-assist range while
@@ -405,11 +407,43 @@ MCM_PAGES = {
 ---@field ignore_night boolean? scanner's no-night tier
 ---@field allow_ads boolean? scanner unlocks scope/ADS support
 ---@field mag_boost boolean? scanner unlocks the magnification range boost
+---@field osd_only boolean? OSD scanner: identify normally but draw NO on-entity UI (tags/markers) -- the result shows only on the Promin ident page
 ---@field feat table? per-feature display gates { faction, distance, relationship, rank, weapon }
 
 tier_provider = nil -- global (set by the compat script) so it costs no top-level-local slot
 ---@type ii_tier_override|nil
 local _tier = nil -- this frame's tier_provider() result, or nil
+
+-- Last-identified target snapshot (for external readouts like the Promin ident page).
+-- Written in identify_target; read via get_last_identified(). One table = one local slot.
+local _last_id = { id = nil }
+
+-- The last target identified this session (or nil if none yet). Returns a fresh table:
+-- { name, faction, rank, weap, x, y, z, dist } -- any field may be nil if that data wasn't
+-- unlocked/available at identify time. `dist` is computed LIVE from the stored position to
+-- the actor (nil if either is unavailable). Global so the WD compat page can read it.
+function get_last_identified()
+	if not _last_id.id then
+		return nil
+	end
+	local dist = nil
+	local a = db.actor and db.actor:position()
+	if a and _last_id.x then
+		local dx, dy, dz = _last_id.x - a.x, _last_id.y - a.y, _last_id.z - a.z
+		dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+	end
+	return {
+		name = _last_id.name,
+		faction = _last_id.faction,
+		rank = _last_id.rank,
+		weap = _last_id.weap,
+		portrait = _last_id.portrait,
+		x = _last_id.x,
+		y = _last_id.y,
+		z = _last_id.z,
+		dist = dist,
+	}
+end
 
 -- Resolved tier configuration for the WD compat driver (which lives in the optional
 -- component and can't read the local C). Returns the live MCM-backed values so the
@@ -454,6 +488,13 @@ local function read_config()
 					break
 				end
 			end
+		end
+		-- MCM/engine can marshal a checkbox as a NUMBER (0/1) rather than a Lua boolean,
+		-- and `0` is truthy under plain `if` -- so a *disabled* check would read as enabled.
+		-- This bit the WD "require kit" toggle (disabling it still blocked identification).
+		-- Coerce any boolean-default option to a real boolean so every checkbox is safe.
+		if type(default) == "boolean" and type(v) == "number" then
+			v = v ~= 0
 		end
 		C[key] = v
 	end
@@ -1837,6 +1878,24 @@ local function scope_magnification()
 	return nil
 end
 
+-- The binocular's REAL magnification from the engine, or nil on a stock exe. Unlike
+-- scope_magnification(), this deliberately does NOT fall back to the camera-FOV ratio: for
+-- binoculars that ratio is the raw ANGULAR zoom (e.g. ~19.6x), not the intended range
+-- factor (~4.4x), so scaling the identify range by it blew the range far out (50 m -> ~977 m
+-- instead of the intended 50 x 4.4 = 220 m). Without a real engine binding the binocular
+-- range uses the flat MCM binoc_range_mult (the "range multiplier" = the magnification) --
+-- see boost_params()'s binoc branch. The bodycam.* binding is the future engine-mod seam.
+local function binoc_engine_magnification()
+	local bc = rawget(_G, "bodycam")
+	if bc and bc.binoc_magnification then
+		local ok, m = pcall(bc.binoc_magnification)
+		if ok and m and m > 1 then
+			return m
+		end
+	end
+	return nil
+end
+
 -- Angular FOV target-assist. Instead of a main-camera screen ring, the assist is a
 -- cone measured from the true AIM RAY (where the scope/gun points). This is the fix for
 -- PiP scopes: the main camera (world2ui) is the swayed, UN-zoomed bodycam render camera,
@@ -2385,6 +2444,25 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 		fade_ms = FADE_MS,
 		hold_ms = HOLD_MS,
 	}
+
+	-- Record the last-identified target for external readouts (e.g. the Promin
+	-- identification page, WD compat). Persists independently of `tracked` (which drains
+	-- as tags fade). Fields respect the same feature gates as the tag, so a reader shows
+	-- only what was actually unlocked; position stored as x/y/z (distance computed live).
+	local p = safe_call(obj.position, obj)
+	_last_id.id = id
+	_last_id.name = show_name and display_name(obj, comm) or nil
+	_last_id.faction = show_faction and faction_label(comm) or nil
+	_last_id.rank = show_rank and rank_label(obj) or nil
+	_last_id.weap = show_weapon and held_weapon_label(obj) or nil
+	-- Portrait texture id (a registered ui_npc_u_* region). character_icon() is only valid
+	-- for InventoryOwners, so it errors on monsters -- guarded; nil = no portrait.
+	local ic = safe_call(obj.character_icon, obj)
+	_last_id.portrait = (ic and ic ~= "") and ic or nil
+	_last_id.x = p and p.x or nil
+	_last_id.y = p and p.y or nil
+	_last_id.z = p and p.z or nil
+	_last_id.tg = tg
 end
 
 -- Snapshot the current binocular-boost state into the triple both the keypress
@@ -2422,13 +2500,17 @@ local function boost_params()
 	local scan_mult, range_mult = 1.0, 1.0
 	if binoc and C.binoc_boost then
 		boosted = true
-		scan_mult, range_mult = C.binoc_scan_mult, C.binoc_range_mult
-		-- Optionally scale the binocular range by its magnification, like ADS. Off by
-		-- default so existing setups keep the flat binoc_range_mult.
+		scan_mult = C.binoc_scan_mult
+		-- Range = base_max x the binocular's magnification. binoc_range_mult IS that
+		-- magnification (the MCM "range multiplier"), e.g. 4.4 -> a 50 m base becomes 220 m.
+		-- With binoc_zoom_scaling on we REPLACE it with the engine's real magnification when
+		-- available (custom-exe binding); we never derive it from the camera FOV -- that
+		-- ratio is the raw angular zoom (~19.6x), which over-inflated the range.
+		range_mult = C.binoc_range_mult
 		if C.binoc_zoom_scaling then
-			local mag = scope_magnification()
+			local mag = binoc_engine_magnification()
 			if mag and mag > 1 then
-				range_mult = range_mult * mag
+				range_mult = mag
 			end
 		end
 	elseif ads and C.ads_boost then
@@ -4214,6 +4296,11 @@ local function render(tg)
 	-- draws. (pip_active already hides the main HUD on its own; this also covers
 	-- the ADS-without-PiP and pip_markers-off cases, plus the main-pass redaction.)
 	local suppress_main = (C.ads_hide_main and is_ads_active()) or (C.pip_hide_main and pip_scope)
+	-- OSD scanner mode: identification still runs (tracked/_last_id populated for the Promin
+	-- ident page), but NO identification UI draws on entities -- neither the main-view tags
+	-- nor the in-scope PiP markers. Face redaction is intentionally NOT gated on this (it's a
+	-- separate censoring feature, driven by feed_redaction/suppress_main, not identity reveal).
+	local osd_only = _tier ~= nil and _tier.active == true and _tier.osd_only == true
 	-- Unconditional on PIP_AVAILABLE (not pip_active): runs every frame the
 	-- engine supports it, scoped or not, so lowering the scope mid-reveal
 	-- still publishes one more (empty) snapshot instead of leaving the last
@@ -4321,7 +4408,7 @@ local function render(tg)
 				-- colour/alpha there only carries the spinner's own alpha
 				-- (0.9, matching the HUD spinner's fixed GetARGB(230,...)),
 				-- not phase_alpha, which is still 0 for the whole scan.
-				if pip_active then
+				if pip_active and not osd_only then
 					local col, fcol = e.col, e.fcol
 					local alpha = scanning and (0.9 * dist_fade) or (phase_alpha * dist_fade)
 					svp_ui_markers_add(
@@ -4413,7 +4500,7 @@ local function render(tg)
 	-- feeds both the main pass and the SVP pass (see feed_redaction's own comment).
 	feed_redaction(suppress_main)
 
-	if pip_active or suppress_main then
+	if pip_active or suppress_main or osd_only then
 		for i = 1, MAX_TAGS do
 			TAGS:hide_slot(i)
 		end

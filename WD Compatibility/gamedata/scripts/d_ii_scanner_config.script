@@ -5,6 +5,9 @@
 -- for this placeholder device, so edit DEFAULTS below or add a wd_gui.register_device
 -- block later). Detection/tier logic does not depend on the visual being correct.
 
+-- The AR Scanner: a 3-tier WORN device (identification shown on entities, the usual way).
+-- The OSD scanner is NOT here -- it's a Promin MODULE (see ii_wd_modules.script), not a worn
+-- device, so this config/device only knows the AR (worn) scanner.
 SECTION = "ii_wd_scanner_t1"
 
 local PLACEHOLDER_MODEL = "wd\\bracer_rigid\\bracer_rigid"
@@ -15,14 +18,10 @@ TIERS = {
 	{ id = "t3", section = "ii_wd_scanner_t3", model = PLACEHOLDER_MODEL, defaults = {} },
 }
 
--- Numeric tier index (1/2/3) for a worn scanner section, or nil. Used by the driver.
+-- Numeric tier (1/2/3) for an AR scanner section, from its t1/t2/t3 suffix. nil otherwise.
 function tier_index_of(section)
-	for i, t in ipairs(TIERS) do
-		if t.section == section then
-			return i
-		end
-	end
-	return nil
+	local n = section and section:match("_t(%d)$")
+	return n and tonumber(n) or nil
 end
 
 -- Placeholder transforms (bracer defaults). Nudged forward along the forearm so it

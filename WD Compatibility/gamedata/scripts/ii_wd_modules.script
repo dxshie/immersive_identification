@@ -2,18 +2,30 @@
 -- bracer customize UI, WITHOUT adding new Promin bays (a fourth bay crashes WD's customize
 -- screen, which builds a fixed cell per bay and only ships XML for three).
 --
--- Instead we REPURPOSE WD's two functionally-empty bays. WD's own `conn` and `side`
--- modules have no pages/sensors/effects at all (only `map` does anything), so we replace
--- those two MODULES entries: the antenna takes the `conn` bay, the process module takes
--- the `side` bay (its three tiers share it -> one process module at a time). The Promin
--- keeps exactly three bays/cells, so nothing in WD's UI changes; antenna shows in the
--- `conn` cell and the process module in the `side` cell, installed via WD's own use-menu.
+-- We REPURPOSE WD's two functionally-empty bays (its `conn`/`side` modules do nothing --
+-- only `map` has effects), replacing those two MODULES entries with ours:
+--   conn bay: the ANTENNA (AR path) OR an OSD SCANNER tier (OSD path) -- mutually exclusive
+--             since they share the bay; that IS the AR-vs-OSD channel switch.
+--   side bay: the PROCESS module (3 tiers share it -> one at a time).
+-- The Promin keeps exactly three bays/cells, so nothing in WD's UI changes.
 --
--- Because they use WD's bays, WD's d_promin.has_module() drives detection, and WD persists
--- the installed set itself (no save state needed here). Requires a tier-2 Promin unless we
--- also make the bays active on tier 1 (we do, below).
+-- WD's d_promin.has_module() drives detection and WD persists the installed set, so no save
+-- state here. WD's install_module consumes the item and does NOT evict a same-bay occupant,
+-- so we install through install()/get_menu_text below, which evict the bay first.
 
+-- conn bay: antenna is the AR identification link. No `pages` -- the AR path shows on
+-- entities, not on the Promin.
 local ANTENNA = { name = "ii_ant", section = "ii_wd_antenna", bay = "conn" }
+
+-- conn bay: OSD scanner tiers. These carry the IDENTIFICATION page (`pages = {"ident"}`) --
+-- WD's get_available_pages() adds an installed module's pages to the Promin tab cycle, so
+-- installing an OSD scanner makes the IDENTIFICATION tab appear (the OSD display channel).
+local OSD_SCANNER = {
+	{ name = "ii_osd_t1", section = "ii_wd_osd_scanner_t1", bay = "conn", pages = { "ident" } },
+	{ name = "ii_osd_t2", section = "ii_wd_osd_scanner_t2", bay = "conn", pages = { "ident" } },
+	{ name = "ii_osd_t3", section = "ii_wd_osd_scanner_t3", bay = "conn", pages = { "ident" } },
+}
+
 local PROCESS = {
 	{ name = "ii_proc_t1", section = "ii_wd_process_t1", bay = "side" },
 	{ name = "ii_proc_t2", section = "ii_wd_process_t2", bay = "side" },
@@ -49,10 +61,13 @@ function register()
 	end
 	done = true
 
-	-- Repurpose the two empty bays: drop WD's inert conn/side modules, install ours.
+	-- Repurpose the two empty bays: drop WD's inert conn/side modules, add ours.
 	remove_wd_module(cfg.MODULES, "conn")
 	remove_wd_module(cfg.MODULES, "side")
 	ensure_module(cfg.MODULES, ANTENNA)
+	for _, m in ipairs(OSD_SCANNER) do
+		ensure_module(cfg.MODULES, m)
+	end
 	for _, m in ipairs(PROCESS) do
 		ensure_module(cfg.MODULES, m)
 	end
@@ -76,21 +91,25 @@ function register()
 	end
 end
 
--- use1_action_functor for the PROCESS items: install this tier, first removing any other
--- process tier already installed (all three share the `side` bay, and WD doesn't enforce
--- one-module-per-bay, so without this you could stack all three -- and swapping tiers
--- would be clumsy). The removed tier's item is returned to inventory by WD's remove.
--- (The antenna installs via WD's d_promin.install_module directly -- no exclusivity.)
-function install_process(obj)
+-- use1_action_functor for ALL our module items: install this module, first evicting any
+-- module already occupying its bay (WD's install_module appends without checking, so the
+-- conn bay could otherwise hold both an antenna and an OSD scanner, and the side bay could
+-- stack all three process tiers). The evicted module's item is returned to inventory by WD.
+function install(obj)
 	local dp = rawget(_G, "d_promin")
-	if not (dp and dp.get_installed_modules and dp.remove_module_at and dp.install_module) then
+	local cfg = rawget(_G, "d_promin_config")
+	if not (dp and cfg and obj and dp.get_installed_modules and dp.remove_module_at and dp.install_module) then
 		return
 	end
-	-- Remove any currently-installed process tier (iterate high->low; remove_module_at
-	-- shifts indices, so going backwards is safe).
+	local module = cfg.get_module_of_section and cfg.get_module_of_section(obj:section())
+	if not module then
+		return
+	end
+	-- Evict same-bay occupants (iterate high->low; remove_module_at shifts indices).
 	local names = dp.get_installed_modules()
 	for i = #names, 1, -1 do
-		if type(names[i]) == "string" and names[i]:find("^ii_proc_") then
+		local m = cfg.get_module and cfg.get_module(names[i])
+		if m and m.bay == module.bay then
 			dp.remove_module_at(i)
 		end
 	end
@@ -114,6 +133,22 @@ function process_tier()
 	elseif dp.has_module("ii_proc_t2") then
 		return 2
 	elseif dp.has_module("ii_proc_t1") then
+		return 1
+	end
+	return nil
+end
+
+-- Installed OSD-scanner module tier (1/2/3), or nil. The OSD path's scanner tier.
+function osd_scanner_tier()
+	local dp = rawget(_G, "d_promin")
+	if not (dp and dp.has_module) then
+		return nil
+	end
+	if dp.has_module("ii_osd_t3") then
+		return 3
+	elseif dp.has_module("ii_osd_t2") then
+		return 2
+	elseif dp.has_module("ii_osd_t1") then
 		return 1
 	end
 	return nil

@@ -19,8 +19,41 @@
   Promin bays (`conn`→antenna, `side`→process), so no new bays and no customize-UI crash.
   Process tiers are mutually exclusive (installing one swaps out the other). The scanner is
   a worn bracer device but **invisible** (no worn model).
-- Custom generated inventory icons for the antenna (broadcast antenna) and process module
-  (IC chip); the scanner keeps a placeholder icon.
+- Custom generated inventory icons for the antenna (broadcast antenna), process module
+  (IC chip), and scanner (radar display).
+- **Promin IDENTIFICATION tab**: installing the antenna adds a third Promin screen page
+  (cycled with the others) showing the last-identified target — name, faction, rank,
+  position, distance, weapon+caliber (locked fields show `---`). Since the Promin CRT
+  screen has no font, this ships a monospace glyph-texture atlas + a text compositor (the
+  same per-character-texture technique WD uses for its clock) and a VFS override of WD's
+  `d_promin_ui.script` to register the page.
+- `ii_identify.get_last_identified()` exposes the last-identified target for external
+  readouts (main mod; inert without a reader).
+- Crafting recipes for every item (antenna, process T1-3, AR + OSD scanner T1-3), mirroring
+  WD's own recipe format; higher tiers consume the previous tier + Promin tech.
+- Two scanner channels: **AR Scanner** (a worn bracer device, the old scanner renamed) —
+  identification shown ON entities as usual, needs the antenna; and **OSD Scanner Module**
+  (a Promin module) — identification shown only on the Promin IDENTIFICATION page, no
+  on-entity UI, and needs **only the OSD module + a process module** (no antenna). The OSD
+  module shares the Promin `conn` bay with the antenna (mutually exclusive = the AR/OSD
+  switch). Both come in the same 3 tiers. Face redaction is unaffected. New AR Scanner icon
+  (viewfinder brackets over a target); the OSD module reuses the radar icon.
+- Fixed the missing line break after "FEATURES:" in item descriptions (a `\n` right after a
+  `%c` colour tag was dropped by the engine's text parser; moved it inside the coloured run).
+- Fixed the **binocular identify-range boost** blowing far past the intended distance. With
+  `binoc_zoom_scaling` on it multiplied the range by the camera-FOV ratio (the raw angular
+  zoom, e.g. ~19.6x) instead of the configured magnification, e.g. a 50 m base became ~977 m
+  instead of `50 × 4.4 = 220 m`. Binoculars now use `binoc_range_mult` directly as the
+  magnification; `binoc_zoom_scaling` reserves a seam for a real engine-reported magnification
+  (custom exe) and is inert (flat multiplier) without it — never FOV-derived.
+- Fixed the **Wearable Devices → "Require Scanner kit to identify"** toggle: disabling it
+  still blocked identification. MCM marshalled the checkbox as the number `0`, which is
+  truthy under Lua `if`, so a disabled box read as enabled. `read_config` now coerces every
+  boolean-default option to a real boolean, hardening all checkboxes against the same trap.
+- The Promin IDENTIFICATION page now shows the target's **portrait** (its character_icon)
+  alongside the text fields, and lays out like the NAVIGATION page — biomonitor kept on
+  the left, identification info in the right panel where the map is, with an
+  "IDENTIFICATION" tab label in the empty tab slot next to BIOMONITOR / NAVIGATION.
 - **Not verified in-game** — the WD device/slot integration follows WD's patterns but
   needs in-game iteration. See `WD Compatibility/README.md`.
 

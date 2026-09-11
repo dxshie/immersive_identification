@@ -651,45 +651,76 @@ enablement, and the faction/distance/relationship/rank/weapon display gates); th
 of the MCM (UI style, colours, key bind, …) is untouched.
 
 **New items** (all placeholder art — see the component `README`):
-- **Promin Antenna Module** + **Promin Process Module T1/T2/T3** — real WD Promin
-  bay-modules, installed via WD's own system (item use menu / bracer customize screen),
-  so they appear in the customize cells with their icons. `ii_wd_modules.register()`
-  **repurposes WD's two functionally-empty bays**: it drops WD's do-nothing `conn`/`side`
-  `MODULES` entries and adds the antenna (`conn` bay) + the process tiers (all sharing the
-  `side` bay), keeping the Promin at exactly three bays so **no customize-UI XML changes**
-  are needed (adding a fourth bay would crash it — it builds one fixed `module_open_<N>`
-  cell per `d_promin_config.BAYS` entry and ships XML for only three). The process items'
-  install action is wrapped (`install_process`) to remove any other process tier first, so
-  a new tier swaps the old (WD doesn't enforce one-module-per-bay). `conn`/`side` are made
-  active on every Promin tier so the kit works on a tier-1 Promin too. WD persists the
-  installed set; detection is `d_promin.has_module("ii_ant"/"ii_proc_tN")`.
-- **Identification Scanner T1/T2/T3** — a worn device mounted on the bracer,
-  `d_ii_scanner.script` mirroring WD's `d_vektor`/`d_bracer` pattern (`wd_worn` +
-  `wd_slots.register_device` + `wd_exo`), on its own logical slot. It attaches **no worn
-  model** (invisible — a placeholder mesh showed a duplicate bracer); it's a logical
-  device tracked by `wd_worn`. It registers its own callbacks from `on_game_start` (this
-  component isn't in WD's hardcoded `wd_boot` device list, and `wd_core.start()` wires
-  only once).
+- **Promin modules** — antenna, **OSD Scanner Module T1/T2/T3**, and process T1/T2/T3 —
+  real WD Promin bay-modules, installed via WD's own system (item use menu / bracer
+  customize screen), so they appear in the customize cells with their icons.
+  `ii_wd_modules.register()` **repurposes WD's two functionally-empty bays** (drops WD's
+  do-nothing `conn`/`side` `MODULES` entries), keeping the Promin at exactly three bays so
+  **no customize-UI XML changes** are needed (a fourth bay crashes it — one fixed
+  `module_open_<N>` cell per `d_promin_config.BAYS` entry, XML for only three):
+  - `conn` bay: the **antenna** OR an **OSD scanner** tier — mutually exclusive, and that
+    shared bay *is* the AR-vs-OSD channel switch.
+  - `side` bay: a **process** tier.
 
-**Driver** (`ii_wd_compat.script`): polls WD state — `d_ii_scanner.worn_tier()` (1/2/3),
-`ii_wd_modules.process_tier()` / `has_antenna()`, `d_bracer.is_worn()`,
+  All install through `ii_wd_modules.install`, which evicts any module already in the target
+  bay first (WD's `install_module` appends without checking, so the shared bays would
+  otherwise stack). `conn`/`side` are made active on every Promin tier so the kit works on a
+  tier-1 Promin. WD persists the installed set; detection is
+  `d_promin.has_module("ii_ant"/"ii_osd_tN"/"ii_proc_tN")`.
+- **AR Scanner T1/T2/T3** — a **worn** bracer device (`d_ii_scanner.script`, mirroring WD's
+  `d_vektor`/`d_bracer`: `wd_worn` + `wd_slots.register_device` + `wd_exo`), 3 tiers
+  (range/ADS/mag/night). Shows identification on entities (the usual tags). Attaches **no
+  worn model** (invisible — a placeholder mesh showed a duplicate bracer) and registers its
+  own callbacks from `on_game_start` (this component isn't in WD's hardcoded `wd_boot` list,
+  and `wd_core.start()` wires only once).
+
+**Two channels** (mutually exclusive via the shared `conn` bay):
+- **AR** = antenna installed + a worn AR scanner + bracer worn + Promin worn & powered →
+  identification on entities.
+- **OSD** = an OSD scanner module installed + a process module + Promin worn & powered
+  (no antenna, no worn scanner, no bracer) → the driver sets `osd_only`, and core suppresses
+  **all** on-entity identification UI (main tags *and* in-scope markers) while still
+  computing the identification; face redaction is untouched. The Promin ident page is gated
+  on the OSD scanner module being installed.
+
+**Driver** (`ii_wd_compat.script`): polls WD state — `d_ii_scanner.worn_tier()`,
+`ii_wd_modules.process_tier()` / `osd_scanner_tier()` / `has_antenna()`, `d_bracer.is_worn()`,
 `d_promin.is_worn()/is_powered()` — and the user's tier values via
 `ii_identify.get_wd_tier_cfg()`, then builds the override table (cached, refreshed every
-~250 ms, so the per-frame `tier_provider` call doesn't rescan inventory). Full kit =
-bracer worn + Promin worn & powered + antenna + a process module installed + a worn scanner.
-Process tier → `scan_base` + the display-feature unlocks; scanner tier → `max_dist` +
-`allow_ads` (T2) + `mag_boost` (T2) + `ignore_night` (T3). All WD calls are
-`rawget`/`pcall`-guarded so the component is inert (returns `nil`) when WD or II is absent,
-and never throws into core's per-frame path.
+~250 ms). It picks the OSD path when an OSD scanner module is installed, else the AR path.
+Scanner tier (worn AR tier, or the OSD module tier) → `max_dist` + `allow_ads` (T2) +
+`mag_boost` (T2) + `ignore_night` (T3); process tier → `scan_base` + the display-feature
+unlocks. All WD calls are `rawget`/`pcall`-guarded so the component is inert (returns `nil`)
+when WD or II is absent, and never throws into core's per-frame path.
 
 **Bootstrap gotcha** (fixed): `on_game_start` is auto-called by the engine for every
 script, but `actor_on_first_update` is a callback that must be wired via
 `RegisterScriptCallback` — an early version defined it as a bare global, so its body never
 ran. All wiring now happens in `on_game_start`.
 
+**Promin IDENTIFICATION tab**: installing the antenna adds a third Promin screen page
+(`pages = {"ident"}` on the antenna module → WD's `get_available_pages` puts it in the
+tab cycle). It mirrors the NAVIGATION page — reuses `d_promin_health_ui.build_chrome`
+(bg `wd_tab_bg_map`) + `build_bio` to keep the frame + left biomonitor, and draws the
+last-identified target in the **right panel** (the map's region, design rect
+`572,85,425,450`): a **portrait** (`obj:character_icon()`) + name/faction/rank/position/
+distance/weapon (locked fields `---`; monsters have no portrait). The BIOMONITOR/NAVIGATION
+tab strip is baked into the bg texture (a true 3rd tab needs an art edit), so the page
+overlays its own "IDENTIFICATION" label over the strip while active. Data comes from `ii_identify.get_last_identified()` (a persistent
+snapshot written in `identify_target`, respecting the tier feature gates). The Promin CRT
+screen has **no font** (WD renders numbers as pre-baked digit textures), so this ships a
+**monospace glyph atlas** (`ii_wd_font.dds` + a `textures_descr` mapping one id per ASCII
+code) + a compositor (`ii_wd_text.script`) that draws strings by binding per-character
+glyph textures onto slot widgets — the same mechanism as WD's clock. WD's page-builder
+table is a file-local with no seam, so the page needs a **VFS override of
+`d_promin_ui.script`** (verbatim copy + two `II-COMPAT` additions: the `ident` builder and
+a second `ctx.init_ii` for our own node xml) — re-sync on a WD update.
+
 **Untestable / placeholder** (flagged in the component `README`): the scanner is invisible
-(no worn model — re-enable + tune the attach in `sync_attachment` for real art); item
-icons are one shared generated placeholder DDS. Neither affects the tier **logic**.
+(no worn model — re-enable + tune the attach in `sync_attachment` for real art); the
+scanner/module icons are generated placeholders; the IDENTIFICATION page's screen layout
+(coordinates in the 1100×600 design space) and glyph sizing are best-guess and will likely
+need in-game tuning. None affects the tier **logic**.
 
 ---
 
