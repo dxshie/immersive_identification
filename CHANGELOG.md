@@ -31,6 +31,15 @@
   readouts (main mod; inert without a reader).
 - Crafting recipes for every item (antenna, process T1-3, AR + OSD scanner T1-3), mirroring
   WD's own recipe format; higher tiers consume the previous tier + Promin tech.
+- Added a **4th Promin module bay** so the antenna, OSD scanner, process module, and WD's
+  map module can all be installed at once (previously the antenna and OSD scanner shared one
+  bay). The OSD scanner now lives in its own bay, so the **AR and OSD channels are
+  independent** — run entity overlays and the Promin readout simultaneously if you have both.
+  Requires a shipped override of WD's `ui_wd_customize.xml` (adds a 4th module cell — WD's
+  screen only ships three and a 4th bay otherwise crashes it).
+- **Binocular support under the tier system** (both AR and OSD): a scanner tier now unlocks
+  identifying through raised binoculars, extending the identify range by the binocular range
+  multiplier. Unlocked at Tier 1 by default; configurable on the Wearable Devices MCM page.
 - Two scanner channels: **AR Scanner** (a worn bracer device, the old scanner renamed) —
   identification shown ON entities as usual, needs the antenna; and **OSD Scanner Module**
   (a Promin module) — identification shown only on the Promin IDENTIFICATION page, no
@@ -40,6 +49,20 @@
   (viewfinder brackets over a target); the OSD module reuses the radar icon.
 - Fixed the missing line break after "FEATURES:" in item descriptions (a `\n` right after a
   `%c` colour tag was dropped by the engine's text parser; moved it inside the coloured run).
+- The IDENTIFICATION tab is now a **real baked tab** in the Promin's top strip, shown on
+  **every** page (IDENTIFICATION / BIOMONITOR / NAVIGATION), with the active one highlighted
+  and the font matching WD's. Uses author-provided background art (DXT5, matching WD's
+  format): the identification page has its own `tablet_ui_main_ident.dds`, and the biomonitor
+  and navigation page backgrounds (`tablet_ui_main.dds`, `tablet_ui_main_map.dds`) are
+  overridden so the three-tab strip appears consistently across all pages.
+- The Promin IDENTIFICATION page now shows an animated **scanning spinner** (over the
+  portrait area) while a scan is in progress; the text fields keep the last result until the
+  new scan completes. Driven by a new `ii_identify.get_scan_progress()`.
+- Fixed the **OSD scanner's Promin readout ignoring scan time**: the target now appears on
+  the Promin IDENTIFICATION page only when the scan actually **completes** (a slower process
+  module = a longer wait), and the previously-identified target stays shown until the new
+  scan finishes — mirroring when an on-entity tag reveals. It previously populated instantly
+  at scan start.
 - Fixed the **binocular identify-range boost** blowing far past the intended distance. With
   `binoc_zoom_scaling` on it multiplied the range by the camera-FOV ratio (the raw angular
   zoom, e.g. ~19.6x) instead of the configured magnification, e.g. a 50 m base became ~977 m

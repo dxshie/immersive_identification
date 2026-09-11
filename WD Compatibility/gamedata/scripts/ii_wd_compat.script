@@ -43,36 +43,29 @@ local function compute()
 	pt = ok_pt and pt or nil
 	local promin_up = pt ~= nil and safe_pcall_true(dp.is_worn) and safe_pcall_true(dp.is_powered)
 
-	-- Two mutually-exclusive channels (the antenna and the OSD-scanner module share the
-	-- Promin `conn` bay, so only one can be installed):
-	--   OSD: OSD-scanner MODULE installed  -> identify shown only on the Promin ident page.
-	--   AR : antenna installed + AR SCANNER worn on the bracer -> shown on entities as usual.
-	local osd_scanner = nil
+	-- Two INDEPENDENT channels now (antenna and OSD-scanner module live in separate Promin
+	-- bays, so both can be installed at once):
+	--   OSD: OSD-scanner MODULE installed          -> the Promin ident-page readout.
+	--   AR : antenna installed + AR SCANNER worn    -> the usual on-entity overlays.
+	-- OSD channel ready: just the module + process + Promin.
+	local osd_tier = nil
 	if mods.osd_scanner_tier then
 		local ok_o, o = pcall(mods.osd_scanner_tier)
-		osd_scanner = ok_o and o or nil
+		osd_tier = ok_o and o or nil
 	end
+	local osd_ready = promin_up and osd_tier ~= nil
 
-	local osd_only, st
-	if promin_up and osd_scanner ~= nil then
-		-- OSD path: no antenna, no worn scanner, no bracer -- just the module + process.
-		osd_only, st = true, osd_scanner
-	else
-		-- AR path: antenna + a worn AR scanner + the bracer.
-		local ok_st, scanner_tier = pcall(scn.worn_tier)
-		scanner_tier = ok_st and scanner_tier or nil
-		local dbr = rawget(_G, "d_bracer")
-		local ar_ready = promin_up
-			and scanner_tier ~= nil
-			and dbr ~= nil
-			and safe_pcall_true(dbr.is_worn)
-			and safe_pcall_true(mods.has_antenna)
-		if ar_ready then
-			osd_only, st = false, scanner_tier
-		end
-	end
+	-- AR channel ready: antenna installed + a worn AR scanner + the bracer.
+	local ok_st, ar_tier = pcall(scn.worn_tier)
+	ar_tier = ok_st and ar_tier or nil
+	local dbr = rawget(_G, "d_bracer")
+	local ar_ready = promin_up
+		and ar_tier ~= nil
+		and dbr ~= nil
+		and safe_pcall_true(dbr.is_worn)
+		and safe_pcall_true(mods.has_antenna)
 
-	if st == nil then
+	if not (ar_ready or osd_ready) then
 		-- Incomplete kit: block identification if the user requires the kit, else fall
 		-- through to normal Immersive Identification behaviour.
 		if cfg.require_kit then
@@ -80,6 +73,18 @@ local function compute()
 		end
 		return nil
 	end
+
+	-- Scanner tier drives range/ADS/night: use the best of whichever channels are ready.
+	-- (ar_ready implies ar_tier ~= nil; osd_ready implies osd_tier ~= nil.)
+	local st
+	if ar_ready and osd_ready then
+		st = math.max(ar_tier or 1, osd_tier or 1)
+	else
+		st = ar_ready and ar_tier or osd_tier
+	end
+	-- Suppress on-entity UI only when OSD is the ONLY channel (pure Promin-readout mode).
+	-- With an AR scanner also worn, entity overlays AND the Promin readout both show.
+	local osd_only = osd_ready and not ar_ready
 
 	local function feat_at(key)
 		return pt >= (cfg.feat[key] or 99)
@@ -90,6 +95,7 @@ local function compute()
 		max_dist = cfg.scan[st], -- scanner tier -> identify range
 		ignore_night = st >= (cfg.scanner_nonight or 3),
 		allow_ads = st >= (cfg.scanner_ads or 2),
+		allow_binoc = st >= (cfg.scanner_binoc or 1),
 		mag_boost = st >= (cfg.scanner_mag or 2),
 		osd_only = osd_only, -- OSD channel: identify, but show only on the Promin
 		feat = {

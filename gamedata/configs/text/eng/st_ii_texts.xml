@@ -292,6 +292,8 @@
 	<string id="ui_mcm_ii_wd_feat_weapon"><text>Weapon unlock tier</text></string>
 	<string id="ui_mcm_ii_wd_feat_weapon_desc"><text>Which process-module tier reveals the target's weapon and caliber. Default Tier 3.</text></string>
 	<string id="ui_mcm_ii_wd_scanner_title"><text>- Scanner tier that unlocks each feature -</text></string>
+	<string id="ui_mcm_ii_wd_scanner_binoc"><text>Binocular support tier</text></string>
+	<string id="ui_mcm_ii_wd_scanner_binoc_desc"><text>Which scanner tier enables identifying through raised binoculars (extends the identify range by the binocular range multiplier). Applies to both the AR and OSD channels. Default Tier 1.</text></string>
 	<string id="ui_mcm_ii_wd_scanner_ads"><text>Scope / ADS support tier</text></string>
 	<string id="ui_mcm_ii_wd_scanner_ads_desc"><text>Which scanner tier enables identifying while aiming down sights / through a scope. Default Tier 2.</text></string>
 	<string id="ui_mcm_ii_wd_scanner_mag"><text>Magnification boost tier</text></string>

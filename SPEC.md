@@ -655,17 +655,20 @@ of the MCM (UI style, colours, key bind, …) is untouched.
   real WD Promin bay-modules, installed via WD's own system (item use menu / bracer
   customize screen), so they appear in the customize cells with their icons.
   `ii_wd_modules.register()` **repurposes WD's two functionally-empty bays** (drops WD's
-  do-nothing `conn`/`side` `MODULES` entries), keeping the Promin at exactly three bays so
-  **no customize-UI XML changes** are needed (a fourth bay crashes it — one fixed
-  `module_open_<N>` cell per `d_promin_config.BAYS` entry, XML for only three):
-  - `conn` bay: the **antenna** OR an **OSD scanner** tier — mutually exclusive, and that
-    shared bay *is* the AR-vs-OSD channel switch.
+  do-nothing `conn`/`side` `MODULES` entries) **and adds a fourth bay** so all four modules
+  fit at once:
+  - `conn` bay: the **antenna**.
   - `side` bay: a **process** tier.
+  - `ii_osd` bay (added to `d_promin_config.BAYS`): an **OSD scanner** tier.
+  - (`map` bay: WD's own navigation module.)
 
-  All install through `ii_wd_modules.install`, which evicts any module already in the target
-  bay first (WD's `install_module` appends without checking, so the shared bays would
-  otherwise stack). `conn`/`side` are made active on every Promin tier so the kit works on a
-  tier-1 Promin. WD persists the installed set; detection is
+  The 4th bay requires a shipped **override of WD's `ui_wd_customize.xml`** (a 4th
+  `module_open_4`/`module_restricted_4`/`cell_4`) — WD's customize screen builds one cell per
+  `d_promin_config.BAYS` entry and ships XML for only three, so a 4th bay is otherwise a fatal
+  `module_open_4 not found`. All install through `ii_wd_modules.install`, which evicts any
+  module already in the target bay first (WD's `install_module` appends without checking).
+  All three of our bays are made active on every Promin tier so the kit works on a tier-1
+  Promin. WD persists the installed set; detection is
   `d_promin.has_module("ii_ant"/"ii_osd_tN"/"ii_proc_tN")`.
 - **AR Scanner T1/T2/T3** — a **worn** bracer device (`d_ii_scanner.script`, mirroring WD's
   `d_vektor`/`d_bracer`: `wd_worn` + `wd_slots.register_device` + `wd_exo`), 3 tiers
@@ -674,23 +677,27 @@ of the MCM (UI style, colours, key bind, …) is untouched.
   own callbacks from `on_game_start` (this component isn't in WD's hardcoded `wd_boot` list,
   and `wd_core.start()` wires only once).
 
-**Two channels** (mutually exclusive via the shared `conn` bay):
+**Two INDEPENDENT channels** (separate bays, both installable at once):
 - **AR** = antenna installed + a worn AR scanner + bracer worn + Promin worn & powered →
-  identification on entities.
+  identification on entities (the usual overlays).
 - **OSD** = an OSD scanner module installed + a process module + Promin worn & powered
-  (no antenna, no worn scanner, no bracer) → the driver sets `osd_only`, and core suppresses
-  **all** on-entity identification UI (main tags *and* in-scope markers) while still
-  computing the identification; face redaction is untouched. The Promin ident page is gated
-  on the OSD scanner module being installed.
+  (no antenna, no worn scanner, no bracer) → the Promin ident-page readout.
+
+`osd_only` (core suppresses **all** on-entity identification UI — main tags *and* in-scope
+markers, face redaction untouched) is set only in **pure OSD mode** (OSD ready and AR not).
+With both channels' gear, entity overlays *and* the Promin readout show together. The Promin
+ident page is gated on the OSD scanner module being installed.
 
 **Driver** (`ii_wd_compat.script`): polls WD state — `d_ii_scanner.worn_tier()`,
 `ii_wd_modules.process_tier()` / `osd_scanner_tier()` / `has_antenna()`, `d_bracer.is_worn()`,
 `d_promin.is_worn()/is_powered()` — and the user's tier values via
 `ii_identify.get_wd_tier_cfg()`, then builds the override table (cached, refreshed every
-~250 ms). It picks the OSD path when an OSD scanner module is installed, else the AR path.
-Scanner tier (worn AR tier, or the OSD module tier) → `max_dist` + `allow_ads` (T2) +
+~250 ms). Identification runs if either channel is ready; the scanner tier used is the best
+(max) of whichever are ready → `max_dist` + `allow_binoc` (T1) + `allow_ads` (T2) +
 `mag_boost` (T2) + `ignore_night` (T3); process tier → `scan_base` + the display-feature
-unlocks. All WD calls are `rawget`/`pcall`-guarded so the component is inert (returns `nil`)
+unlocks. **Binoculars** count under the tier system when the scanner unlocks them
+(`allow_binoc`, T1 by default): raised binoculars extend the tier's identify range by
+`binoc_range_mult` (`boost_params` tier branch), for both channels. All WD calls are `rawget`/`pcall`-guarded so the component is inert (returns `nil`)
 when WD or II is absent, and never throws into core's per-frame path.
 
 **Bootstrap gotcha** (fixed): `on_game_start` is auto-called by the engine for every
@@ -701,13 +708,18 @@ ran. All wiring now happens in `on_game_start`.
 **Promin IDENTIFICATION tab**: installing the antenna adds a third Promin screen page
 (`pages = {"ident"}` on the antenna module → WD's `get_available_pages` puts it in the
 tab cycle). It mirrors the NAVIGATION page — reuses `d_promin_health_ui.build_chrome`
-(bg `wd_tab_bg_map`) + `build_bio` to keep the frame + left biomonitor, and draws the
+(bg `ii_wd_tab_bg_ident`) + `build_bio` to keep the frame + left biomonitor, and draws the
 last-identified target in the **right panel** (the map's region, design rect
 `572,85,425,450`): a **portrait** (`obj:character_icon()`) + name/faction/rank/position/
-distance/weapon (locked fields `---`; monsters have no portrait). The BIOMONITOR/NAVIGATION
-tab strip is baked into the bg texture (a true 3rd tab needs an art edit), so the page
-overlays its own "IDENTIFICATION" label over the strip while active. Data comes from `ii_identify.get_last_identified()` (a persistent
-snapshot written in `identify_target`, respecting the tier feature gates). The Promin CRT
+distance/weapon (locked fields `---`; monsters have no portrait) + a **scanning spinner**
+(`ii_wd_spinner.dds`, frame-cycled) shown over the portrait while a scan is in progress
+(driven by `ii_identify.get_scan_progress()`). The **IDENTIFICATION tab is a real baked tab**:
+the strip (IDENTIFICATION / BIOMONITOR / NAVIGATION, active one highlighted) is baked into
+the page background art — the ident page has its own `tablet_ui_main_ident.dds`, and WD's
+biomonitor + navigation backgrounds (`tablet_ui_main.dds`, `tablet_ui_main_map.dds`) are
+**overridden** so the third tab shows on every page (DXT5, matching WD's format). Data comes
+from `ii_identify.get_last_identified()` (a persistent snapshot written at scan *completion*
+in the render loop, respecting the tier feature gates, so the readout honours scan time). The Promin CRT
 screen has **no font** (WD renders numbers as pre-baked digit textures), so this ships a
 **monospace glyph atlas** (`ii_wd_font.dds` + a `textures_descr` mapping one id per ASCII
 code) + a compositor (`ii_wd_text.script`) that draws strings by binding per-character

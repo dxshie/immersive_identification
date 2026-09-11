@@ -17,14 +17,18 @@
 -- entities, not on the Promin.
 local ANTENNA = { name = "ii_ant", section = "ii_wd_antenna", bay = "conn" }
 
--- conn bay: OSD scanner tiers. These carry the IDENTIFICATION page (`pages = {"ident"}`) --
--- WD's get_available_pages() adds an installed module's pages to the Promin tab cycle, so
--- installing an OSD scanner makes the IDENTIFICATION tab appear (the OSD display channel).
+-- OSD scanner tiers live in their OWN bay (ii_osd), added below -- so they no longer share
+-- the conn bay with the antenna and both can be installed at once. They carry the
+-- IDENTIFICATION page (`pages = {"ident"}`): WD's get_available_pages() adds an installed
+-- module's pages to the Promin tab cycle, so installing an OSD scanner makes the tab appear.
+local OSD_BAY = "ii_osd"
 local OSD_SCANNER = {
-	{ name = "ii_osd_t1", section = "ii_wd_osd_scanner_t1", bay = "conn", pages = { "ident" } },
-	{ name = "ii_osd_t2", section = "ii_wd_osd_scanner_t2", bay = "conn", pages = { "ident" } },
-	{ name = "ii_osd_t3", section = "ii_wd_osd_scanner_t3", bay = "conn", pages = { "ident" } },
+	{ name = "ii_osd_t1", section = "ii_wd_osd_scanner_t1", bay = OSD_BAY, pages = { "ident" } },
+	{ name = "ii_osd_t2", section = "ii_wd_osd_scanner_t2", bay = OSD_BAY, pages = { "ident" } },
+	{ name = "ii_osd_t3", section = "ii_wd_osd_scanner_t3", bay = OSD_BAY, pages = { "ident" } },
 }
+-- Reuse WD's spare null mesh for the new bay's empty-slot 3D placeholder (visual only).
+local OSD_BAY_NULL = "wd\\promin\\promin_t2_m_null"
 
 local PROCESS = {
 	{ name = "ii_proc_t1", section = "ii_wd_process_t1", bay = "side" },
@@ -61,9 +65,21 @@ function register()
 	end
 	done = true
 
-	-- Repurpose the two empty bays: drop WD's inert conn/side modules, add ours.
+	-- Repurpose WD's two empty bays for antenna/process, and ADD a dedicated 4th bay for the
+	-- OSD scanner (ii_osd). The 4th bay needs the ui_wd_customize.xml override we ship (a 4th
+	-- module cell), or WD's customize screen crashes on module_open_4.
 	remove_wd_module(cfg.MODULES, "conn")
 	remove_wd_module(cfg.MODULES, "side")
+	local has_osd_bay = false
+	for _, b in ipairs(cfg.BAYS) do
+		if b.id == OSD_BAY then
+			has_osd_bay = true
+			break
+		end
+	end
+	if not has_osd_bay then
+		cfg.BAYS[#cfg.BAYS + 1] = { id = OSD_BAY, null_model = OSD_BAY_NULL }
+	end
 	ensure_module(cfg.MODULES, ANTENNA)
 	for _, m in ipairs(OSD_SCANNER) do
 		ensure_module(cfg.MODULES, m)
@@ -72,11 +88,11 @@ function register()
 		ensure_module(cfg.MODULES, m)
 	end
 
-	-- Make the conn/side bays active on EVERY Promin tier so the kit works on a tier-1
-	-- Promin too (WD only grants them on tier 2). No new bays -> no extra UI cells.
+	-- Make our three bays active on EVERY Promin tier so the kit works on a tier-1 Promin too
+	-- (WD only grants conn/side on tier 2).
 	for _, tier in ipairs(cfg.TIERS) do
 		tier.bays = tier.bays or {}
-		for _, bay in ipairs({ "conn", "side" }) do
+		for _, bay in ipairs({ "conn", "side", OSD_BAY }) do
 			local present = false
 			for _, id in ipairs(tier.bays) do
 				if id == bay then

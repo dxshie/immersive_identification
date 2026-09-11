@@ -11,10 +11,11 @@
 -- CRT-shader binder (matches how WD draws the bg/digits/map).
 local binder = wd_screen.new_binder(d_promin_config.SCREEN_SHADER)
 
--- Background of the NAVIGATION tab: biomonitor on the left + an empty right panel + the
--- baked tab strip (BIOMONITOR / NAVIGATION). We reuse it and draw our content in the empty
--- right panel; the baked strip is covered by our own IDENTIFICATION tab label (below).
-local BG_TEXTURE = "wd_tab_bg_map"
+-- Our own full-screen background: a copy of WD's map-page bg (biomonitor left + empty right
+-- panel) with the tab strip re-baked to show IDENTIFICATION (active) next to a dimmed
+-- BIOMONITOR / NAVIGATION. So the IDENTIFICATION tab is a real baked tab, not a drawn label.
+-- (Ships as ii_wd\ui\tablet_ui_main_ident.dds; does not override WD's own textures.)
+local BG_TEXTURE = "ii_wd_tab_bg_ident"
 
 local COL_TITLE = { 235, 205, 110 } -- amber (matches our description headers)
 local COL_LABEL = { 110, 175, 150 } -- dim teal
@@ -27,15 +28,13 @@ local VIEW = { x = 572, y = 85, w = 425, h = 450 }
 local PANEL = { x = 580, y = 96, w = 410, h = 430 }
 -- Target portrait (top-centre of the right panel).
 local PORTRAIT = { x = 712, y = 116, w = 146, h = 176 }
+-- "Scanning" spinner, centred over the portrait area while a scan is in progress.
+local SPINNER = { x = 737, y = 156, w = 96, h = 96 }
+local SPIN_FRAMES, SPIN_STEP_MS = 12, 75 -- 12 x 75 ms = ~900 ms per rotation
 -- Field rows below the portrait: label column, value column, glyph metrics.
 local ROW_Y0, ROW_DY = 306, 34
 local LABEL_X, VALUE_X = 590, 714
 local GW, GH, ADV = 15, 20, 15
--- IDENTIFICATION tab label: placed in the EMPTY tab slot to the left of the baked
--- BIOMONITOR / NAVIGATION labels (WD's chrome art leaves a slot there). Small tab-sized
--- glyphs so "IDENTIFICATION" fits one slot. Colour is the bright/active tab look. These
--- x/y and the glyph size are the numbers to nudge so it lines up with the baked tabs.
-local TAB = { x = 726, y = 88, gw = 7, gh = 13, adv = 6, color = { 225, 236, 229 } }
 
 local ROWS = {
 	{ label = "NAME", key = "name", vmax = 18 },
@@ -79,10 +78,7 @@ function build(ctx)
 	page.panel:SetWndPos(vector2():set(px.x(PANEL.x), px.y(PANEL.y)))
 	page.panel:SetWndSize(vector2():set(px.w(PANEL.w), px.h(PANEL.h)))
 
-	-- IDENTIFICATION tab label, placed in the empty tab slot left of BIOMONITOR (no chip --
-	-- the slot already exists in the chrome art; we only add the text).
-	page.tab =
-		ii_wd_text.new_field(px, ctx.init_ii, "ii_wd_glyph", 14, TAB.x, TAB.y, TAB.gw, TAB.gh, TAB.adv, TAB.color)
+	-- (The IDENTIFICATION tab label is baked into BG_TEXTURE now -- no runtime label needed.)
 
 	-- Portrait (top-right panel). Generic stretch static; texture (re)bound each update.
 	page.portrait = ctx.init_ii("ii_wd_glyph")
@@ -90,6 +86,13 @@ function build(ctx)
 	page.portrait:SetWndSize(vector2():set(px.w(PORTRAIT.w), px.h(PORTRAIT.h)))
 	page.portrait:Show(false)
 	page.portrait_tex = nil
+
+	-- "Scanning" spinner (frame-cycled sprite, over the portrait area while a scan runs).
+	page.spinner = ctx.init_ii("ii_wd_glyph")
+	page.spinner:SetWndPos(vector2():set(px.x(SPINNER.x), px.y(SPINNER.y)))
+	page.spinner:SetWndSize(vector2():set(px.w(SPINNER.w), px.h(SPINNER.h)))
+	page.spinner:Show(false)
+	page.spinner_tex = nil
 
 	page.labels = {}
 	page.values = {}
@@ -103,7 +106,6 @@ function build(ctx)
 
 	local function render()
 		local alpha = d_promin_health_ui.get_ui_alpha()
-		ii_wd_text.set_text(page.tab, "IDENTIFICATION", alpha)
 		-- This readout is the OSD scanner's display channel: it only shows data while an OSD
 		-- scanner MODULE is installed in the Promin. An AR scanner instead projects overlays
 		-- onto entities (nothing here).
@@ -118,13 +120,29 @@ function build(ctx)
 			end
 			ii_wd_text.set_text(page.values[i], v, alpha)
 		end
-		local pic = last and last.portrait or nil
-		if pic then
-			page.portrait_tex = binder.bind(page.portrait, pic, page.portrait_tex)
-			page.portrait:SetTextureColor(GetARGB(alpha, 255, 255, 255))
-			page.portrait:Show(true)
-		else
+		-- While a scan is in progress (OSD channel), show the animated spinner over the
+		-- portrait area instead of the portrait -- the text fields keep the last result until
+		-- the new scan completes.
+		local scanning = osd
+			and ii_identify
+			and ii_identify.get_scan_progress
+			and ii_identify.get_scan_progress() ~= nil
+		if scanning then
+			local frame = math.floor(time_global() / SPIN_STEP_MS) % SPIN_FRAMES
+			page.spinner_tex = binder.bind(page.spinner, "ii_wd_spin_" .. frame, page.spinner_tex)
+			page.spinner:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+			page.spinner:Show(true)
 			page.portrait:Show(false)
+		else
+			page.spinner:Show(false)
+			local pic = last and last.portrait or nil
+			if pic then
+				page.portrait_tex = binder.bind(page.portrait, pic, page.portrait_tex)
+				page.portrait:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+				page.portrait:Show(true)
+			else
+				page.portrait:Show(false)
+			end
 		end
 	end
 
@@ -137,7 +155,7 @@ function build(ctx)
 			render()
 		else
 			page.portrait:Show(false)
-			ii_wd_text.hide_field(page.tab)
+			page.spinner:Show(false)
 			for i = 1, #ROWS do
 				ii_wd_text.hide_field(page.labels[i])
 				ii_wd_text.hide_field(page.values[i])

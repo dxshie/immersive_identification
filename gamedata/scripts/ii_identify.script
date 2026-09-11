@@ -150,6 +150,7 @@ DEFAULTS = {
 	wd_feat_rank = 2,
 	wd_feat_weapon = 3,
 	wd_scanner_ads = 2, -- scanner tier that unlocks scope/ADS support (1..3)
+	wd_scanner_binoc = 1, -- scanner tier that unlocks binocular identification (1..3; extends range x binoc_range_mult)
 	wd_scanner_mag = 2, -- scanner tier that unlocks the magnification range boost (1..3)
 	wd_scanner_nonight = 3, -- scanner tier that removes the night penalty (1..3)
 }
@@ -406,6 +407,7 @@ MCM_PAGES = {
 ---@field max_dist number? identify range (metres), from the scanner tier
 ---@field ignore_night boolean? scanner's no-night tier
 ---@field allow_ads boolean? scanner unlocks scope/ADS support
+---@field allow_binoc boolean? scanner unlocks binocular identification (extends range by binoc_range_mult)
 ---@field mag_boost boolean? scanner unlocks the magnification range boost
 ---@field osd_only boolean? OSD scanner: identify normally but draw NO on-entity UI (tags/markers) -- the result shows only on the Promin ident page
 ---@field feat table? per-feature display gates { faction, distance, relationship, rank, weapon }
@@ -417,6 +419,13 @@ local _tier = nil -- this frame's tier_provider() result, or nil
 -- Last-identified target snapshot (for external readouts like the Promin ident page).
 -- Written in identify_target; read via get_last_identified(). One table = one local slot.
 local _last_id = { id = nil }
+
+-- Progress (0..1) of the currently-active scan (the furthest-along one if several), or nil
+-- if nothing is scanning. Updated every frame in render(); read right after. Drives the
+-- Promin OSD "scanning" spinner. Global so the WD compat page can read it.
+function get_scan_progress()
+	return _last_id.scan_frac
+end
 
 -- The last target identified this session (or nil if none yet). Returns a fresh table:
 -- { name, faction, rank, weap, x, y, z, dist } -- any field may be nil if that data wasn't
@@ -461,6 +470,7 @@ function get_wd_tier_cfg()
 			weapon = C.wd_feat_weapon,
 		},
 		scanner_ads = C.wd_scanner_ads,
+		scanner_binoc = C.wd_scanner_binoc,
 		scanner_mag = C.wd_scanner_mag,
 		scanner_nonight = C.wd_scanner_nonight,
 	}
@@ -2420,6 +2430,11 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 	local show_rel = ft and (ft.relationship == true) or not ft
 	local show_dist = ft and (ft.distance == true) or false
 
+	-- Portrait for the Promin OSD readout (a ui_npc_u_* texture region). character_icon() is
+	-- only valid for InventoryOwners, so it errors on monsters -- guarded; nil = no portrait.
+	local portrait = safe_call(obj.character_icon, obj)
+	portrait = (portrait and portrait ~= "") and portrait or nil
+
 	tracked[id] = {
 		t0 = tg,
 		col = show_rel and relation_color(obj) or COL_NEUTRAL,
@@ -2431,6 +2446,7 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 		rank = show_rank and rank_label(obj) or nil,
 		rank_col = rank_color(obj),
 		weap = show_weapon and held_weapon_label(obj) or nil,
+		portrait = portrait, -- for the Promin OSD readout (captured at reveal, see render())
 		want_dist = show_dist,
 		scan_ms = eff_scan_ms,
 		max_dist = eff_max_dist,
@@ -2445,24 +2461,10 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 		hold_ms = HOLD_MS,
 	}
 
-	-- Record the last-identified target for external readouts (e.g. the Promin
-	-- identification page, WD compat). Persists independently of `tracked` (which drains
-	-- as tags fade). Fields respect the same feature gates as the tag, so a reader shows
-	-- only what was actually unlocked; position stored as x/y/z (distance computed live).
-	local p = safe_call(obj.position, obj)
-	_last_id.id = id
-	_last_id.name = show_name and display_name(obj, comm) or nil
-	_last_id.faction = show_faction and faction_label(comm) or nil
-	_last_id.rank = show_rank and rank_label(obj) or nil
-	_last_id.weap = show_weapon and held_weapon_label(obj) or nil
-	-- Portrait texture id (a registered ui_npc_u_* region). character_icon() is only valid
-	-- for InventoryOwners, so it errors on monsters -- guarded; nil = no portrait.
-	local ic = safe_call(obj.character_icon, obj)
-	_last_id.portrait = (ic and ic ~= "") and ic or nil
-	_last_id.x = p and p.x or nil
-	_last_id.y = p and p.y or nil
-	_last_id.z = p and p.z or nil
-	_last_id.tg = tg
+	-- NB: the Promin OSD readout (_last_id, read by get_last_identified) is NOT populated
+	-- here at scan START -- it's captured in render() at the moment the scan COMPLETES, so
+	-- the readout respects scan time (a slower process module = a longer wait before the
+	-- target appears on the Promin) and keeps the previous target until the new one finishes.
 end
 
 -- Snapshot the current binocular-boost state into the triple both the keypress
@@ -2477,22 +2479,26 @@ end
 -- stack. Each boost carries its own scan + range multipliers from its MCM section.
 local function boost_params()
 	if tier_active() then
-		-- Tier system: range comes from the scanner tier (t.max_dist). Binoculars are
-		-- not part of it; ADS counts only when the scanner unlocks scope/ADS support
-		-- (allow_ads), and the magnification range boost only at the scanner's mag tier
-		-- (mag_boost). scan_mult is unused (identify_target's tier branch sets scan time).
+		-- Tier system: range comes from the scanner tier (t.max_dist). Binoculars count when
+		-- the scanner unlocks them (allow_binoc, tier 1+) and extend the tier range by
+		-- binoc_range_mult; ADS counts only when the scanner unlocks scope/ADS (allow_ads),
+		-- with the magnification range boost at the scanner's mag tier (mag_boost). scan_mult
+		-- is unused (identify_target's tier branch sets scan time from the process tier).
 		local t = _tier ---@cast t ii_tier_override
 		local base_max = t.max_dist or C.max_dist
-		local ads = t.allow_ads and is_ads_active() or false
+		local binoc = t.allow_binoc and is_binoc_active() or false
+		local ads = (not binoc) and t.allow_ads and is_ads_active() or false
 		local range_mult = 1.0
-		if ads and t.mag_boost then
+		if binoc then
+			range_mult = C.binoc_range_mult
+		elseif ads and t.mag_boost then
 			local mag = scope_magnification()
 			if mag and mag > 1 then
 				range_mult = mag
 			end
 		end
 		local eff = base_max * range_mult
-		return false, ads, ads, eff, eff, 1.0
+		return binoc, ads, (binoc or ads), eff, eff, 1.0
 	end
 	local binoc = is_binoc_active()
 	local ads = (not binoc) and is_ads_active()
@@ -4326,6 +4332,8 @@ local function render(tg)
 	-- anchor at once before any of them are actually positioned.
 	local active_n = 0
 
+	_last_id.scan_frac = nil -- recomputed below: progress of any in-progress scan this frame
+
 	for id, e in pairs(tracked) do
 		-- Per-instance range/speed, captured at identify time in try_identify()
 		-- (see the binocular-boost comment there) rather than read live from
@@ -4373,6 +4381,12 @@ local function render(tg)
 			local phase_alpha, scanning = 0, false
 			if elapsed < scan_ms then
 				scanning = true
+				-- Track the furthest-along in-progress scan for the Promin OSD spinner
+				-- (get_scan_progress). Reset each frame before this loop.
+				local f = (scan_ms > 0) and (elapsed / scan_ms) or 1
+				if not _last_id.scan_frac or f > _last_id.scan_frac then
+					_last_id.scan_frac = f
+				end
 			elseif elapsed < scan_ms + fade_ms then
 				phase_alpha = (elapsed - scan_ms) / fade_ms
 			elseif elapsed < scan_ms + fade_ms + hold_ms then
@@ -4385,6 +4399,23 @@ local function render(tg)
 			end
 
 			local pos = anchor_pos(obj)
+
+			-- Promin OSD readout: snapshot this target for the ident page the first frame its
+			-- scan COMPLETES (osd_done gates it to once). Done here rather than at scan start
+			-- so the readout respects scan time and keeps the previously-identified target
+			-- until the new one finishes -- mirroring the moment the on-entity tag reveals.
+			-- Fields come straight from the (already tier-gated) tracked entry.
+			if not scanning and not e.osd_done then
+				e.osd_done = true
+				_last_id.id = id
+				_last_id.name, _last_id.faction = e.name, e.header
+				_last_id.rank, _last_id.weap = e.rank, e.weap
+				_last_id.portrait = e.portrait
+				_last_id.x = pos and pos.x or nil
+				_last_id.y = pos and pos.y or nil
+				_last_id.z = pos and pos.z or nil
+			end
+
 			local dist = apos and pos:distance_to(apos) or 0
 			local dist_fade = 1
 			if dist > fade_dist then

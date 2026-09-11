@@ -15,12 +15,12 @@ and a module tier system. See `SPEC.md` §7.3 for the full design.
   + a process module in the Promin.
 - **OSD Scanner Module (Tier 1/2/3)** — a **Promin module** (not worn); identification is
   shown **only on the Promin IDENTIFICATION page** — no on-entity UI at all (no tags, no
-  in-scope markers). Same 3 tiers as the AR scanner. It occupies the Promin's `conn` bay,
-  which it **shares with the antenna** (mutually exclusive — installing one evicts the
-  other): that shared bay *is* the AR-vs-OSD switch. The OSD path needs **only the OSD
-  scanner module + a process module** (no antenna, no worn scanner, no bracer). The Promin
-  ident readout is the OSD channel (shows "install OSD scanner" without one). Face
-  redaction is independent of the scanner.
+  in-scope markers). Same 3 tiers as the AR scanner. It sits in its own Promin bay (`ii_osd`,
+  added by this component — see below), so it can be installed **alongside** the antenna.
+  The OSD path needs **only the OSD scanner module + a process module** (no antenna, no worn
+  scanner, no bracer). The AR and OSD channels are independent — with both installed you get
+  entity overlays *and* the Promin readout. The Promin ident readout is the OSD channel
+  (shows "install OSD scanner" without one). Face redaction is independent of the scanner.
 
 With the full kit assembled (bracer worn + Promin worn & powered + an antenna and a
 process module **installed** + a worn scanner), identification runs on the tiers. Tune
@@ -38,18 +38,21 @@ option (WD's use3). The antenna occupies one module cell, the process module ano
 one process tier fits at a time (installing a different tier **swaps it out**, returning
 the old one to your pack).
 
-This works by **repurposing WD's two empty Promin bays**. The Promin has three module bays
-(`map`, `conn`, `side`); WD's own `conn` and `side` modules are functionally empty (no
-pages/sensors/effects — only `map` does anything), so this component replaces those two
-`MODULES` entries with the antenna (`conn` bay) and the process module (`side` bay). The
-Promin still has exactly three bays, so **nothing in WD's customize UI changes** — no new
-cells, no XML override.
+This works by **repurposing WD's two empty Promin bays and adding a fourth**. The Promin
+ships three module bays (`map`, `conn`, `side`); WD's own `conn` and `side` modules are
+functionally empty, so this component replaces those two `MODULES` entries with the antenna
+(`conn`) and the process module (`side`), and **adds a fourth bay** (`ii_osd`) for the OSD
+scanner. So all four can be installed at once: map (WD) + antenna + OSD scanner + process.
 
-Why not just add new bays? Because WD's customize UI builds one fixed cell per bay and only
-ships XML for three — a fourth bay is a fatal `XML node module_open_4 not found`. Reusing
-the two empty bays avoids that entirely. Trade-offs: WD's (do-nothing) `conn`/`side`
-module items become non-installable, and the reused bays render WD's placeholder null mesh
-on the Promin.
+The fourth bay needs a shipped **override of WD's `ui_wd_customize.xml`** — WD's customize
+screen builds one cell per bay and only ships XML for three, so a fourth bay is otherwise a
+fatal `XML node module_open_4 not found`. Our copy adds a 4th module cell. (Re-sync it if WD
+updates that file.) Trade-offs: WD's do-nothing `conn`/`side` module items become
+non-installable, and the extra bays render WD's placeholder null mesh on the Promin.
+
+Because the antenna and OSD scanner now sit in separate bays, the **AR and OSD channels are
+independent**: install both (plus a worn AR scanner) to get on-entity overlays *and* the
+Promin readout at the same time.
 
 ## Promin IDENTIFICATION tab
 
@@ -62,12 +65,16 @@ and weapon + caliber. Fields the current process tier hasn't unlocked show `---`
 page respects the same tier gating as the on-screen tags); monsters have no portrait so
 it's hidden for them.
 
-The Promin's tab strip (BIOMONITOR / NAVIGATION) is **baked into the background
-texture**, which leaves an empty tab slot to their left; the page draws its own
-"IDENTIFICATION" label into that slot. The layout constants (right-panel rect, portrait
-box, row/glyph metrics, and the `TAB` position/size) are all at the top of
-`d_ii_promin_ident.script` and will likely need in-game tuning — the `TAB` `x`/`y`/`adv`
-in particular, to line the label up inside the empty slot.
+The Promin's tab strip is **baked into the page background textures**. This component ships
+a full three-tab strip (IDENTIFICATION / BIOMONITOR / NAVIGATION) baked into each page's
+background, with the active tab highlighted:
+- `ii_wd\ui\tablet_ui_main_ident.dds` — the IDENTIFICATION page's own background (our file).
+- `wd\ui\promin\tablet_ui_main.dds` and `tablet_ui_main_map.dds` — **override** WD's
+  biomonitor and navigation backgrounds so the third tab shows there too. (These replace
+  WD's files at their own paths — re-export if WD updates that art.)
+
+All three are DXT5 (matching WD's format) and use the author-provided art with WD's tab
+font, so the strip reads natively on every page.
 
 The Promin CRT screen has no font (WD renders numbers as pre-baked digit textures), so
 this ships a **monospace glyph atlas** (`ii_wd_font.dds` + `ii_wd_font_textures.xml`,
