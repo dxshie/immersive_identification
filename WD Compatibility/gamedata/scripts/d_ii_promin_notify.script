@@ -1,0 +1,174 @@
+-- Promin identification NOTIFICATIONS. When a target is identified while the player is on
+-- the BIOMONITOR or NAVIGATION Promin page (i.e. NOT the IDENTIFICATION page, where it's
+-- already shown), a card pops up in the bottom-right and stacks upward as more come in.
+-- Each card: faction emblem (left circle), name + distance (middle), rank-as-level (right).
+--
+-- Rendered as children of the Promin window (created AFTER the pages by the d_promin_ui
+-- override, so they draw ON TOP of the active page). Text via the glyph compositor; the card
+-- art is ii_wd_notif_card. All coordinates are design px in the shared 1100x600 space.
+
+local binder = wd_screen.new_binder(d_promin_config.SCREEN_SHADER)
+local scratch = vector2()
+
+local NOTIF_MAX = 4 -- most cards stacked at once
+local TTL_MS = 6000 -- how long a card stays before fading out
+-- Card size + icon/glyph sizes are scaled ~25% up from the art's native 304x64 for
+-- readability (bump these together to rescale). Content anchors below are FRACTIONS of the
+-- card, so they follow the card size automatically.
+local CARD = { w = 363, h = 73 } -- card size on screen (design px); art is 304x64
+local RIGHT_X, BOTTOM_Y, GAP = 986, 566, 9 -- cards' right edge, bottom card's bottom, stack gap
+
+local COL_NAME = { 210, 235, 222 }
+local COL_DIST = { 150, 200, 175 }
+local COL_RANK = { 225, 205, 120 }
+
+-- Card-local content anchors, as fractions of the 304x64 art (from measuring the card):
+-- circle centre (29,32), name/distance right of it, rank slot centre (264,32).
+local ICON = { cx = 29 / 304, cy = 32 / 64, size = 43 }
+local NAME = { x = 57 / 304, y = 7 / 64, gw = 14, gh = 19, adv = 14, max = 15 }
+local DIST = { x = 57 / 304, y = 34 / 64, gw = 11, gh = 15, adv = 11, max = 12 }
+local RANK = { cx = 264 / 304, cy = 30 / 64, gw = 13, gh = 16, adv = 13 } -- "Rank N", centred
+
+-- nav = "map_small"; biomonitor = "main" (map module present) or "health" (no map module).
+local function notif_page(id)
+	return id == "map_small" or id == "main" or id == "health"
+end
+
+function build(ctx)
+	local px = d_promin_health_ui.get_px()
+	local mgr = { slots = {}, last_id = nil, inited = false }
+
+	for i = 0, NOTIF_MAX - 1 do
+		local cx = RIGHT_X - CARD.w
+		local cy = BOTTOM_Y - CARD.h - i * (CARD.h + GAP)
+		local s = { active = false, expiry = 0, icon_tex = nil }
+
+		s.bg = ctx.init_ii("ii_wd_glyph")
+		s.bg:SetWndPos(scratch:set(px.x(cx), px.y(cy)))
+		s.bg:SetWndSize(scratch:set(px.w(CARD.w), px.h(CARD.h)))
+		binder.set(s.bg, "ii_wd_notif_card")
+		s.bg:Show(false)
+
+		s.icon = ctx.init_ii("ii_wd_glyph")
+		s.icon:SetWndPos(
+			scratch:set(px.x(cx + ICON.cx * CARD.w - ICON.size / 2), px.y(cy + ICON.cy * CARD.h - ICON.size / 2))
+		)
+		s.icon:SetWndSize(scratch:set(px.w(ICON.size), px.h(ICON.size)))
+		s.icon:Show(false)
+
+		s.name = ii_wd_text.new_field(
+			px,
+			ctx.init_ii,
+			"ii_wd_glyph",
+			NAME.max,
+			cx + NAME.x * CARD.w,
+			cy + NAME.y * CARD.h,
+			NAME.gw,
+			NAME.gh,
+			NAME.adv,
+			COL_NAME
+		)
+		s.dist = ii_wd_text.new_field(
+			px,
+			ctx.init_ii,
+			"ii_wd_glyph",
+			DIST.max,
+			cx + DIST.x * CARD.w,
+			cy + DIST.y * CARD.h,
+			DIST.gw,
+			DIST.gh,
+			DIST.adv,
+			COL_DIST
+		)
+		-- "Rank N" is 6 chars; start x so it centres on the rank-slot centre.
+		local rank_start = cx + RANK.cx * CARD.w - 3 * RANK.adv
+		s.rank = ii_wd_text.new_field(
+			px,
+			ctx.init_ii,
+			"ii_wd_glyph",
+			8,
+			rank_start,
+			cy + RANK.cy * CARD.h - RANK.gh / 2,
+			RANK.gw,
+			RANK.gh,
+			RANK.adv,
+			COL_RANK
+		)
+
+		mgr.slots[i + 1] = s
+	end
+
+	local function render_card(s, last, alpha)
+		s.bg:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+		s.bg:Show(true)
+		if last.icon and last.icon ~= "" then
+			s.icon_tex = binder.bind(s.icon, last.icon, s.icon_tex)
+			s.icon:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+			s.icon:Show(true)
+		else
+			s.icon:Show(false)
+		end
+		ii_wd_text.set_text(s.name, (last.name and last.name ~= "") and last.name or "UNKNOWN", alpha)
+		ii_wd_text.set_text(s.dist, last.dist and string.format("%d m", last.dist) or "", alpha)
+		ii_wd_text.set_text(s.rank, last.rank_level and ("Rank " .. last.rank_level) or "", alpha)
+	end
+
+	local function hide_slot(s)
+		s.active = false
+		s.bg:Show(false)
+		s.icon:Show(false)
+		ii_wd_text.hide_field(s.name)
+		ii_wd_text.hide_field(s.dist)
+		ii_wd_text.hide_field(s.rank)
+	end
+
+	local function push(last)
+		-- Fill the lowest free slot; if all are full, reuse the one expiring soonest.
+		local target, best = nil, math.huge
+		for i = 1, NOTIF_MAX do
+			local s = mgr.slots[i]
+			if not s.active then
+				target = s
+				break
+			end
+			if s.expiry < best then
+				best, target = s.expiry, s
+			end
+		end
+		target.active = true
+		target.expiry = time_global() + TTL_MS
+		render_card(target, last, d_promin_health_ui.get_ui_alpha())
+	end
+
+	function mgr.update(active_page_id, powered)
+		local show_here = powered and notif_page(active_page_id)
+		-- Detect a NEW identification (id changed) without allocating each frame.
+		local cur = ii_identify and ii_identify.get_last_identified_id and ii_identify.get_last_identified_id() or nil
+		if not mgr.inited then
+			mgr.inited = true
+			mgr.last_id = cur -- don't fire a card for whatever was identified before we started
+		elseif cur ~= mgr.last_id then
+			mgr.last_id = cur
+			if cur and show_here then
+				push(ii_identify.get_last_identified())
+			end
+		end
+		-- Expire cards; hide everything while off the notification pages / unpowered.
+		local now = time_global()
+		for i = 1, NOTIF_MAX do
+			local s = mgr.slots[i]
+			if s.active and (not show_here or now >= s.expiry) then
+				hide_slot(s)
+			end
+		end
+	end
+
+	function mgr.hide_all()
+		for i = 1, NOTIF_MAX do
+			hide_slot(mgr.slots[i])
+		end
+	end
+
+	mgr.hide_all()
+	return mgr
+end

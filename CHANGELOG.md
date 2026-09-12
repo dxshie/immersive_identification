@@ -31,6 +31,12 @@
   readouts (main mod; inert without a reader).
 - Crafting recipes for every item (antenna, process T1-3, AR + OSD scanner T1-3), mirroring
   WD's own recipe format; higher tiers consume the previous tier + Promin tech.
+- **Identification notification pop-ups on the Promin.** When a target is identified while
+  you're on the **BIOMONITOR** or **NAVIGATION** page (not the IDENTIFICATION page, where it's
+  already shown), a card pops up bottom-right and stacks upward as more come in: faction
+  emblem (left), name + distance (middle), and rank shown as a level ("Rank 1"…"Rank 8",
+  mapped from the rank name) on the right. Cards expire after a few seconds. Author-provided
+  card art (`ii_wd_notif_card.dds`).
 - Added a **4th Promin module bay** so the antenna, OSD scanner, process module, and WD's
   map module can all be installed at once (previously the antenna and OSD scanner shared one
   bay). The OSD scanner now lives in its own bay, so the **AR and OSD channels are

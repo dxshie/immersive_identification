@@ -427,6 +427,12 @@ function get_scan_progress()
 	return _last_id.scan_frac
 end
 
+-- Cheap id-only accessor (no table allocation) for per-frame change-detection, e.g. the
+-- Promin notification pop-up polling for a new identification. Global.
+function get_last_identified_id()
+	return _last_id.id
+end
+
 -- The last target identified this session (or nil if none yet). Returns a fresh table:
 -- { name, faction, rank, weap, x, y, z, dist } -- any field may be nil if that data wasn't
 -- unlocked/available at identify time. `dist` is computed LIVE from the stored position to
@@ -447,6 +453,8 @@ function get_last_identified()
 		rank = _last_id.rank,
 		weap = _last_id.weap,
 		portrait = _last_id.portrait,
+		icon = _last_id.icon, -- faction emblem texture id
+		rank_level = _last_id.rank_level, -- numeric rank (1..8) or nil
 		x = _last_id.x,
 		y = _last_id.y,
 		z = _last_id.z,
@@ -641,6 +649,19 @@ local function rank_color(obj)
 	local rid = safe_call(obj.rank_name, obj)
 	return (rid and RANK_COLOR[rid]) or { 150, 150, 150 }
 end
+
+-- Rank id -> numeric level (novice=1 .. legend=8), for the notification card's "Rank N".
+-- Global (no top-level-local cost); nil for an unknown/rankless id.
+RANK_LEVEL = {
+	novice = 1,
+	trainee = 2,
+	experienced = 3,
+	professional = 4,
+	veteran = 5,
+	expert = 6,
+	master = 7,
+	legend = 8,
+}
 
 -- User-configurable colours (MCM "Colors" section). MCM has no colour-picker
 -- widget, so each colour is exposed as three 0-255 R/G/B tracks. This registry is
@@ -2445,6 +2466,8 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 		icon = faction_icon_id(comm),
 		rank = show_rank and rank_label(obj) or nil,
 		rank_col = rank_color(obj),
+		rank_level = show_rank and RANK_LEVEL[safe_call(obj.rank_name, obj) or ""] or nil, -- for the notification card
+
 		weap = show_weapon and held_weapon_label(obj) or nil,
 		portrait = portrait, -- for the Promin OSD readout (captured at reveal, see render())
 		want_dist = show_dist,
@@ -4410,6 +4433,8 @@ local function render(tg)
 				_last_id.id = id
 				_last_id.name, _last_id.faction = e.name, e.header
 				_last_id.rank, _last_id.weap = e.rank, e.weap
+				_last_id.rank_level = e.rank_level
+				_last_id.icon = e.icon -- faction emblem texture id (for the notification card)
 				_last_id.portrait = e.portrait
 				_last_id.x = pos and pos.x or nil
 				_last_id.y = pos and pos.y or nil

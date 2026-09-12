@@ -45,6 +45,7 @@ end
 -- statement, not an assignment, so the @class annotation needs something to attach to).
 -- The classlib call is what registers the real class at runtime.
 ---@class UIPromin : CUIScriptWnd
+---@field ii_notify { update: fun(page: string?, powered: boolean), hide_all: fun() }?
 UIPromin = {}
 
 class("UIPromin")(CUIScriptWnd)
@@ -69,6 +70,15 @@ function UIPromin:__init()
 	}
 	self.pages = {}
 	self.powered_state = true
+	-- II-COMPAT: eager-build the pages the notifications appear ON (biomonitor = health/main,
+	-- navigation = map_small) BEFORE the overlay, so the overlay attaches LAST and draws ON
+	-- TOP of them (child draw order = attach order). The ident page stays lazy -- notifications
+	-- never show there, so their z-order relative to it doesn't matter.
+	for _, page_id in ipairs({ DEFAULT_PAGE, "main", MAP_PAGE }) do
+		self:ensure_page(page_id)
+	end
+	local nf = rawget(_G, "d_ii_promin_notify")
+	self.ii_notify = (nf and nf.build) and nf.build(self.ctx) or nil
 	self:apply_page()
 end
 
@@ -121,6 +131,11 @@ function UIPromin:Update()
 	if powered ~= self.powered_state then
 		self.powered_state = powered
 		self:apply_page()
+	end
+	-- II-COMPAT: update the notification overlay every frame (even unpowered / off its pages,
+	-- so it can hide) -- it pops a card on the BIOMONITOR/NAVIGATION pages for a new identify.
+	if self.ii_notify then
+		self.ii_notify.update(active_page_id, powered)
 	end
 	if not powered then
 		return

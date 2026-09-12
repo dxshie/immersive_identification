@@ -54,6 +54,17 @@ Because the antenna and OSD scanner now sit in separate bays, the **AR and OSD c
 independent**: install both (plus a worn AR scanner) to get on-entity overlays *and* the
 Promin readout at the same time.
 
+## Identification notifications
+
+While you're on the **BIOMONITOR** or **NAVIGATION** page and a target is identified, a
+notification card pops up in the **bottom-right** and stacks upward as more come in (up to
+four, expiring after a few seconds): faction emblem in the left circle, name + distance in
+the middle, and rank as a level ("Rank 1"…"Rank 8", mapped from the rank name) on the right.
+Nothing shows on the IDENTIFICATION page itself (the full readout is already there).
+Rendered by `d_ii_promin_notify.script`; the layout constants (card size, anchor, per-field
+positions) are at the top of that file for in-game tuning. The `d_promin_ui.script` override
+eager-builds the biomonitor/navigation pages so the overlay draws on top of them.
+
 ## Promin IDENTIFICATION tab
 
 Installing the antenna adds a third page to the Promin screen — **IDENTIFICATION**,
