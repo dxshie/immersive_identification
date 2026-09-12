@@ -146,7 +146,7 @@
 
 	<string id="ui_mcm_ii_pip_title"><text>PiP Scope (in-scope UI)</text></string>
 	<string id="ui_mcm_ii_pip_markers"><text>Identification markers in scope</text></string>
-	<string id="ui_mcm_ii_pip_markers_desc"><text>Draw identification markers inside a Picture-in-Picture scope's lens. Needs a PiP-capable engine; when off, the mod behaves as if there were no PiP support (normal HUD, no in-scope markers).</text></string>
+	<string id="ui_mcm_ii_pip_markers_desc"><text>Draw identification (a compact dot+patch+name row) inside a Picture-in-Picture scope's lens. Needs a PiP-capable engine; when off, nothing is shown while a PiP scope is up.</text></string>
 	<string id="ui_mcm_ii_pip_redact"><text>Redaction in scope</text></string>
 	<string id="ui_mcm_ii_pip_redact_desc"><text>Draw the dead-body redaction effect inside a PiP scope's lens too. Independent of the markers toggle; the main-view redaction is unaffected either way.</text></string>
 	<string id="ui_mcm_ii_pip_hide_main"><text>Hide main-view UI when scope is up</text></string>

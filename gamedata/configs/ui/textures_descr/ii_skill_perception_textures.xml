@@ -1,0 +1,11 @@
+<w>
+	<!-- The Skill System's own menu (ui_haru_skills.script) looks up each
+	     configured skill's icon as "ui_skills_icon_<skill>" via InitTexture,
+	     the same convention its bundled skills (strength/endurance/survival/
+	     scavenging) use against their shared ui_icons_skills atlas; this
+	     registers ours against its own standalone file instead, since there's
+	     no reason to touch that mod's atlas. -->
+	<file name="ui\ii_skill_perception">
+		<texture id="ui_skills_icon_perception" x="0" y="0" width="96" height="96" />
+	</file>
+</w>

@@ -79,8 +79,10 @@ DEFAULTS = {
 	hide_unseen = true, -- hide an active tag/card/box while its target is out of sight (occluded
 	-- or off-screen), instead of leaving it floating until its timer expires;
 	-- it reappears if the target comes back into view within the reveal window
-	pip_markers = true, -- draw identification markers INSIDE a PiP scope (needs a PiP engine); off =
-	-- behave as if there were no PiP support (normal HUD, no in-scope markers)
+	pip_markers = true, -- draw identification (the distance-scaled v1.4.1-style row, via
+	-- draw_pip_simple) INSIDE a PiP scope's lens, needs a PiP engine; off = nothing shown
+	-- while a PiP scope is up, regardless of C.ui_style (the card/minimal/bodycam styles
+	-- can't align inside the lens at range -- see draw_pip_simple's header comment)
 	pip_redact = true, -- draw the dead-body redaction INSIDE a PiP scope (independent of pip_markers;
 	-- the main-view redaction is unaffected either way)
 	pip_hide_main = false, -- while a PiP scope is up, suppress ALL main-view drawing (HUD tags +
@@ -2405,6 +2407,7 @@ local function install_key_hook()
 	end
 end
 
+
 -- --------------------------------------------------------------------------
 -- The tag dialog: a fixed pool of card widget-sets, positioned per frame.
 -- Card layout (plate + accent bar + icon + header/name/rank text, joined to
@@ -3012,6 +3015,125 @@ end
 -- box_cx/box_cy/box_hw/box_hh (bodycam style only): the head-bone screen centre
 -- and its projected half-extents, precomputed in render(); nil for other styles
 -- or when the head doesn't project this frame.
+-- --------------------------------------------------------------------------
+-- PiP-scope fallback style: a distance-scaled dot+icon+name row hugging the
+-- anchor point directly (no leader line, no plate), ported from this mod's
+-- own v1.4.1 "Immersive Identification" release. That version's tags stay
+-- visually locked to the target inside a PiP scope's lens even though it has
+-- no PiP-specific code at all -- it just calls the same project_world/
+-- world2ui anchor projection every other style here already uses. The
+-- CARD/MINIMAL/BODYCAM styles above don't have that problem in their anchor
+-- projection either; the difference is CARD_OFF_X/Y (60,34 px) being a FLAT
+-- offset scaled only by the manual, non-distance-aware C.card_scale slider
+-- (see its own comment above). A target you're looking at through a scope is
+-- almost always far away, i.e. a tiny on-screen footprint in the *unzoomed*
+-- 1024x768 virtual space project_world still projects into -- so a flat
+-- 60-90px card offset points nowhere near it once you're staring at that
+-- same tiny spot magnified by the PiP lens. v1.4.1's row instead scales its
+-- own offset by the same inverse-distance factor as its dot/icon size (see
+-- pip_simple_scale below), so both shrink toward the anchor point together
+-- as range increases -- exactly cancelling out the effect that breaks the
+-- card at long range/high zoom. Used in render() whenever a PiP scope is up
+-- and C.pip_markers is on, REPLACING both the flat-shader svp_ui_markers_add
+-- ball and the (misaligned, at range) normal draw_slot dispatch -- see the
+-- pip_active branch below. Not used at all outside a PiP scope; every other
+-- situation still gets whatever C.ui_style is configured to.
+local PIP_SIMPLE_REF_DIST = 8 -- metres: distance at which scale = 1 (matches v1.4.1's SCALE_REF_DIST)
+local PIP_SIMPLE_SCALE_MIN = 0.2
+local PIP_SIMPLE_SCALE_MAX = 1.6
+
+local function pip_simple_scale(dist)
+	local s = PIP_SIMPLE_REF_DIST / math.max(dist or PIP_SIMPLE_REF_DIST, 0.5)
+	if s < PIP_SIMPLE_SCALE_MIN then
+		s = PIP_SIMPLE_SCALE_MIN
+	elseif s > PIP_SIMPLE_SCALE_MAX then
+		s = PIP_SIMPLE_SCALE_MAX
+	end
+	return s
+end
+
+-- hx,hy: anchor screen position. alpha: 0..255. col: relation colour (dot).
+-- icon_id: faction patch texture id. name: target's display name. dist: real
+-- distance to target, drives pip_simple_scale. scanning/tg: spinner state,
+-- same meaning as draw_slot's. Reuses the card style's own node/glow/icon/
+-- name/name_sh/spinner widgets (hide_card_widgets/hide_box_widgets clears
+-- everything else this slot might have been showing a moment ago under a
+-- different style/branch).
+function IiTags:draw_pip_simple(i, hx, hy, alpha, col, icon_id, name, dist, scanning, tg)
+	local s = self.slots[i]
+	if not s then
+		return
+	end
+	s.hidden = false
+	hide_card_widgets(s)
+	hide_box_widgets(s)
+	s.line:Show(false)
+	s.line_sh:Show(false)
+
+	local scale = pip_simple_scale(dist)
+	alpha = math.floor(alpha)
+	if alpha > 255 then
+		alpha = 255
+	end
+
+	if scanning then
+		local spin_d = SPIN_D * scale
+		local spin_angle = (tg % SPIN_PERIOD_MS) / SPIN_PERIOD_MS * (2 * math.pi)
+		s.spinner:SetWndSize(S(spin_d, spin_d))
+		s.spinner:SetWndPos(P(hx - spin_d / 2, hy - spin_d / 2))
+		s.spinner:SetTextureColor(GetARGB(230, 255, 255, 255))
+		s.spinner:SetHeading(spin_angle)
+		s.spinner:Show(true)
+		s.node:Show(false)
+		s.glow:Show(false)
+		s.icon:Show(false)
+		s.name:Show(false)
+		s.name_sh:Show(false)
+		return
+	end
+	s.spinner:Show(false)
+
+	if s.icon_key ~= icon_id then
+		pcall(s.icon.InitTexture, s.icon, icon_id)
+		s.icon_key = icon_id
+	end
+
+	s.name:SetText(name)
+	s.name:AdjustWidthToText()
+	local tw = s.name:GetWidth()
+
+	local dot_d, icon_d, gap = 5 * scale, 20 * scale, 6 * scale
+	local row_w = dot_d + gap + icon_d + gap + tw
+	local row_x = math.floor(hx - row_w / 2)
+	local row_cy = math.floor(hy - 46 * scale) -- row's vertical centre, above the anchor point
+
+	local dot_x = row_x
+	s.node:SetWndSize(S(dot_d, dot_d))
+	s.node:SetWndPos(P(dot_x, row_cy - dot_d / 2))
+	s.node:SetTextureColor(GetARGB(alpha, col[1], col[2], col[3]))
+	s.node:Show(true)
+
+	local gsize = dot_d * 3.2
+	s.glow:SetWndSize(S(gsize, gsize))
+	s.glow:SetWndPos(P(dot_x + dot_d / 2 - gsize / 2, row_cy - gsize / 2))
+	s.glow:SetTextureColor(GetARGB(math.floor(alpha * 0.55), col[1], col[2], col[3]))
+	s.glow:Show(true)
+
+	local icon_x = dot_x + dot_d + gap
+	s.icon:SetWndSize(S(icon_d, icon_d))
+	s.icon:SetWndPos(P(icon_x, row_cy - icon_d / 2))
+	s.icon:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+	s.icon:Show(true)
+
+	local name_x = icon_x + icon_d + gap
+	local name_y = row_cy - 9
+	s.name_sh:SetWndPos(P(name_x + 1, name_y + 1))
+	s.name_sh:SetTextColor(GetARGB(math.floor(180 * alpha / 255), 0, 0, 0))
+	s.name_sh:Show(true)
+	s.name:SetWndPos(P(name_x, name_y))
+	s.name:SetTextColor(GetARGB(alpha, col[1], col[2], col[3]))
+	s.name:Show(true)
+end
 function IiTags:draw_slot(
 	i,
 	hx,
@@ -3927,24 +4049,29 @@ local function render(tg)
 				-- colour/alpha there only carries the spinner's own alpha
 				-- (0.9, matching the HUD spinner's fixed GetARGB(230,...)),
 				-- not phase_alpha, which is still 0 for the whole scan.
-				if pip_active then
-					local col, fcol = e.col, e.fcol
-					local alpha = scanning and (0.9 * dist_fade) or (phase_alpha * dist_fade)
-					svp_ui_markers_add(
-						pos.x,
-						pos.y + PIP_MARKER_LIFT,
-						pos.z,
-						fcol[1] / 255,
-						fcol[2] / 255,
-						fcol[3] / 255,
-						alpha,
-						pip_marker_radius(dist),
-						col[1] / 255,
-						col[2] / 255,
-						col[3] / 255,
-						scanning
-					)
-				end
+				-- svp_ui_markers_add (flat-shader lens ball) DISABLED: superseded by
+				-- draw_pip_simple below, which draws the same v1.4.1-style dot+icon+
+				-- name row used for every other style, just distance-scaled, via the
+				-- normal main-HUD widget path instead of the lens shader. Kept here,
+				-- commented, in case the main-HUD row ever needs to fall back to this.
+				-- if pip_active then
+				-- 	local col, fcol = e.col, e.fcol
+				-- 	local alpha = scanning and (0.9 * dist_fade) or (phase_alpha * dist_fade)
+				-- 	svp_ui_markers_add(
+				-- 		pos.x,
+				-- 		pos.y + PIP_MARKER_LIFT,
+				-- 		pos.z,
+				-- 		fcol[1] / 255,
+				-- 		fcol[2] / 255,
+				-- 		fcol[3] / 255,
+				-- 		alpha,
+				-- 		pip_marker_radius(dist),
+				-- 		col[1] / 255,
+				-- 		col[2] / 255,
+				-- 		col[3] / 255,
+				-- 		scanning
+				-- 	)
+				-- end
 
 				active_n = active_n + 1
 				local a = active_pool[active_n]
@@ -3954,6 +4081,7 @@ local function render(tg)
 				a.scale, a.rank = C.card_scale, e.rank
 				a.fcol, a.sign = e.fcol, e.sign
 				a.weap = e.weap
+				a.dist = dist -- needed by draw_pip_simple's distance-based scale (see below)
 
 				-- Bodycam style: precompute the outline box's screen centre and
 				-- distance-scaled half-extents here (draw_slot has no world access),
@@ -3993,8 +4121,36 @@ local function render(tg)
 	-- wrong picture then, same reasoning as the card/dot).
 	feed_redaction(tg, pip_active, suppress_main)
 
-	if pip_active or suppress_main then
+	if suppress_main then
 		for i = 1, MAX_TAGS do
+			TAGS:hide_slot(i)
+		end
+		if _overlay_bc then
+			pcall(_overlay_bc.overlay_commit) -- empty: clear any prior overlay rects
+			if _overlay_bc.overlay_text_commit then
+				pcall(_overlay_bc.overlay_text_commit)
+			end
+			_overlay_bc = nil
+		end
+		return
+	end
+
+	-- PiP scope up + C.pip_markers on: use the distance-scaled v1.4.1-style row
+	-- (draw_pip_simple) instead of the normal C.ui_style dispatch below. No
+	-- stacking/overlap-avoidance pass here -- that's tuned for the card style's
+	-- much bigger footprint; the simple row is small enough that it wasn't
+	-- worth porting over for a first pass. If it turns out to be needed, reuse
+	-- the same stack/STACK_STEP logic from the loop below.
+	if pip_active then
+		local slot_i = 0
+		for i = 1, active_n do
+			local ai = active_pool[i]
+			slot_i = slot_i + 1
+			if slot_i <= MAX_TAGS then
+				TAGS:draw_pip_simple(slot_i, ai.hx, ai.hy, ai.a, ai.col, ai.icon, ai.name, ai.dist, ai.scanning, tg)
+			end
+		end
+		for i = slot_i + 1, MAX_TAGS do
 			TAGS:hide_slot(i)
 		end
 		if _overlay_bc then
