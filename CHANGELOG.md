@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **FOV target-assist now falls back to a model raycast.** The assist measures the angle
+  from the aim ray to the target's *bones*, which can miss when you're very close or aiming
+  at the mesh between the (angularly-spread) bone samples — the cone catches no bone. It now
+  falls back to a mesh raycast along the true aim ray ("are you aiming at the model?"), the
+  same pick used when assist is off. Applies to both the manual key and the ADS/hipfire dwell
+  sweep; LOS still respected.
 - Removed the **depth-aware Bodycam box** rendering: the outline box no longer submits
   world-anchored rects to the engine's depth overlay (occluded per-pixel by walls/viewmodel)
   — it now always draws as flat CUIStatic edges (always on top). Removes the custom-exe

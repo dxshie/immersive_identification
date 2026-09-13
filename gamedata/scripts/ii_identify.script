@@ -1526,6 +1526,11 @@ end
 -- misses by the sway offset. Angles from the aim ray have neither problem.
 local aim_angle_to_body
 local aim_cone_rad
+-- aim_model_target(max_dist) -> the stalker/monster whose MODEL the crosshair is over
+-- (mesh raycast along the true aim ray), or nil. The "aiming at it" fallback for when the
+-- assist cone can't catch a bone (too close / aiming at the mesh between the angularly
+-- spread bone samples). Forward-declared; defined below after the aim-ray helpers.
+local aim_model_target
 
 local function find_nearest_in_fov(max_dist)
 	if not db.actor or not level.iterate_nearest then
@@ -1563,7 +1568,18 @@ local function find_nearest_in_fov(max_dist)
 		return false -- keep scanning the full set within max_dist
 	end)
 
-	return best_obj or best_busy_obj
+	local pick = best_obj or best_busy_obj
+	if pick then
+		return pick
+	end
+	-- Cone caught no bone (too close, or aiming at the model between the angularly-spread
+	-- bone samples). Fall back to a mesh raycast: if the crosshair is on the target's MODEL,
+	-- take it -- the same "aiming at it" pick used when FOV assist is off.
+	local model = aim_model_target(max_dist)
+	if model and (not C.require_los or has_los(model)) then
+		return model
+	end
+	return nil
 end
 
 -- Debug: dump why find_nearest_in_fov accepts/rejects each nearby NPC. Mirrors
@@ -1786,7 +1802,11 @@ end
 -- they ARE held as "looking through them". Calibration runs every frame
 -- from actor_on_update() regardless of feature state, so the baseline is
 -- already warm whenever is_binoc_active() is actually called.
-local FOV_ZOOM_RATIO = 0.7 -- current fov must drop below this fraction of baseline to count as zoomed
+-- FOV-ratio thresholds, bundled into one table (spares top-level-local slots -- Lua 5.1's
+-- 200-per-chunk limit). binoc/ads = fov must drop below this fraction of the unzoomed
+-- baseline to count as zoomed/aiming; mag_min = below this ratio the FOV barely narrowed
+-- (treat as un-magnified, x1).
+local _ZOOMCFG = { binoc = 0.7, ads = 0.85, mag_min = 1.05 }
 local _fov_baseline = 60 -- self-corrects within moments of normal (unzoomed) play either way
 
 -- ADS (aim-down-sight) state, tracked from STOCK engine callbacks so it works on ANY
@@ -1816,7 +1836,7 @@ local function is_binoc_active()
 	if not fov or fov <= 0 then
 		return true
 	end -- can't read fov: fail open to "held" behaviour
-	return fov < _fov_baseline * FOV_ZOOM_RATIO
+	return fov < _fov_baseline * _ZOOMCFG.binoc
 end
 
 -- Is the actor aiming down sight (ADS) with a weapon right now? Prefers the
@@ -1825,7 +1845,6 @@ end
 -- is_binoc_active() uses, with a gentler ratio because ADS narrows the FOV less
 -- than a scope or binoculars. Binoculars are excluded (that's binocular mode's
 -- job), so ADS and binocular boosts never both fire.
-local ADS_ZOOM_RATIO = 0.85 -- fov must drop below this fraction of baseline to count as ADS (fallback only)
 local function is_ads_active()
 	if is_binoc_held() then
 		return false
@@ -1868,7 +1887,7 @@ local function is_ads_active()
 	if not fov or fov <= 0 then
 		return false
 	end
-	return fov < _fov_baseline * ADS_ZOOM_RATIO
+	return fov < _fov_baseline * _ZOOMCFG.ads
 end
 
 -- Current effective aiming magnification (1.0 = 1x), or nil when not meaningfully
@@ -1882,7 +1901,6 @@ end
 --      the zoom is recoverable from device().fov against the self-calibrating
 --      unzoomed baseline (_fov_baseline, see update_fov_baseline).
 local SVP_MAG_AVAILABLE = rawget(_G, "svp_scope_magnification") ~= nil
-local MAG_FOV_MIN = 1.05 -- below this the FOV barely narrowed: treat as un-magnified (x1)
 local function scope_magnification()
 	if SVP_MAG_AVAILABLE then
 		-- Only trust the PiP binding while a scope is ACTIVELY rendering. The engine's
@@ -1907,7 +1925,7 @@ local function scope_magnification()
 	local fov = dev and dev.fov
 	if fov and fov > 0 and _fov_baseline > 0 then
 		local m = _fov_baseline / fov
-		if m > MAG_FOV_MIN then
+		if m > _ZOOMCFG.mag_min then
 			return m
 		end
 	end
@@ -1975,6 +1993,49 @@ local function aim_ray_world()
 	end
 	_aim.d:set(_aim.d.x / m, _aim.d.y / m, _aim.d.z / m)
 	return _aim.o, _aim.d
+end
+
+-- Mesh raycast along the TRUE aim ray (aim_ray_world -- works on ANY engine via the camera
+-- fallback, unlike freeaim_target which needs the bodycam fire-ray binding). Returns the
+-- stalker/monster whose MODEL the crosshair is over, or nil. This is the "are we aiming at
+-- the model" fallback the FOV assist uses when its bone-cone can't catch a bone (too close,
+-- or aiming at the mesh surface between the angularly-spread bone samples). Reuses the
+-- shared _aim_ray pick object; rqtBoth so walls block; ignores the actor's own capsule.
+-- Assigns the forward-declared upvalue so find_nearest_in_fov (above) can call it.
+function aim_model_target(max_dist)
+	if not rawget(_G, "ray_pick") then
+		return nil
+	end
+	local o, dir = aim_ray_world()
+	if not o or not dir then
+		return nil
+	end
+	local ok, obj = pcall(function()
+		if not _aim_ray then
+			_aim_ray = ray_pick()
+		end
+		_aim_ray:set_flags(RQT_BOTH)
+		if db.actor then
+			_aim_ray:set_ignore_object(db.actor)
+		end
+		_aim_ray:set_position(o)
+		_aim_ray:set_direction(dir)
+		_aim_ray:set_range(max_dist)
+		if _aim_ray:query() then
+			return _aim_ray:get_object()
+		end
+		return nil
+	end)
+	if not ok or not obj then
+		return nil
+	end
+	if db.actor and obj:id() == db.actor:id() then
+		return nil
+	end
+	if not (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) then
+		return nil
+	end
+	return obj
 end
 
 -- Vertical lift samples (metres) for backing up a non-bip01 rig (monster) with a span
@@ -2665,18 +2726,23 @@ end
 -- previous frame would let a slow continuous pan stay "steady" forever.
 local STEADY_MAX_D2 = 0.002 -- squared-distance tolerance between unit vectors, ~2.6 degrees
 
-local steady_anchor = nil -- vector(), the camera direction steadiness is measured against
-local steady_start_tg = nil
-local steady_last_sweep_tg = 0 -- last time the steady sweep ran (throttle)
+-- Binocular steady-aim state, bundled into one table (spares top-level-local slots -- Lua
+-- 5.1's 200-per-chunk limit): anchor = the camera direction steadiness is measured against
+-- (a reused vector), start = when the current steady hold began, last_sweep = last sweep tick.
+local _steady = { anchor = nil, start = nil, last_sweep = 0 }
 local STEADY_SWEEP_MS = 250 -- re-sweep cadence while the trigger stays armed
 -- ADS-mode dwell state (bundled to spare top-level locals): armed = a valid target is
 -- currently under the aim; start = when it first appeared; last = last identify tick;
 -- check = last presence re-evaluation (throttles the per-frame raycasts).
-local _ads_dwell = { armed = false, start = 0, last = 0, check = 0 }
+-- ADS + hipfire dwell state, bundled into one table (spares top-level-local slots -- Lua
+-- 5.1's 200-per-chunk limit). Each: armed = a valid target is currently under the aim;
+-- start = when it first appeared; last = last identify tick; check = last presence re-eval.
+local _dwell =
+	{ ads = { armed = false, start = 0, last = 0, check = 0 }, hip = { armed = false, start = 0, last = 0, check = 0 } }
 
 local function reset_steady()
-	steady_anchor = nil
-	steady_start_tg = nil
+	_steady.anchor = nil
+	_steady.start = nil
 end
 
 -- Identify every alive, community-tagged, visible target whose body falls inside the
@@ -2713,6 +2779,16 @@ local function sweep_identify_in_fov(tg)
 		end
 		return false -- sweep the whole set within eff_max_dist
 	end)
+
+	-- Fallback: also identify whatever the crosshair is directly on the MODEL of, in case the
+	-- cone missed it (too close, or aiming at the mesh between the angularly-spread bones).
+	local model = aim_model_target(eff_max_dist)
+	if model and (not C.require_los or has_los(model)) then
+		local comm = safe_call(model.character_community, model)
+		if comm and comm ~= "" then
+			identify_target(model, comm, boosted, eff_max_dist, eff_fade_dist, scan_mult, true)
+		end
+	end
 end
 
 -- ADS-mode dwell trigger: keep a valid target under the aim -- directly (crosshair on
@@ -2723,18 +2799,18 @@ end
 -- you CAN track a moving one. Resets the instant no valid target is under the aim.
 local function update_ads_dwell(tg)
 	if not (C.ads_mode and is_ads_active()) or not db.actor then
-		_ads_dwell.armed = false
+		_dwell.ads.armed = false
 		return
 	end
 	-- Throttle the raycast presence check (dwell timing still uses tg, so it's exact);
 	-- 100 ms is well under any sane hold time and keeps ADS cheap.
-	if tg - _ads_dwell.check < 100 then
+	if tg - _dwell.ads.check < 100 then
 		return
 	end
-	_ads_dwell.check = tg
+	_dwell.ads.check = tg
 	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
 	if C.require_binoculars and not tier_active() and not binoc then
-		_ads_dwell.armed = false
+		_dwell.ads.armed = false
 		return
 	end
 	-- Is a valid target under the aim right now? Direct hit, or the FOV-assist pick when
@@ -2746,20 +2822,20 @@ local function update_ads_dwell(tg)
 		present = comm and comm ~= "" and has_los(obj) and true or false
 	end
 	if not present then
-		_ads_dwell.armed = false -- nothing valid on aim -> reset the dwell
+		_dwell.ads.armed = false -- nothing valid on aim -> reset the dwell
 		return
 	end
-	if not _ads_dwell.armed then
-		_ads_dwell.armed = true
-		_ads_dwell.start = tg
-		_ads_dwell.last = 0
+	if not _dwell.ads.armed then
+		_dwell.ads.armed = true
+		_dwell.ads.start = tg
+		_dwell.ads.last = 0
 		return
 	end
 	-- Held long enough: identify (throttled). fov_assist on -> sweep everyone in the FOV
 	-- assist range; off -> just the target directly under the aim.
-	if (tg - _ads_dwell.start) >= (C.ads_hold_time or 0.6) * 1000 then
-		if tg - _ads_dwell.last >= STEADY_SWEEP_MS then
-			_ads_dwell.last = tg
+	if (tg - _dwell.ads.start) >= (C.ads_hold_time or 0.6) * 1000 then
+		if tg - _dwell.ads.last >= STEADY_SWEEP_MS then
+			_dwell.ads.last = tg
 			if C.fov_assist then
 				sweep_identify_in_fov(tg)
 			else
@@ -2772,21 +2848,19 @@ end
 -- Hipfire dwell trigger: identify a target you keep under the aim while hip-firing (NOT
 -- aiming down sight, NOT through binoculars) for hipfire_hold_time -- for players who'd
 -- rather not press the key. Same dwell-on-target logic as the ADS version, gated on hipfire.
--- Bundled state (spares top-level locals): armed/start/last/check as in _ads_dwell.
-local _hipfire_dwell = { armed = false, start = 0, last = 0, check = 0 }
-
+-- State is _dwell.hip (bundled with _dwell.ads above to spare top-level-local slots).
 local function update_hipfire_dwell(tg)
 	if not (C.hipfire_mode and db.actor) or is_ads_active() or is_binoc_active() then
-		_hipfire_dwell.armed = false
+		_dwell.hip.armed = false
 		return
 	end
-	if tg - _hipfire_dwell.check < 100 then
+	if tg - _dwell.hip.check < 100 then
 		return
 	end
-	_hipfire_dwell.check = tg
+	_dwell.hip.check = tg
 	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
 	if C.require_binoculars and not tier_active() and not binoc then
-		_hipfire_dwell.armed = false
+		_dwell.hip.armed = false
 		return
 	end
 	local obj = get_target_obj(eff_max_dist, C.fov_assist)
@@ -2796,18 +2870,18 @@ local function update_hipfire_dwell(tg)
 		present = comm and comm ~= "" and has_los(obj) and true or false
 	end
 	if not present then
-		_hipfire_dwell.armed = false
+		_dwell.hip.armed = false
 		return
 	end
-	if not _hipfire_dwell.armed then
-		_hipfire_dwell.armed = true
-		_hipfire_dwell.start = tg
-		_hipfire_dwell.last = 0
+	if not _dwell.hip.armed then
+		_dwell.hip.armed = true
+		_dwell.hip.start = tg
+		_dwell.hip.last = 0
 		return
 	end
-	if (tg - _hipfire_dwell.start) >= (C.hipfire_hold_time or 1.0) * 1000 then
-		if tg - _hipfire_dwell.last >= STEADY_SWEEP_MS then
-			_hipfire_dwell.last = tg
+	if (tg - _dwell.hip.start) >= (C.hipfire_hold_time or 1.0) * 1000 then
+		if tg - _dwell.hip.last >= STEADY_SWEEP_MS then
+			_dwell.hip.last = tg
 			if C.fov_assist then
 				sweep_identify_in_fov(tg)
 			else
@@ -2837,24 +2911,24 @@ local function update_binocular_scan(tg)
 		return
 	end
 
-	if not steady_anchor then
-		steady_anchor = vector():set(dir)
-		steady_start_tg = tg
+	if not _steady.anchor then
+		_steady.anchor = vector():set(dir)
+		_steady.start = tg
 		return
 	end
 
-	local dx, dy, dz = dir.x - steady_anchor.x, dir.y - steady_anchor.y, dir.z - steady_anchor.z
+	local dx, dy, dz = dir.x - _steady.anchor.x, dir.y - _steady.anchor.y, dir.z - _steady.anchor.z
 	if (dx * dx + dy * dy + dz * dz) > STEADY_MAX_D2 then
-		steady_anchor:set(dir)
-		steady_start_tg = tg
+		_steady.anchor:set(dir)
+		_steady.start = tg
 		return
 	end
 
 	-- Held steady long enough (throttled). Respect the binocular FOV-assist toggle:
 	-- on -> sweep-identify every target inside the assist ring; off -> a DIRECT aim only.
-	if (tg - steady_start_tg) >= C.steady_time * 1000 then
-		if tg - steady_last_sweep_tg >= STEADY_SWEEP_MS then
-			steady_last_sweep_tg = tg
+	if (tg - _steady.start) >= C.steady_time * 1000 then
+		if tg - _steady.last_sweep >= STEADY_SWEEP_MS then
+			_steady.last_sweep = tg
 			if C.fov_assist_binoc then
 				sweep_identify_in_fov(tg)
 			else
