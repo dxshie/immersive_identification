@@ -144,6 +144,8 @@ function on_mcm_load()
 				opt_track("fov_radius", 0, 90, 5),
 				opt_check("require_los"),
 				opt_check("auto_identify"),
+				opt_check("hipfire_mode"),
+				opt_track("hipfire_hold_time", 0.2, 3, 0.1, 1),
 			}),
 			page("binoc", {
 				opt_title("ui_mcm_ii_binoc_title"),

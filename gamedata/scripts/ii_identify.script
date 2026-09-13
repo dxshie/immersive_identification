@@ -110,6 +110,10 @@ DEFAULTS = {
 	-- under the aim (or inside the FOV assist range when that's on) for ads_hold_time seconds
 	ads_hold_time = 0.6, -- seconds: how long a target must stay on-aim / in FOV-assist range while
 	-- ADS before auto-identifying (ADS mode). Dwell-on-target, distinct from binocular steady_time
+	hipfire_mode = false, -- auto-trigger identify while HIP-FIRING (not ADS, not binoculars), once a
+	-- target has been held under the aim for hipfire_hold_time -- for players who don't want the key
+	hipfire_hold_time = 1.0, -- seconds: how long a target must stay on-aim / in FOV-assist range while
+	-- hip-firing before auto-identifying (hipfire mode). Dwell-on-target, like ADS mode
 	ads_boost = true, -- aiming down sight speeds up + extends identify range, independent of ads_mode
 	ads_scan_mult = 0.6, -- scan_time multiplier while aiming down sight (gentler than binoculars)
 	ads_range_mult = 1.6, -- max_dist/fade_dist multiplier while aiming down sight (the x1 base)
@@ -239,6 +243,7 @@ UI_STYLE_LIST = {
 	{ label = "minimal" },
 	{ label = "bodycam" },
 	{ label = "simple2" },
+	{ label = "simple" },
 }
 
 -- Which distortion the redaction draws. Index order IS the engine mode passed to
@@ -2764,11 +2769,61 @@ local function update_ads_dwell(tg)
 	end
 end
 
+-- Hipfire dwell trigger: identify a target you keep under the aim while hip-firing (NOT
+-- aiming down sight, NOT through binoculars) for hipfire_hold_time -- for players who'd
+-- rather not press the key. Same dwell-on-target logic as the ADS version, gated on hipfire.
+-- Bundled state (spares top-level locals): armed/start/last/check as in _ads_dwell.
+local _hipfire_dwell = { armed = false, start = 0, last = 0, check = 0 }
+
+local function update_hipfire_dwell(tg)
+	if not (C.hipfire_mode and db.actor) or is_ads_active() or is_binoc_active() then
+		_hipfire_dwell.armed = false
+		return
+	end
+	if tg - _hipfire_dwell.check < 100 then
+		return
+	end
+	_hipfire_dwell.check = tg
+	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	if C.require_binoculars and not tier_active() and not binoc then
+		_hipfire_dwell.armed = false
+		return
+	end
+	local obj = get_target_obj(eff_max_dist, C.fov_assist)
+	local present = false
+	if obj and obj:id() ~= db.actor:id() and safe_call(obj.alive, obj) then
+		local comm = safe_call(obj.character_community, obj)
+		present = comm and comm ~= "" and has_los(obj) and true or false
+	end
+	if not present then
+		_hipfire_dwell.armed = false
+		return
+	end
+	if not _hipfire_dwell.armed then
+		_hipfire_dwell.armed = true
+		_hipfire_dwell.start = tg
+		_hipfire_dwell.last = 0
+		return
+	end
+	if (tg - _hipfire_dwell.start) >= (C.hipfire_hold_time or 1.0) * 1000 then
+		if tg - _hipfire_dwell.last >= STEADY_SWEEP_MS then
+			_hipfire_dwell.last = tg
+			if C.fov_assist then
+				sweep_identify_in_fov(tg)
+			else
+				try_identify(true)
+			end
+		end
+	end
+end
+
 -- Steady-aim auto-identify. Binocular mode uses camera STEADINESS (hold the aim still for
 -- steady_time, then sweep-identify the FOV); ADS mode uses target DWELL (update_ads_dwell
--- above). Both run every frame; each self-gates on its own toggle.
+-- above); hipfire mode also uses target DWELL (update_hipfire_dwell). All run every frame;
+-- each self-gates on its own toggle + aim context.
 local function update_binocular_scan(tg)
 	update_ads_dwell(tg)
+	update_hipfire_dwell(tg)
 
 	if not (C.binocular_mode and is_binoc_active()) then
 		reset_steady()
@@ -3265,17 +3320,6 @@ end
 ---@type any
 local _overlay_bc = nil -- set for the current frame in render() (begin..commit)
 
--- Submit one rect to the depth overlay. Coords are in the mod's 1024x768 virtual
--- space; the engine scales them to real pixels (dwWidth/1024, dwHeight/768 -- the
--- same stretch world2ui uses). world anchor drives the per-pixel depth test.
-local function overlay_rect_v(vx0, vy0, vx1, vy1, a, r, g, b, wx, wy, wz)
-	local bc = _overlay_bc
-	if not bc then
-		return
-	end
-	pcall(bc.overlay_rect, vx0, vy0, vx1, vy1, r / 255, g / 255, b / 255, a / 255, wx or 0, wy or 0, wz or 0)
-end
-
 local function draw_head_box(s, cx, cy, hw, hh, alpha, r, g, b, wx, wy, wz)
 	local t = C.box_thickness or 2
 	if t < 1 then
@@ -3287,21 +3331,8 @@ local function draw_head_box(s, cx, cy, hw, hh, alpha, r, g, b, wx, wy, wz)
 	local w, h = hw * 2, hh * 2
 	local vh = math.max(1, h - 2 * t) -- vertical edges fill between top & bottom
 
-	-- Depth-aware path: submit the 4 edges as world-anchored rects to the engine
-	-- (occluded per-pixel by walls/viewmodel) and hide the flat CUIStatic edges.
-	if _overlay_bc and wx then
-		s.box_top:Show(false)
-		s.box_bottom:Show(false)
-		s.box_left:Show(false)
-		s.box_right:Show(false)
-		overlay_rect_v(x0, y0, x0 + w, y0 + t, a, r, g, b, wx, wy, wz) -- top
-		overlay_rect_v(x0, y0 + h - t, x0 + w, y0 + h, a, r, g, b, wx, wy, wz) -- bottom
-		overlay_rect_v(x0, y0 + t, x0 + tw, y0 + h - t, a, r, g, b, wx, wy, wz) -- left
-		overlay_rect_v(x0 + w - tw, y0 + t, x0 + w, y0 + h - t, a, r, g, b, wx, wy, wz) -- right
-		return
-	end
-
-	-- Fallback: flat CUIStatic edges (no depth awareness).
+	-- Flat CUIStatic edges (the depth-aware world-anchored overlay path for the box was
+	-- removed). wx/wy/wz are unused now but kept in the signature for the caller.
 	local col = GetARGB(a, r, g, b)
 	s.box_top:SetWndSize(S(w, t))
 	s.box_top:SetWndPos(P(x0, y0))
@@ -3547,6 +3578,79 @@ function IiTags:draw_slot(
 		hide_card_widgets(s)
 		draw_node_glow(s, hx, hy, scale, alpha, fcol[1], fcol[2], fcol[3])
 		draw_sign(s, hx, hy, alpha, sign)
+		return
+	end
+
+	-- Simple style: a compact horizontal strip above the head -- the Card style's
+	-- relation-coloured dot + glow, then the faction logo, then the name.
+	if C.ui_style == 5 then
+		hide_card_widgets(s)
+		if s.icon_key ~= icon_id then
+			pcall(s.icon.InitTexture, s.icon, icon_id)
+			s.icon_key = icon_id
+		end
+		local has_name = name and name ~= ""
+		if name ~= s.simple_last_name then
+			if has_name then
+				s.name:SetText(name)
+				s.name_sh:SetText(name)
+				s.name:AdjustWidthToText()
+				s.name_sh:AdjustWidthToText()
+				s.simple_nw = s.name:GetWidth()
+			else
+				s.simple_nw = 0
+			end
+			s.simple_last_name = name
+		end
+		local name_w = has_name and (s.simple_nw or 0) or 0
+		local has_icon = icon_id and icon_id ~= ""
+
+		local node_scale = math.min(scale, NODE_SCALE_MAX)
+		local glow_w = math.max(2, math.floor(7 * node_scale * 2.8 * UI_KX + 0.5)) -- dot glow footprint
+		local icon_w = math.floor(16 * scale + 0.5)
+		local gap = math.floor(5 * scale + 0.5)
+		local row_y = hy - math.floor(14 * scale + 0.5) -- lift the strip above the head
+
+		local total = glow_w
+		if has_icon then
+			total = total + gap + icon_w
+		end
+		if has_name then
+			total = total + gap + name_w
+		end
+		local cursor = hx - total / 2
+
+		draw_node_glow(s, cursor + glow_w / 2, row_y, scale, alpha, r, g, b)
+		cursor = cursor + glow_w
+
+		if has_icon then
+			cursor = cursor + gap
+			s.icon:SetWndPos(P(math.floor(cursor), math.floor(row_y - icon_w / 2)))
+			s.icon:SetWndSize(S(icon_w, icon_w))
+			s.icon:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+			s.icon:Show(true)
+			cursor = cursor + icon_w
+		else
+			s.icon:Show(false)
+		end
+
+		if has_name then
+			cursor = cursor + gap
+			draw_shadowed_text(
+				s.name,
+				s.name_sh,
+				math.floor(cursor),
+				math.floor(row_y - 9),
+				alpha,
+				235,
+				230,
+				220,
+				math.floor(180 * alpha / 255)
+			)
+		else
+			s.name:Show(false)
+			s.name_sh:Show(false)
+		end
 		return
 	end
 
@@ -4502,7 +4606,7 @@ local function render(tg)
 				-- Minimal (dot, style 2, opt-in) and Simple 2 (style 4, always) scale with
 				-- distance so a far target's marker isn't oversized; other styles keep the
 				-- flat card_scale.
-				if (C.ui_style == 2 and C.mini_dist_scale) or C.ui_style == 4 then
+				if (C.ui_style == 2 and C.mini_dist_scale) or C.ui_style == 4 or C.ui_style == 5 then
 					a.scale = C.card_scale * mini_dist_scale_factor(dist)
 					-- Pull the marker DOWN toward the head as the target gets far. Its size is
 					-- floored to stay visible while the head keeps shrinking, so without this

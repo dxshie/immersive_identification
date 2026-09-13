@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Removed the **depth-aware Bodycam box** rendering: the outline box no longer submits
+  world-anchored rects to the engine's depth overlay (occluded per-pixel by walls/viewmodel)
+  — it now always draws as flat CUIStatic edges (always on top). Removes the custom-exe
+  dependency for the box. (The depth-aware *text* name-lines are a separate path, unchanged.)
+- New **Simple** UI style: a compact horizontal strip above the head — the Card style's
+  relation-coloured dot + glow, then the faction logo, then the name.
+- New **Hipfire dwell mode** (Targeting MCM page): auto-identify a target held under your
+  hip-fire aim (not ADS, not binoculars) for a configurable hold time — for players who'd
+  rather not press the identify key and still identify from the hip.
+
 ### st-wearable-devices compatibility (new optional FOMOD component)
 - Gates identification behind wearable scanner gear from the **st-wearable-devices** mod
   via a module/scanner **tier system**. New items (placeholder art): a Promin **Antenna**

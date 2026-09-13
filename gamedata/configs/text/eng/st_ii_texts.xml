@@ -59,6 +59,10 @@
 
 	<string id="ui_mcm_ii_auto_identify"><text>Auto-identify visible targets</text></string>
 	<string id="ui_mcm_ii_auto_identify_desc"><text>Continuously identify every visible target in range without pressing the key. Line of sight is always required. Pairs well with the Bodycam style.</text></string>
+	<string id="ui_mcm_ii_hipfire_mode"><text>Hipfire dwell mode</text></string>
+	<string id="ui_mcm_ii_hipfire_mode_desc"><text>Auto-identify while hip-firing (not aiming down sight, not through binoculars) once a target has been held on your aim (or inside the FOV assist range, if that's on) for the hold time below. For players who'd rather not press the key and still identify from the hip. You can track a moving target; aiming at empty air does nothing.</text></string>
+	<string id="ui_mcm_ii_hipfire_hold_time"><text>Hipfire hold time (s)</text></string>
+	<string id="ui_mcm_ii_hipfire_hold_time_desc"><text>How long a target must stay under your hip-fire aim (or in the FOV assist range) before it auto-identifies. Default 1.0 s.</text></string>
 
 	<string id="ui_mcm_ii_faceredact_title"><text>Face Redaction</text></string>
 	<string id="ui_mcm_ii_redact_face"><text>Redact faces</text></string>
@@ -244,6 +248,7 @@
 	<string id="ii_uistyle_ui_style_lst_minimal"><text>Minimal</text></string>
 	<string id="ii_uistyle_ui_style_lst_bodycam"><text>Bodycam</text></string>
 	<string id="ii_uistyle_ui_style_lst_simple2"><text>Simple 2</text></string>
+	<string id="ii_uistyle_ui_style_lst_simple"><text>Simple</text></string>
 
 	<!-- Faction display names shown on the floating tag itself. -->
 	<string id="st_ii_faction_stalker"><text>Loner</text></string>
