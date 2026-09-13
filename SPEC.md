@@ -19,13 +19,16 @@ configurable duration, then fades out.
 It replaces static HUD faction indicators (e.g. the FactionID mod) with a
 diegetic, in-world label that tracks the target as it and the camera move.
 
-Four visual styles:
+Five visual styles:
 
 - **Card** (`ui_style = 1`): dark plate + faction icon + text lines + a leader
   line connecting to a colored dot on the target's chest.
 - **Minimal** (`ui_style = 2`): just a faction-colored dot plus a relation glyph
   (`-` enemy / `+` friend / `o` neutral). With `mini_dist_scale` on, the dot
   scales with distance (near = bigger, far = smaller) instead of a flat size.
+- **Simple** (`ui_style = 5`): a compact horizontal strip above the head — the
+  Card style's relation-colored dot + glow, then the faction logo, then the name
+  (`draw_slot`'s `ui_style == 5` branch). Distance-scaled.
 - **Simple 2** (`ui_style = 4`): a compact over-the-head cluster — a
   faction-colored circle (`ii_dot`) and a relation-colored triangle (`ii_tri`,
   pointing at relation) side by side, with a thin rank-colored bar above them
@@ -705,9 +708,9 @@ script, but `actor_on_first_update` is a callback that must be wired via
 `RegisterScriptCallback` — an early version defined it as a bare global, so its body never
 ran. All wiring now happens in `on_game_start`.
 
-**Promin IDENTIFICATION tab**: installing the antenna adds a third Promin screen page
-(`pages = {"ident"}` on the antenna module → WD's `get_available_pages` puts it in the
-tab cycle). It mirrors the NAVIGATION page — reuses `d_promin_health_ui.build_chrome`
+**Promin IDENTIFICATION tab**: installing an **OSD scanner** module adds a third Promin
+screen page (`pages = {"ident"}` on the OSD scanner modules → WD's `get_available_pages`
+puts it in the tab cycle). It mirrors the NAVIGATION page — reuses `d_promin_health_ui.build_chrome`
 (bg `ii_wd_tab_bg_ident`) + `build_bio` to keep the frame + left biomonitor, and draws the
 last-identified target in the **right panel** (the map's region, design rect
 `572,85,425,450`): a **portrait** (`obj:character_icon()`) + name/faction/rank/position/
@@ -725,8 +728,16 @@ screen has **no font** (WD renders numbers as pre-baked digit textures), so this
 code) + a compositor (`ii_wd_text.script`) that draws strings by binding per-character
 glyph textures onto slot widgets — the same mechanism as WD's clock. WD's page-builder
 table is a file-local with no seam, so the page needs a **VFS override of
-`d_promin_ui.script`** (verbatim copy + two `II-COMPAT` additions: the `ident` builder and
-a second `ctx.init_ii` for our own node xml) — re-sync on a WD update.
+`d_promin_ui.script`** (verbatim copy + marked `II-COMPAT` additions: the `ident` page
+builder, a second `ctx.init_ii` for our own node xml, and the notification overlay below) —
+re-sync on a WD update.
+
+**Identification notifications**: when a target is identified while the player is on the
+BIOMONITOR or NAVIGATION page (not the ident page, where it's already shown), a card pops up
+bottom-right and stacks upward (`d_ii_promin_notify.script`): faction emblem, name +
+distance, and the rank as a level ("Rank 1".."Rank 8", `ii_identify.RANK_LEVEL`). Cards
+expire after a few seconds. The `d_promin_ui` override eager-builds the biomonitor/navigation
+pages before the overlay so it draws on top; the card art is `ii_wd_notif_card.dds`.
 
 **Untestable / placeholder** (flagged in the component `README`): the scanner is invisible
 (no worn model — re-enable + tune the attach in `sync_attachment` for real art); the

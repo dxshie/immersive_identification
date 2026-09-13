@@ -22,21 +22,23 @@ and a module tier system. See `SPEC.md` §7.3 for the full design.
   entity overlays *and* the Promin readout. The Promin ident readout is the OSD channel
   (shows "install OSD scanner" without one). Face redaction is independent of the scanner.
 
-With the full kit assembled (bracer worn + Promin worn & powered + an antenna and a
-process module **installed** + a worn scanner), identification runs on the tiers. Tune
-every default on the **Wearable Devices** page of the Immersive Identification MCM.
-`wd_require_kit` (default on) blocks identification entirely without the kit; turn it off
-to keep normal identification when the kit isn't complete and let the tiers only enhance
-it.
+With either channel's kit assembled — **AR**: Promin worn & powered + antenna + a process
+module installed + a worn AR scanner + bracer; **OSD**: Promin worn & powered + an OSD
+scanner module + a process module (no antenna, no worn scanner, no bracer) — identification
+runs on the tiers. Tune every default on the **Wearable Devices** page of the Immersive
+Identification MCM. `wd_require_kit` (default on) blocks identification entirely without a
+kit; turn it off to keep normal identification when neither kit is complete and let the
+tiers only enhance it.
 
 ## How the modules install
 
-Wear the Promin, then install the antenna and a process module through **WD's own system**
-— the item's use menu (**"Install module"**) or the **bracer customize screen**, where
-they show in the module cells with their icons. Remove them via the Promin's own remove
-option (WD's use3). The antenna occupies one module cell, the process module another; only
-one process tier fits at a time (installing a different tier **swaps it out**, returning
-the old one to your pack).
+Wear the Promin, then install the modules (antenna, process, OSD scanner) through **WD's
+own system** — the item's use menu (**"Install module"**) or the **bracer customize
+screen**, where they show in the module cells with their icons. Remove them via the
+Promin's own remove option (WD's use3). Each occupies its own bay (see below); only one
+module per bay fits at a time, so installing a different **process** tier — or a different
+**OSD scanner** tier — **swaps out** the current one, returning it to your pack
+(`ii_wd_modules.install` evicts the bay's occupant first).
 
 This works by **repurposing WD's two empty Promin bays and adding a fourth**. The Promin
 ships three module bays (`map`, `conn`, `side`); WD's own `conn` and `side` modules are
@@ -67,14 +69,15 @@ eager-builds the biomonitor/navigation pages so the overlay draws on top of them
 
 ## Promin IDENTIFICATION tab
 
-Installing the antenna adds a third page to the Promin screen — **IDENTIFICATION**,
-cycled with the other tabs (double-tap the Promin key, default). It mirrors the
-NAVIGATION page's layout: the **biomonitor stays on the left**, and the
+Installing an **OSD scanner** module adds a third page to the Promin screen —
+**IDENTIFICATION**, cycled with the other tabs (double-tap the Promin key, default). It
+mirrors the NAVIGATION page's layout: the **biomonitor stays on the left**, and the
 **last-identified target** is shown in the **right panel where the map normally is** — a
 **portrait** (the NPC's `character_icon`) plus name, faction, rank, position, distance,
-and weapon + caliber. Fields the current process tier hasn't unlocked show `---` (the
-page respects the same tier gating as the on-screen tags); monsters have no portrait so
-it's hidden for them.
+and weapon + caliber, with a scanning spinner over the portrait while a scan is in
+progress. Fields the current process tier hasn't unlocked show `---` (the page respects
+the same tier gating as the on-screen tags); monsters have no portrait so it's hidden for
+them. Without an OSD scanner the page shows "install OSD scanner".
 
 The Promin's tab strip is **baked into the page background textures**. This component ships
 a full three-tab strip (IDENTIFICATION / BIOMONITOR / NAVIGATION) baked into each page's
@@ -91,21 +94,21 @@ The Promin CRT screen has no font (WD renders numbers as pre-baked digit texture
 this ships a **monospace glyph atlas** (`ii_wd_font.dds` + `ii_wd_font_textures.xml`,
 one texture id per ASCII code) and a text compositor (`ii_wd_text.script`) that draws
 strings by binding per-character glyph textures onto slot widgets — the same mechanism
-as WD's clock, extended to the full alphabet. The page is a **VFS override of WD's
-`d_promin_ui.script`** (its page-builder table is a file-local with no registration seam)
-— a verbatim copy plus two marked `II-COMPAT` additions; **re-sync it if WD updates that
-file**. Cosmetic limitation: WD's baked tab-label strip (BIOMONITOR / NAVIGATION) isn't
-extended, so the tab is identified by the page's own "IDENTIFICATION" title rather than an
-entry in that strip.
+as WD's clock, extended to the full alphabet. The page is registered via a **VFS override
+of WD's `d_promin_ui.script`** (its page-builder table is a file-local with no registration
+seam) — a verbatim copy plus marked `II-COMPAT` additions (the page builder, the
+`ctx.init_ii` for our own node xml, and the notification overlay below); **re-sync it if WD
+updates that file**.
 
 ## Placeholder art
 
 This component ships **no bespoke art or models**; the tier *logic* is complete, but:
 
-- **Item icons**: all three item types have their own generated 50×50 icons —
+- **Item icons**: each item family has its own generated 50×50 icon —
   `icon_ii_wd_antenna.dds` (mast + broadcast waves), `icon_ii_wd_process.dds` (an IC
-  chip), and `icon_ii_wd_scanner.dds` (a radar scan display). `icon_ii_wd_null.dds`
-  remains as the base fallback.
+  chip), `icon_ii_wd_ar_scanner.dds` (target in AR viewfinder brackets, for the AR
+  scanner), and `icon_ii_wd_scanner.dds` (a radar scan display, for the OSD scanner
+  modules). `icon_ii_wd_null.dds` remains as the base fallback.
 - **Scanner is invisible**: it attaches no worn model on purpose (reusing a mesh showed a
   duplicate bracer on the arm). It's a logical device — worn state + tier only. To ship a
   real model later, re-enable the attach in `d_ii_scanner.sync_attachment` (a commented
@@ -116,8 +119,8 @@ This component ships **no bespoke art or models**; the tier *logic* is complete,
 All Lua compiles (Lua 5.1 `luac`), formats (StyLua), and passes the language server, and
 all XML validates — but the WD device/slot integration **could not be exercised in game**
 during development. It follows WD's own patterns (`d_vektor`, `d_bracer`) faithfully but
-may need iteration. In particular verify: the scanner mounts on the bracer and reports its
-tier; carrying the antenna + a process module with the Promin worn is detected; and
-identification switches to the tier behaviour with the full kit. WD is coupled by
-section/table names — if WD updates its device/slot internals, this component may need
-matching updates.
+may need iteration. In particular verify: the AR scanner mounts on the bracer and reports
+its tier; installing the antenna / OSD scanner / process modules works (including the 4th
+customize-screen slot) and is detected; and identification switches to the tier behaviour
+with either channel's kit. WD is coupled by section/table names — if WD updates its
+device/slot/UI internals, this component may need matching updates.
