@@ -41,4 +41,9 @@
 	<file name="ui\ii_shadow">
 		<texture id="ii_shadow" x="0" y="0" width="64" height="64" />
 	</file>
+	<!-- Up-pointing solid triangle, shape in the alpha channel (white RGB), tinted at
+	     runtime; used by the Simple 2 style's relationship marker. -->
+	<file name="ui\ii_tri">
+		<texture id="ii_tri" x="0" y="0" width="64" height="64" />
+	</file>
 </w>

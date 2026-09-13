@@ -1,0 +1,138 @@
+-- Immersive Identification <-> st-wearable-devices: the tier DRIVER + bootstrap.
+--
+-- Each frame, Immersive Identification calls ii_identify.tier_provider() (if set) and
+-- snapshots the result. We install a provider that reads the current WD device state
+-- (scanner worn + tier, Promin worn/powered, antenna + a process module carried) and the
+-- user's tier values (ii_identify.get_wd_tier_cfg), and returns either:
+--   nil             -> we're not intervening; Immersive Identification behaves normally
+--   { active=false }-> installed but the kit isn't assembled -> identification blocked
+--   { active=true, scan_base=, max_dist=, ignore_night=, allow_ads=, mag_boost=, feat=}
+--                   -> the tier params drive identification
+--
+-- Everything is soft-guarded via rawget/pcall: with WD or II absent, the provider returns
+-- nil and nothing here errors, so shipping this component without one of them is harmless.
+
+-- Call fn in pcall, treating only a truthy successful return as true (poll WD getters
+-- without letting a WD API change throw into II's per-frame path).
+local function safe_pcall_true(fn)
+	local ok, r = pcall(fn)
+	return ok and r and true or false
+end
+
+-- The provider is called every frame by II, but the WD state (worn devices, inventory
+-- scan for modules) only needs re-reading a few times a second. Cache the computed result
+-- and refresh on a timer.
+local REFRESH_MS = 250
+local cached = nil
+local next_refresh = 0
+
+local function compute()
+	local dp = rawget(_G, "d_promin")
+	local scn = rawget(_G, "d_ii_scanner")
+	local mods = rawget(_G, "ii_wd_modules")
+	local ii = rawget(_G, "ii_identify")
+	if not (dp and scn and mods and ii and ii.get_wd_tier_cfg) then
+		return nil -- can't drive: leave Immersive Identification alone
+	end
+
+	local cfg = ii.get_wd_tier_cfg()
+
+	-- Common requirement: a process module installed + Promin worn & powered. pcall-guarded
+	-- so a WD API change can't throw into II's per-frame path.
+	local ok_pt, pt = pcall(mods.process_tier)
+	pt = ok_pt and pt or nil
+	local promin_up = pt ~= nil and safe_pcall_true(dp.is_worn) and safe_pcall_true(dp.is_powered)
+
+	-- Two INDEPENDENT channels now (antenna and OSD-scanner module live in separate Promin
+	-- bays, so both can be installed at once):
+	--   OSD: OSD-scanner MODULE installed          -> the Promin ident-page readout.
+	--   AR : antenna installed + AR SCANNER worn    -> the usual on-entity overlays.
+	-- OSD channel ready: just the module + process + Promin.
+	local osd_tier = nil
+	if mods.osd_scanner_tier then
+		local ok_o, o = pcall(mods.osd_scanner_tier)
+		osd_tier = ok_o and o or nil
+	end
+	local osd_ready = promin_up and osd_tier ~= nil
+
+	-- AR channel ready: antenna installed + a worn AR scanner + the bracer.
+	local ok_st, ar_tier = pcall(scn.worn_tier)
+	ar_tier = ok_st and ar_tier or nil
+	local dbr = rawget(_G, "d_bracer")
+	local ar_ready = promin_up
+		and ar_tier ~= nil
+		and dbr ~= nil
+		and safe_pcall_true(dbr.is_worn)
+		and safe_pcall_true(mods.has_antenna)
+
+	if not (ar_ready or osd_ready) then
+		-- Incomplete kit: block identification if the user requires the kit, else fall
+		-- through to normal Immersive Identification behaviour.
+		if cfg.require_kit then
+			return { active = false }
+		end
+		return nil
+	end
+
+	-- Scanner tier drives range/ADS/night: use the best of whichever channels are ready.
+	-- (ar_ready implies ar_tier ~= nil; osd_ready implies osd_tier ~= nil.)
+	local st
+	if ar_ready and osd_ready then
+		st = math.max(ar_tier or 1, osd_tier or 1)
+	else
+		st = ar_ready and ar_tier or osd_tier
+	end
+	-- Suppress on-entity UI only when OSD is the ONLY channel (pure Promin-readout mode).
+	-- With an AR scanner also worn, entity overlays AND the Promin readout both show.
+	local osd_only = osd_ready and not ar_ready
+
+	local function feat_at(key)
+		return pt >= (cfg.feat[key] or 99)
+	end
+	return {
+		active = true,
+		scan_base = cfg.proc[pt], -- process tier -> fixed base scan time
+		max_dist = cfg.scan[st], -- scanner tier -> identify range
+		ignore_night = st >= (cfg.scanner_nonight or 3),
+		allow_ads = st >= (cfg.scanner_ads or 2),
+		allow_binoc = st >= (cfg.scanner_binoc or 1),
+		mag_boost = st >= (cfg.scanner_mag or 2),
+		osd_only = osd_only, -- OSD channel: identify, but show only on the Promin
+		feat = {
+			faction = feat_at("faction"),
+			distance = feat_at("distance"),
+			relationship = feat_at("relationship"),
+			rank = feat_at("rank"),
+			weapon = feat_at("weapon"),
+		},
+	}
+end
+
+local function provider()
+	local now = time_global()
+	if now >= next_refresh then
+		next_refresh = now + REFRESH_MS
+		cached = compute()
+	end
+	return cached
+end
+
+function on_game_start()
+	-- Wire the scanner device (this component isn't in WD's hardcoded wd_boot list).
+	local scn = rawget(_G, "d_ii_scanner")
+	if scn and scn.register then
+		pcall(scn.register)
+	end
+	-- Register the identification modules with WD's Promin (repurposes its two empty bays;
+	-- config tables are built at file load, so on_game_start is safe). WD persists the
+	-- installed set itself, so no save/load hooks are needed here.
+	local mods = rawget(_G, "ii_wd_modules")
+	if mods and mods.register then
+		pcall(mods.register)
+	end
+	-- Install the tier provider into Immersive Identification (inert if II absent).
+	local ii = rawget(_G, "ii_identify")
+	if ii then
+		ii.tier_provider = provider
+	end
+end

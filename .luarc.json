@@ -9,7 +9,32 @@
 		"ignoreDir": [".git"]
 	},
 	"diagnostics": {
-		"globals": ["class", "super"],
+		"globals": [
+			"class",
+			"super",
+			"ii_identify",
+			"wd_config",
+			"wd_screen",
+			"wd_worn",
+			"wd_attach",
+			"wd_slots",
+			"wd_exo",
+			"wd_core",
+			"wd_trader",
+			"d_promin",
+			"d_promin_config",
+			"d_bracer",
+			"d_bracer_config",
+			"d_ii_scanner",
+			"d_ii_scanner_config",
+			"ii_wd_modules",
+			"ii_wd_text",
+			"d_ii_promin_ident",
+			"d_promin_ui",
+			"d_promin_health_ui",
+			"d_promin_map_ui",
+			"wd_inspect"
+		],
 		"disable": ["lowercase-global"]
 	},
 	"telemetry": {

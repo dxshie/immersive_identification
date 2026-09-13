@@ -1,6 +1,6 @@
 # Immersive Identification — Technical Specification
 
-> **Version:** 2.0.0 &nbsp;•&nbsp; **Engine:** X-Ray / xray-monolith (S.T.A.L.K.E.R. Anomaly / GAMMA), Lua 5.1
+> **Version:** 2.55.1 &nbsp;•&nbsp; **Engine:** X-Ray / xray-monolith (S.T.A.L.K.E.R. Anomaly / GAMMA), Lua 5.1
 > **Repo:** https://github.com/dxshie/immersive_identification
 
 This document describes how the mod is architected and behaves. It is derived
@@ -19,12 +19,18 @@ configurable duration, then fades out.
 It replaces static HUD faction indicators (e.g. the FactionID mod) with a
 diegetic, in-world label that tracks the target as it and the camera move.
 
-Three visual styles:
+Four visual styles:
 
 - **Card** (`ui_style = 1`): dark plate + faction icon + text lines + a leader
   line connecting to a colored dot on the target's chest.
 - **Minimal** (`ui_style = 2`): just a faction-colored dot plus a relation glyph
-  (`-` enemy / `+` friend / `o` neutral).
+  (`-` enemy / `+` friend / `o` neutral). With `mini_dist_scale` on, the dot
+  scales with distance (near = bigger, far = smaller) instead of a flat size.
+- **Simple 2** (`ui_style = 4`): a compact over-the-head cluster — a
+  faction-colored circle (`ii_dot`) and a relation-colored triangle (`ii_tri`,
+  pointing at relation) side by side, with a thin rank-colored bar above them
+  (`rank_color`, novice grey → legend gold). Distance-scaled and anchored above
+  the head like the PiP marker (`draw_slot`'s `ui_style == 4` branch).
 - **Bodycam** (`ui_style = 3`): an unfilled faction-colored rectangle outline
   locked to the target's **head bone**, auto-scaled with distance so it stays a
   constant real-world size around the head (a bounding box with padding). Four
@@ -59,16 +65,18 @@ familiarity only speed up or slow down how long the scan takes.
 ```
 gamedata/
   scripts/
-    ii_identify.script          Core runtime (~1672 lines): logic + UI
-    ii_mcm.script               MCM settings-menu definition (~119 lines)
+    ii_identify.script          Core runtime (~4400 lines): logic + UI
+    ii_mcm.script               MCM settings-menu definition (~207 lines)
   configs/
     text/eng/st_ii_texts.xml    String table (windows-1251)
-    ui/ii_tags.xml              CUIStatic widget templates for the card
+    ui/ii_tags.xml              CUIStatic widget templates (card/minimal/bodycam/simple2/debug)
     ui/textures_descr/ii_textures.xml   Texture id -> file registration
-  textures/ui/*.dds             ii_white, ii_dot, ii_node, ii_spinner, ii_shadow
+    presets/                    includes.ltx + presets_ii.ltx (MCM preset values)
+  textures/ui/*.dds             ii_white, ii_dot, ii_node, ii_spinner, ii_shadow, ii_tri
+  shaders/r3/*.ps               bodycam redaction / svp-marker / overlay (custom exe)
 fomod/
-  info.xml                      Name/Author/Version 2.0.0/Website
-  ModuleConfig.xml              Installer: base + 3 optional components
+  info.xml                      Name/Author/Version 2.55.1/Website
+  ModuleConfig.xml              Installer: base + 2 optional components
 FactionID Neutralized/          Optional: no-op override of FactionID's HUD script
 Perception Skill Integration/   Optional: adds a "perception" skill to Skill System
 types/                          EmmyLua engine stubs for the LSP
@@ -85,40 +93,48 @@ neither edits a host mod's files.
 
 ### 3.1 Lifecycle / entry points
 
-`on_game_start()` (1665-1672) is the sole bootstrap:
+`on_game_start()` (4398-4414) is the sole bootstrap:
 
-1. `read_config()` — load MCM/defaults (1666)
-2. `install_key_hook()` — wrap `level_input.on_key_press` (1667)
-3. Register four multi-subscriber callbacks (1668-1671): `actor_on_update`,
-   `on_option_change`, `save_state`, `load_state`.
+1. `read_config()` — load MCM/defaults (4399)
+2. `install_key_hook()` — wrap `level_input.on_key_press` (4400)
+3. Register the multi-subscriber callbacks (4401-4413): `actor_on_update`,
+   `actor_on_before_death`, `on_option_change`, `save_state`, `load_state`, and
+   `actor_on_weapon_zoom_in`/`actor_on_weapon_zoom_out` (the latter two are
+   anonymous one-liners that set/clear `_ads.zoomed`, the ADS flag — kept anonymous
+   so they add no top-level locals against Lua 5.1's 200-per-chunk limit).
 
-- **Key hook** (`install_key_hook`, 983-998): monkey-patches
+- **Key hook** (`install_key_hook`, 2487): monkey-patches
   `level_input.on_key_press`, saving the previous handler and chaining to it via
   `pcall` so it **cooperates** with other mods rather than seizing the single
   native slot. On a matching DIK + modifier (and `not disabled`) it calls
   `try_identify()`.
-- **Per-frame driver** (`actor_on_update`, 1619-1632): always runs
-  `update_fov_baseline()`; then when enabled runs `ensure_tags()`,
-  `update_binocular_scan()`, `update_loot_xp()`, and `render()`.
-- **Render surface** (`ensure_tags`, 1446-1453): lazily creates the `IiTags`
+- **Per-frame driver** (`actor_on_update`, 4323-4355): always runs
+  `update_fov_baseline()`; polls actor death → `teardown_ui()`; then when enabled
+  runs `ensure_tags()`, `update_binocular_scan()`, `update_auto_identify()`,
+  `update_ads_range_cull()`, `update_redact_membership()`, `update_loot_xp()`, and
+  `render()`.
+- **Render surface** (`ensure_tags`, 3631): lazily creates the `IiTags`
   (`CUIScriptWnd`) dialog and registers it with `get_hud():AddDialogToRender()`.
   There is **no separate render callback** — drawing is done by repositioning
   persistent widgets each `actor_on_update` frame.
-- **`on_option_change`** (1661-1663) re-reads config live when MCM changes.
-- **`save_state` / `load_state`** (1646-1656) persist `xp_awarded`, `remembered`,
+- **`on_option_change`** (4384-4386) re-reads config live when MCM changes.
+- **`actor_on_before_death`** (4393-4396) tears the UI down at the moment of death
+  (the death screen can freeze `actor_on_update` with the last frame's tags still
+  drawn), backed up by the `actor_on_update` death poll.
+- **`save_state` / `load_state`** (4369-4379) persist `xp_awarded`, `remembered`,
   `loot_xp_awarded`. Live reveal state (`tracked`) is intentionally not saved.
   Callbacks are declared `local` to avoid clobbering same-named globals in other
   scripts.
 
 ### 3.2 State machine
 
-Central table `tracked` (190): `[obj_id] = { t0, col, fcol, sign, header, name,
-icon, rank, weap, scan_ms, max_dist, fade_dist, fade_ms, hold_ms }`, capped at
-`MAX_TAGS = 5` (8). When full, the oldest entry (lowest `t0`) is evicted before
-insert (905-910).
+Central table `tracked`: `[obj_id] = { t0, col, fcol, sign, header, name, icon,
+rank, rank_col, weap, scan_ms, max_dist, fade_dist, fade_ms, hold_ms }`, capped at
+`MAX_TAGS = 12` (raised from 5). When full, the oldest entry (lowest `t0`) is
+evicted before insert (in `identify_target`, 2097).
 
 Each entry runs a **time-based state machine** keyed on
-`elapsed = time_global() - t0`, evaluated every frame in `render()` (1518-1534).
+`elapsed = time_global() - t0`, evaluated every frame in `render()` (3969).
 `total = scan_ms + fade_ms + hold_ms + fade_ms`:
 
 | Phase | Condition | Visual |
@@ -130,24 +146,35 @@ Each entry runs a **time-based state machine** keyed on
 | Removed | `elapsed > total`, or object gone/dead | — |
 
 **Snapshot-at-identify:** all timing/range params are frozen into the `tracked`
-entry at identify time (912-926) and read from the entry during render
-(1505-1509), so live MCM edits or lowering binoculars mid-reveal never
-retroactively distort an in-progress card.
+entry at identify time (`identify_target`, 2097) and read from the entry during
+render, so live MCM edits or lowering binoculars mid-reveal never retroactively
+distort an in-progress card.
 
-**Re-identify while tracked** (881-898) restarts the reveal by resetting `t0` and
-refreshing every snapshot, so the familiarity discount (2nd+ identify) takes
-effect immediately rather than waiting for the current card to clear.
+**Re-identify while tracked** (`identify_target`): a **manual** keypress restarts
+the reveal by resetting `t0` and refreshing every snapshot, so the familiarity
+discount (2nd+ identify) takes effect immediately. An **auto** re-touch
+(`auto_mode = true`, from the steady/dwell triggers) does **not** restart a
+target that is already scanning/revealed — it only refreshes the hold window —
+so ADS combat micro-adjustment can't re-scan an already-identified target (the
+"double identification" flicker, §3.5b).
 
 ### 3.3 Target selection
 
-`get_target_obj(max_dist)` (491-516) — a three-tier cascade:
+`get_target_obj(max_dist, allow_fov)` (1465) — a cascade:
 
-1. Weapon-aligned trace: `level.get_target_obj(level.ETraceTarget.Weapon)` (500)
-2. Camera trace fallback: `level.get_target_obj()` (503)
-3. FOV fallback: `find_nearest_in_fov(max_dist)` — **only if FOV assist is enabled
-   for the current context**. `try_identify` passes `allow_fov`, which is
-   `fov_assist_binoc` while looking through raised binoculars and `fov_assist`
-   otherwise. With it off, identification is direct-hit only (tiers 1–2).
+0. Free-aim direct hit (only when `freeaim_assist` is on): `freeaim_target` raycasts
+   along the true aim ray, tried **first** so a real aim-ray hit wins over the swayed
+   render-camera trace below. Independent of `allow_fov`.
+1. Weapon-aligned trace: `level.get_target_obj(level.ETraceTarget.Weapon)`
+2. Camera trace fallback: `level.get_target_obj()`
+3. FOV fallback: `find_nearest_in_fov(max_dist)` — **only if `allow_fov`**.
+   `try_identify` passes `allow_fov`, which is `fov_assist_binoc` while looking
+   through raised binoculars and `fov_assist` otherwise. With it off, identification
+   is direct-hit only (tiers 0–2).
+
+A direct hit that is **already mid-identification** doesn't just restart itself: the
+FOV fallback is tried first (it prefers any *other* eligible target over one already
+tracked), and the busy direct hit is only returned if nothing else qualifies.
 
 Both raycasts are **LOS-gated** via `accept()` → `has_los()` because the engine's
 crosshair pick sees *through* semi-transparent geometry (fences/glass/foliage)
@@ -169,67 +196,109 @@ Both layers **fail open** (return visible) if their engine call errors or the
 `ray_pick` binding is absent, so LOS gating degrades gracefully rather than
 blocking all identification.
 
-`find_nearest_in_fov` iterates `level.iterate_nearest`; a candidate must be
+`find_nearest_in_fov` (1291) iterates `level.iterate_nearest`; a candidate must be
 non-actor, `IsStalker` or `IsMonster`, alive, have a non-empty
 `character_community`, and (if `require_los`) pass LOS. It selects the candidate
-**nearest to the aim point** within `fov_radius`, not nearest in world space.
-Already-tracked targets are held as a runner-up and only returned if nothing
-else qualifies.
+**nearest to the aim point** within the assist tolerance, not nearest in world
+space. Already-tracked targets are held as a runner-up and only returned if
+nothing else qualifies.
 
-The aim point comes from `aim_center()`: the fixed screen center (512,384) by
-default, or — when `freeaim_assist` is on — the projection of
-`level.get_target_pos(ETraceTarget.Weapon)` (a world point along the actual
-rendered weapon barrel, so it follows a **bodycam/free-aim** engine's off-center
-barrel) via `weapon_aim_ui()`. It falls back to screen center whenever the
-weapon-aim point is unavailable (no weapon in hand → `(0,0,0)`, the
-`get_target_pos` binding is absent, or the point is off-screen). The direct-hit
-tiers already trace `ETraceTarget.Weapon`, so they follow free aim regardless of
-this toggle; `freeaim_assist` only redirects the FOV-assist circle.
+**The assist is angular, not a screen ring** (the fix for PiP scopes). Instead of
+measuring screen distance to a projected aim point, it measures the **angle from
+the true aim ray** to the target:
+
+- `aim_ray_world()` (1701) returns the fire ray `{origin, unit dir}` — the weapon
+  **barrel** ray under ADS, the first-eye ray otherwise (both from
+  `bodycam.get_fire_ray()`), falling back to `device().cam_pos/cam_dir` on a stock
+  engine. This is where the scope/gun actually points, not the swayed render camera.
+- `aim_angle_to_body(obj)` (1748) returns the smallest angle from that ray to any
+  sampled `BODY_BONES` point (head/torso/pelvis/limbs — so aiming anywhere on the
+  entity counts), via the module-level `ray_point_angle` helper; a vertical span at
+  the origin backs up non-`bip01` rigs (monsters).
+- `aim_cone_rad()` (1690) is the tolerance as a **constant real angle**:
+  `(fov_radius / 768) × baseline_fov`. A candidate matches when
+  `aim_angle_to_body(obj) ≤ aim_cone_rad()`.
+
+Because it's an angle from the aim ray, the assist is **magnification-invariant** (a
+scope zooms the view, not the target's real angular size) and **sway-immune** (it
+doesn't go through the swayed render camera). At 1× it matches the old screen ring,
+so hip-fire feel is unchanged.
+
+`aim_center()` / `weapon_aim_ui()` (903 / 874) — the old screen-space aim-point
+projection — are now used **only by the debug visualiser** (`draw_debug`) and the
+aim-debug dump, not by target selection.
 
 ### 3.4 Scan-time computation
 
-`try_identify()` (833-927) commits immediately on a valid target; the visible
-delay `eff_scan_ms` is `SCAN_MS` multiplied through a chain of factors:
+`try_identify()` (2244) resolves the target and hands it to `identify_target`
+(2097), which commits immediately; the visible delay `eff_scan_ms` is `SCAN_MS`
+multiplied through a chain of factors (or skipped entirely when `instant_identify`
+is on):
 
 | Factor | Function | Range |
 |---|---|---|
-| Distance | `distance_scan_mult` (574-579) | 1× point-blank → `dist_penalty_max` at cutoff |
-| Rank | `rank_scan_mult` (618-625) | 1× novice → `rank_penalty_max` legend, via `RANK_WEIGHT` (600-609) |
-| Night | `night_scan_mult` (663-666) | 1× day → `night_penalty_max`, scaled by `darkness_factor` (651-658), peaks 23:00–04:00 |
-| Binoculars | `binoc_scan_mult` (871) | flat multiplier while raised (if `binoc_boost`) |
-| Perception | `perception_scan_mult` (690-696) | `1 − perception_scan_mult × level`, floored at 0.15 |
-| Familiarity | `familiarity_scan_mult` (877-879) | applied if `remembered[id]` |
+| Distance | `distance_scan_mult` (1788) | 1× point-blank → `dist_penalty_max` at cutoff |
+| Rank | `rank_scan_mult` (1838) | 1× novice → `rank_penalty_max` legend |
+| Night | `night_scan_mult` (1901) | 1× day → `night_penalty_max`, scaled by `darkness_factor` (1881), peaks around midnight |
+| Binoculars / ADS | `scan_mult` from `boost_params` (2204) | flat multiplier while raised/aiming (if the matching `*_boost`) |
+| Perception | `perception_scan_mult` (1932) | `1 − perception_scan_mult × level`, floored |
+| Familiarity | `familiarity_scan_mult` | applied if `remembered[id]` |
 
-Gating (834-857): `enabled` + actor exists; if `require_binoculars`,
+Gating (`try_identify`): `enabled` + actor exists; if `require_binoculars`,
 `is_binoc_active()` must be true; target exists, is not the actor, is alive, has a
 community, and is within `eff_max_dist`.
 
 ### 3.5 Binoculars
 
-- `is_binoc_held()` (522-529): `active_item():section()` contains
+- `is_binoc_held()` (1521): `active_item():section()` contains
   `BINOC_SECTION = "wpn_binoc_inv"`.
-- `is_binoc_active()` (557-563): additionally requires camera FOV to have dropped
+- `is_binoc_active()` (1571): additionally requires camera FOV to have dropped
   below `FOV_ZOOM_RATIO (0.7) × _fov_baseline`; the baseline self-calibrates each
   frame from the widest FOV seen while binoculars aren't held
-  (`update_fov_baseline`, 548-555).
+  (`update_fov_baseline`, 1560).
 - `binoc_boost` widens `eff_max_dist` / `eff_fade_dist` by `binoc_range_mult`
-  (842-844) and speeds the scan.
-- **Auto-identify** (`update_binocular_scan`): when `binocular_mode` **or**
-  `ads_mode` is active, tracks a "steady" camera direction against an anchor
-  (`STEADY_MAX_D2 = 0.002`, ~2.6°); held steady for `steady_time`, it auto-fires
-  `try_identify()` once (`steady_triggered` guard).
+  (default **4.4**) and speeds the scan (`boost_params`, 2204). With
+  `binoc_zoom_scaling` on, the range multiplier is further scaled by the
+  binocular's magnification (like `ads_zoom_scaling`).
+- **Steady auto-identify** (`update_binocular_scan`, 2445): when `binocular_mode` is
+  active, tracks a "steady" camera direction against an anchor
+  (`STEADY_MAX_D2 = 0.002`, ~2.6°); held steady for `steady_time` it fires a
+  **sweep** (`sweep_identify_in_fov`, if `fov_assist_binoc`) or a direct
+  `try_identify(true)` (if not), throttled by `STEADY_SWEEP_MS` so it keeps
+  re-sweeping while held. ADS uses a separate dwell trigger (§3.5b).
 
 ### 3.5b Aim Down Sight (ADS)
 
-Mirrors the binocular boost for regular weapons. `is_ads_active()` prefers the
-bodycam engine's real aim flag (`bodycam.get_state().ads`, catches iron sights),
-falling back to the same FOV-zoom heuristic with a gentler `ADS_ZOOM_RATIO (0.85)`;
-binoculars are excluded so the two never stack. `boost_params()` now returns
+Mirrors the binocular boost for regular weapons. `is_ads_active()` (1590) detects
+aiming down sight on **any exe**, in priority order:
+
+1. **PRIMARY: `_ads.zoomed`** — a flag driven by the stock
+   `actor_on_weapon_zoom_in`/`_out` callbacks (registered in `on_game_start`). This
+   works on any engine and catches **1× optics** that change no FOV — the case the
+   heuristics below can't see. Self-heals a stuck flag: if it's set but the actor has
+   no active item in hand (holstered/switched), it resets and reports hipfire.
+2. `bodycam.get_state().ads` — only trusted while the bodycam logic is **active**
+   (`st.active`); when disabled the field is stale/false.
+3. A live PiP scope (`is_svp_active()`) — a scope narrows the *second* viewport, not
+   the main FOV, so the heuristic below can't see it.
+4. FOV-zoom heuristic: `device().fov < _fov_baseline × ADS_ZOOM_RATIO (0.85)`.
+
+Binoculars are excluded (`is_binoc_held` checked first) so ADS and binocular boosts
+never stack. `boost_params()` (2204) returns
 `(binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult)` — binoc takes
 priority, then ADS, each carrying its own `*_scan_mult` / `*_range_mult` from its
 MCM section; `identify_target` applies the returned `scan_mult`. Its own MCM
-section: `ads_mode` (steady-aim auto-identify), `ads_boost`, `ads_scan_mult`,
-`ads_range_mult`, `ads_zoom_scaling`.
+section: `ads_mode`, `ads_hold_time`, `ads_boost`, `ads_scan_mult`,
+`ads_range_mult`, `ads_zoom_scaling`, `ads_hide_main`.
+
+**ADS auto-identify is dwell-on-target** (`update_ads_dwell`, 2394), distinct from
+the binocular *steadiness* trigger: it requires a valid target to be **continuously
+present under the aim** — directly, or inside the FOV-assist cone when `fov_assist`
+is on — for `ads_hold_time` seconds, then auto-identifies (and keeps identifying,
+throttled, while a target stays there). Holding still on empty air does nothing; you
+*can* track a moving target. `fov_assist` on → `sweep_identify_in_fov` (all targets
+in the cone); off → `try_identify(true)` (just the one under the aim). The presence
+raycast is throttled to 100 ms; the dwell timer uses `time_global` so it stays exact.
 
 **Zoom-scaled range**: with `ads_zoom_scaling` on, the ADS range multiplier is
 scaled by the current scope magnification — `range_mult = ads_range_mult × mag` —
@@ -273,59 +342,71 @@ state (independent of `pip_markers`), so this also covers `pip_markers`-off.
 
 ### 3.6 UI rendering
 
-`IiTags : CUIScriptWnd` (1019), rect 1024×768, parses `ii_tags.xml` via
-`CScriptXmlInit`. `InitControls` (1025-1073) builds `MAX_TAGS` slots of widgets in
-draw order (shadow → line → plate → accent → icon → text → node/glow → spinner →
-bodycam box edges).
+`IiTags : CUIScriptWnd` (`__init` 2529), rect 1024×768, parses `ii_tags.xml` via
+`CScriptXmlInit`. `InitControls` (2534) builds `MAX_TAGS` slots of widgets in draw
+order (shadow → line → plate → accent → icon → text → node/glow → spinner →
+bodycam box edges → Simple 2 circle/triangle/bar), plus the debug dot/text pool.
 
-- **World-to-screen:** `anchor_pos(obj)` (379-390) picks the first of
-  `ANCHOR_BONES` (`bip01_head`, `bip01_spine2/1`, `bip01_spine`) within 3m and
-  lifts by `ANCHOR_LIFT = 0.12`; monsters fall back to `position().y + 1.3`.
-  `project_world` (392-398) calls `game/level.world2ui`, rejecting `x < -9000`
-  (off-screen/behind).
-- **`draw_slot`** branches: scanning spinner only → **bodycam** (head-outline
-  box, `ui_style==3`) → minimal (node+glow+glyph, `ui_style==2`) → mini fallback
-  below `mini_scale_cutoff` (node+glow) → full card (measured text, plate, accent,
-  icon, shadowed text lines, node/glow, and a leader line rotated via
-  `atan2`/`SetHeading` from node to the card's nearest bottom corner). The bodycam
-  box's centre/extents (`box_cx/cy/hw/hh`) are precomputed per target in `render`
-  (via `head_center` + `head_box_extents`) since `draw_slot` has no world access.
-- **Aspect correction** `UI_KX` (200): `(h/w)/(768/1024)`; the X of any
-  KX-distorted static (node, glow, line) is pre-corrected so circles stay round
-  and angles stay true under the engine's anisotropic virtual→screen stretch. The
-  spinner is deliberately kept square (rotation doesn't commute with non-uniform
-  scale).
-- **Overlap avoidance** (`render` 2nd pass, 1589-1612): a card whose anchor is
-  within `STACK_DIST_X=140` / `STACK_DIST_Y=90` of an earlier card is pushed
+- **World-to-screen:** `anchor_pos(obj)` (610) picks the first of `ANCHOR_BONES`
+  (`bip01_head`, `bip01_spine2/1`, `bip01_spine`) within 3m and lifts by
+  `ANCHOR_LIFT = 0.12`; monsters fall back to `position().y + 1.3`. `project_world`
+  (623) calls `game/level.world2ui`, rejecting `x < -9000` (off-screen/behind).
+- **`draw_slot`** (3147) branches: scanning spinner only → **bodycam** (head-outline
+  box, `ui_style==3`) → **Simple 2** (circle+triangle+rank bar, `ui_style==4`) →
+  minimal (node+glow+glyph, `ui_style==2`) → mini fallback below `mini_scale_cutoff`
+  (node+glow) → full card (measured text, plate, accent, icon, shadowed text lines,
+  node/glow, and a leader line rotated via `atan2`/`SetHeading` from node to the
+  card's nearest bottom corner). The bodycam box's centre/extents (`box_cx/cy/hw/hh`)
+  are precomputed per target in `render` (via `area_box_for`) since `draw_slot` has
+  no world access.
+- **Distance scaling / offsets:** the Minimal dot (`mini_dist_scale_factor`, 3025,
+  when `mini_dist_scale` on) and the Simple 2 cluster scale with distance and are
+  pulled toward the head as the target recedes; `ui_offset_x` / `ui_offset_y` nudge
+  every on-screen element in virtual px.
+- **Aspect correction** `UI_KX` (assigned 375): `(h/w)/(768/1024)`; the X of any
+  KX-distorted static (node, glow, line, Simple 2 shapes) is pre-corrected so circles
+  stay round and angles stay true under the engine's anisotropic virtual→screen
+  stretch. The spinner is deliberately kept square (rotation doesn't commute with
+  non-uniform scale).
+- **Overlap avoidance** (`render` 2nd pass, ~4222): a card whose anchor is within
+  `STACK_DIST_X=140` / `STACK_DIST_Y=90` of an earlier card is pushed
   `stack × STACK_STEP (58)` px higher.
-- **Picture-in-Picture scope path** (1476-1587): gated on `PIP_AVAILABLE` (soft
-  existence check via `rawget` of `is_svp_active` / `svp_ui_markers_*`). When a
-  scope is raised it submits in-scope world markers and hides the normal HUD slots
-  so a mis-projected main-camera card doesn't clash with the scope view.
+- **Picture-in-Picture scope path** (in `render`, 3969): gated on `PIP_AVAILABLE`
+  (soft existence check via `rawget` of `is_svp_active` / `svp_ui_markers_*`). When a
+  scope is raised it submits in-scope world markers and hides the normal HUD slots so
+  a mis-projected main-camera card doesn't clash with the scope view.
 
 ### 3.7 Rewards / familiarity
 
 - First identify of a target awards `perception_xp` once (`xp_awarded` gate) and
-  sets `remembered[id]` (900-903).
-- `update_loot_xp` (812-831) awards `perception_loot_xp` the first time you loot a
+  sets `remembered[id]` (in `identify_target`, 2097).
+- `update_loot_xp` (2064) awards `perception_loot_xp` the first time you loot a
   corpse you had already identified, detected by polling `get_talking_npc()` for a
   set→cleared transition (`loot_xp_awarded` gate).
-- `award_perception_xp` (764-770) writes `haru_skills.skills_levels.perception
+- `award_perception_xp` (2012) writes `haru_skills.skills_levels.perception
   .experience` directly (deliberately not `increase_skill`, which would throw on a
   non-base skill).
 
 ### 3.8 Notable functions
 
-`read_config` (214) • `active_dik` (240) • `modifiers_ok` (254) •
-`faction_label/color` (272) • `display_name` (290) • `rank_label` (309) •
-`held_weapon_label` (331) • `relation_color/sign` (357) • `anchor_pos` (379) •
-`project_world` (392) • `has_los` (422) • `find_nearest_in_fov` (440) •
-`get_target_obj` (491) • `is_binoc_active` (557) • `distance_scan_mult` (574) •
-`rank_scan_mult` (618) • `darkness_factor` (651) • `perception_scan_mult` (690) •
-`perception_hint_stats` (722, exposed as global for the Skill System tooltip) •
-`update_loot_xp` (812) • `try_identify` (833) • `update_binocular_scan` (949) •
-`install_key_hook` (983) • `IiTags:draw_slot` (1194) • `render` (1472) •
-`on_game_start` (1665).
+`read_config` (353) • `active_dik` (381) • `modifiers_ok` (399) •
+`faction_label/color` (421/436) • `display_name` (443) • `rank_color/label`
+(477/482) • `held_weapon_label` (533) • `relation_color/sign` (578/596) •
+`anchor_pos` (610) • `project_world` (623) • `screen_box` (691) • `has_los` (1230) •
+`find_nearest_in_fov` (1291) • `get_target_obj` (1465) • `is_binoc_active` (1571) •
+`is_ads_active` (1590) • `scope_magnification` (1647) • `aim_cone_rad` (1690) •
+`aim_ray_world` (1701) • `aim_angle_to_body` (1748) • `distance_scan_mult` (1788) •
+`rank_scan_mult` (1838) • `darkness_factor` (1881) • `perception_scan_mult` (1932) •
+`perception_hint_stats` (1968, exposed as a global for the Skill System tooltip) •
+`update_loot_xp` (2064) • `identify_target` (2097) • `boost_params` (2204) •
+`try_identify` (2244) • `update_auto_identify` (2296) • `sweep_identify_in_fov`
+(2359) • `update_ads_dwell` (2394) • `update_binocular_scan` (2445) •
+`install_key_hook` (2487) • `IiTags:InitControls` (2534) • `IiTags:draw_debug`
+(2740) • `draw_head_box` (2954) • `IiTags:draw_slot` (3147) • `ensure_tags` (3631) •
+`head_box_for` (3687) • `body_box_for` (3749) • `face_box_for` (3846) •
+`update_redact_membership` (3876) • `feed_redaction` (3935) • `render` (3969) •
+`teardown_ui` (4273) • `update_ads_range_cull` (4303) • `actor_on_update` (4323) •
+`on_game_start` (4398).
 
 ---
 
@@ -338,21 +419,25 @@ defaults, the modifier dropdown, and the UI-style dropdown are read from
 default is resolved here (not in `DEFAULTS`) because `DIK_keys` isn't populated
 when `ii_identify.script` is first parsed (27-31).
 
-**Presets:** the leaf page carries a `presets = { "ii_card", "ii_minimal",
-"ii_bodycam", "ii_immersive" }` list, which makes MCM show a preset dropdown at
-the top of the page. Names resolve from `ui_mcm_prst_<id>` strings; **values live
-in LTX**, not Lua — MCM reads `configs/presets/includes.ltx` (which we ship with a
-wildcard `#include "presets_*.ltx"` so other mods coexist) → `presets_ii.ltx`,
-whose `[<preset_id>]` sections key options by their storage path (`ii/main/<id>`,
-values by type: check→bool, track/list→number). A preset only overrides the
-options it lists. Adding an option to a preset = one LTX line; no code change.
+**Presets:** the General leaf page carries a `presets = { "ii_card", "ii_minimal",
+"ii_bodycam", "ii_immersive" }` list, which makes MCM show a preset dropdown (it
+applies across all pages, not just General). Names resolve from `ui_mcm_prst_<id>`
+strings; **values live in LTX**, not Lua — MCM reads `configs/presets/includes.ltx`
+(which we ship with a wildcard `#include "presets_*.ltx"` so other mods coexist) →
+`presets_ii.ltx`, whose `[<preset_id>]` sections key options by their storage path
+(`ii/<page>/<id>` — see the multi-page note below; values by type: check→bool,
+track/list→number). A preset only overrides the options it lists. Adding an option
+to a preset = one LTX line; no code change.
 
-**Tree:** root node `id="ii"` (no `sh`) → one leaf page `id="main"` (`sh=true`)
-holding a `gr` of options, grouped by `type="slide"` section headers: **General**
-(enable/key/instant/scan-fade-hold/hide-unseen/range), **UI Style** (style, box
-area, show name/faction/weapon, colour-by-relation, card size), **Targeting**
-(FOV assist, free-aim, LOS, auto-identify), **Binoculars**, **Redaction**, then
-the scan-time modifier sections and Debug. Three MCM traps encoded in comments:
+**Tree:** root node `id="ii"` (no `sh`) → **one leaf page (`sh=true`) per section**,
+each rendering as its own tab (tab label = `ui_mcm_menu_<page_id>`): **general**,
+**uistyle**, **targeting**, **binoc**, **ads**, **pip**, **faceredact**, **scantime**
+(the distance/rank/night/familiarity/perception modifier sub-headers), **debug**, and
+**colors** (the per-faction/rank/relation RGB overrides, generated from
+`ii_identify.COLOR_DEFS`). Because an option's MCM storage path is
+`ii/<page>/<option_id>`, options are NOT all under `ii/main/*` — `read_config` resolves
+each key by trying every page in `MCM_PAGES` (first non-nil wins), and the preset LTX
+paths use the per-page ids. Three MCM traps encoded in comments:
 the top node must **not** carry `sh` (only the leaf page does); an option's
 **`hint` is the BARE base id** (`"ii_<id>"`) — MCM resolves its caption from
 `ui_mcm_<hint>` and its **hover tooltip** from `ui_mcm_<hint>_desc`, so passing a
@@ -362,47 +447,71 @@ opt_list` helpers set `hint = "ii_" .. id` mechanically.
 
 ### Setting inventory
 
-| id | type | default | range (min,max,step,prec) | controls |
+Listed in MCM display order (`ii_mcm.script`); ranges are `(min, max, step, prec)`.
+
+| id | type | default | range | controls |
 |---|---|---|---|---|
+| **General** | | | | |
 | `enabled` | check | true | — | master on/off |
 | `key_dik` | key_bind | `DIK_X` | — | identify key |
 | `modifier_index` | list | None | None/Ctrl/Shift/Alt | required held modifier |
-| `ui_style` | list | Card | Card/Minimal/Bodycam | card vs minimal dot vs head-outline box |
-| `box_area` | list | Head | Head/Body | bodycam outline rectangle region |
-| `box_thickness` | track | 2 | 1, 6, 0.5, 1 | bodycam outline edge thickness (px) |
-| `show_name` | check | true | — | show name line (all text styles) |
-| `show_faction` | check | true | — | show faction line (all text styles) |
-| `show_weapon` | check | true | — | show weapon+caliber line (all text styles) |
-| `auto_identify` | check | false | — | continuously identify all visible in-range targets, no keypress (LOS always required) |
-| `color_by_relation` | check | true | — | tint by relation vs flat neutral |
+| `instant_identify` | check | false | — | skip the scan wait — reveal immediately |
 | `scan_time` | track | 0.35 | 0, 2, 0.05, 2 | base scan pulse (s) |
 | `fade_time` | track | 0.45 | 0.1, 2, 0.05, 2 | fade in/out (s) |
 | `hold_time` | track | 4.0 | 1, 15, 0.5, 1 | full-visible hold (s) |
+| `hide_unseen` | check | true | — | hide a tag while its target is out of sight |
 | `max_dist` | track | 50 | 10, 500, 10 | max identify range (m) |
 | `fade_dist` | track | 40 | 5, 500, 10 | distance where card fades (m) |
+| **UI Style** | | | | |
+| `ui_style` | list | Card | Card/Minimal/Bodycam/Simple 2 | which visual style |
+| `box_area` | list | Head | Head/Body | bodycam outline rectangle region |
+| `box_color_source` | list | faction | faction/relation | bodycam box colour source |
+| `box_thickness` | track | 2 | 1, 6, 0.5, 1 | bodycam outline edge thickness (px) |
+| `box_padding` | track | 0.2 | 0, 1, 0.05, 2 | bodycam outline margin (fraction) |
+| `box_opacity` | track | 1.0 | 0.1, 1, 0.05, 2 | bodycam outline opacity |
+| `show_name` | check | true | — | show name line (card + bodycam) |
+| `show_faction` | check | true | — | show faction line (card + bodycam) |
+| `show_weapon` | check | true | — | show weapon+caliber line (card + bodycam) |
+| `color_by_relation` | check | true | — | tint by relation vs flat neutral |
+| `card_scale` | track | 1.0 | 0.5, 2, 0.05, 2 | flat card size multiplier |
+| `mini_scale_cutoff` | track | 0.4 | 0.1, 1, 0.05, 2 | below this scale → dot only |
+| `mini_dist_scale` | check | true | — | Minimal dot: scale with distance |
+| `ui_offset_x` | track | 0 | -200, 200, 5 | horizontal nudge for on-screen UI (px) |
+| `ui_offset_y` | track | 0 | -200, 200, 5 | vertical nudge for on-screen UI (px) |
+| **Targeting** | | | | |
 | `fov_assist` | check | true | — | master FOV target-assist; off = direct-hit aim only |
-| `freeaim_assist` | check | false | — | bodycam/free-aim: center assist on weapon barrel, not screen center |
-| `fov_radius` | track | 110 | 20, 400, 10 | target-assist radius (px) |
+| `freeaim_assist` | check | false | — | bodycam/free-aim: aim from the weapon barrel ray |
+| `fov_radius` | track | 90 | 0, 90, 5 | target-assist cone size (calibrated px; 0 = off) |
 | `require_los` | check | true | — | require line of sight |
-| `fov_assist_binoc` | check | true | — | FOV assist while looking through raised binoculars |
+| `auto_identify` | check | false | — | continuously identify all visible in-range targets, no keypress (LOS always required) |
+| **Binoculars** | | | | |
 | `binocular_mode` | check | false | — | steady-aim auto-identify via binocs |
 | `require_binoculars` | check | false | — | restrict identify to raised binocs |
 | `steady_time` | track | 0.6 | 0.2, 3, 0.1, 1 | steady-aim hold time (s) |
+| `fov_assist_binoc` | check | true | — | FOV assist while looking through raised binoculars |
 | `binoc_boost` | check | true | — | binocs speed up + extend range |
 | `binoc_scan_mult` | track | 0.4 | 0.1, 1, 0.05, 2 | scan-speed mult w/ binocs |
-| `binoc_range_mult` | track | 2.5 | 1, 5, 0.1, 1 | max/fade distance mult w/ binocs |
-| `ads_mode` | check | false | — | steady-aim auto-identify while ADS |
+| `binoc_range_mult` | track | 4.4 | 1, 5, 0.1, 1 | max/fade distance mult w/ binocs |
+| `binoc_zoom_scaling` | check | false | — | scale binoc range by binocular magnification |
+| **Aim Down Sight (ADS)** | | | | |
+| `ads_mode` | check | false | — | dwell-on-target auto-identify while ADS |
+| `ads_hold_time` | track | 0.6 | 0.2, 3, 0.1, 1 | dwell time on target before auto-ID (s) |
 | `ads_boost` | check | true | — | ADS speeds up + extends range |
 | `ads_scan_mult` | track | 0.6 | 0.1, 1, 0.05, 2 | scan-speed mult while ADS |
 | `ads_range_mult` | track | 1.6 | 1, 5, 0.1, 1 | max/fade distance mult while ADS (x1 base) |
 | `ads_zoom_scaling` | check | true | — | scale ADS range by scope magnification |
-| `box_color_source` | list | 1 | faction, relation | bodycam box colour source |
+| `ads_hide_main` | check | false | — | hide all main-view drawing while aiming down sight |
+| **PiP Scope** | | | | |
 | `pip_markers` | check | true | — | draw identification markers in a PiP scope |
 | `pip_redact` | check | true | — | draw redaction in a PiP scope |
 | `pip_hide_main` | check | false | — | hide all main-view drawing while a scope is up |
-| `ads_hide_main` | check | false | — | hide all main-view drawing while aiming down sight |
-| `card_scale` | track | 1.0 | 0.5, 2, 0.05, 2 | flat card size multiplier |
-| `mini_scale_cutoff` | track | 0.4 | 0.1, 1, 0.05, 2 | below this scale → dot only |
+| **Face Redaction** | | | | |
+| `redact_face` | check | false | — | redact the face of humanoids in range (alive or dead) |
+| `redact_face_style` | list | pixelate | pixelate/black | face redaction distortion |
+| `redact_face_padding` | track | 0.15 | 0, 1, 0.05, 2 | margin around the face box (fraction) |
+| `redact_range` | track | 100 | 10, 300, 10 | redaction reach (m) |
+| `redact_strength` | track | 1.0 | 0.1, 1, 0.05, 2 | redaction intensity |
+| **Scan-time modifiers** | | | | |
 | `dist_penalty` | check | true | — | distance slows scan |
 | `dist_penalty_max` | track | 5.0 | 1, 6, 0.1, 1 | scan mult at max range |
 | `rank_penalty` | check | true | — | rank slows scan |
@@ -415,6 +524,19 @@ opt_list` helpers set `hint = "ii_" .. id` mechanically.
 | `perception_scan_mult` | track | 0.04 | 0, 0.1, 0.01, 2 | scan reduction per level |
 | `perception_xp` | track | 20 | 0, 100, 5 | XP per identify |
 | `perception_loot_xp` | track | 20 | 0, 100, 5 | bonus XP for first loot |
+| **Debug** | | | | |
+| `debug_log` | check | false | — | write aim/trace diagnostics to a dedicated log file |
+| `debug_draw` | check | false | — | on-screen target-assist visualiser |
+| **Wearable Devices** (page `wdcompat`; only bites when the WD compat add-on is installed, §7.3) | | | | |
+| `wd_require_kit` | check | true | — | block identification entirely unless the full scanner kit is worn/assembled |
+| `wd_proc_t1/t2/t3` | track | 1.5 / 1.0 / 0.5 | 0.1, 5, 0.1, 1 | process-module tier base scan time (s) |
+| `wd_scan_t1/t2/t3` | track | 10 / 20 / 30 | 5, 100, 5 | scanner tier identify range (m) |
+| `wd_feat_faction/distance/relationship/rank/weapon` | track | 1/1/2/2/3 | 1, 3, 1 | process tier that unlocks each data feature |
+| `wd_scanner_ads/mag/nonight` | track | 2/2/3 | 1, 3, 1 | scanner tier that unlocks scope-ADS / mag-boost / no-night |
+
+The `wd_*` keys back the tier system's defaults and are exposed to the add-on via the
+`ii_identify.get_wd_tier_cfg()` global (the add-on's driver can't read the local `C`).
+See §7.3.
 
 ---
 
@@ -434,7 +556,10 @@ to `<community>_icon` at runtime), `tag_line`/`tag_line_sh` (64×2, leader line)
 `tag_glow` (40×40, ii_dot), `tag_node` (10×10, ii_node, baked black ring),
 `tag_spinner` (20×20, ii_spinner), `tag_box_top`/`tag_box_bottom`/`tag_box_left`/
 `tag_box_right` (thin ii_white strips forming the Bodycam head-outline box, sized
-per frame). Text widgets (each with a `_sh` shadow twin):
+per frame), `tag_s2_circle` (12×12, ii_dot — Simple 2 faction circle),
+`tag_s2_tri` (13×11, ii_tri — Simple 2 relation triangle), `tag_s2_bar` (28×3,
+ii_white — Simple 2 rank bar), and the debug pool `dbg_dot` (ii_dot) +
+`dbg_text`/`dbg_status` (letterica16). Text widgets (each with a `_sh` shadow twin):
 `tag_head` (letterica16, faction), `tag_name` (letterica18, personal name),
 `tag_rank` (letterica16, hidden for monsters), `tag_weap` (letterica16),
 `tag_sign` (letterica18, centered relation glyph for Minimal style).
@@ -444,8 +569,11 @@ per frame). Text widgets (each with a `_sh` shadow twin):
 Each registers the whole file as one region. `ii_white` (32×32 solid),
 `ii_dot` (64×64 soft AA circle, glow/pulse), `ii_node` (64×64 white fill with a
 **baked black outline ring** so the ring survives any tint), `ii_spinner`
-(128×128 comet-tail ring), `ii_shadow` (64×64 feathered rounded box). Textures
-ship in-mod so the tag draws with zero external dependency.
+(128×128 comet-tail ring), `ii_shadow` (64×64 feathered rounded box), `ii_tri`
+(64×64 up-pointing triangle, shape in the alpha channel, tinted at runtime — Simple
+2 relation marker). All ship white with the shape carried in alpha and are tinted at
+runtime via `SetTextureColor`. Textures ship in-mod so the tag draws with zero
+external dependency.
 
 ### 5.3 String table (`st_ii_texts.xml`, windows-1251)
 
@@ -459,16 +587,17 @@ Zombified, Sin, Trader, Mutant, UNISG, Arena).
 
 ## 6. Installer & optional components (`fomod/`)
 
-**info.xml:** Immersive Identification, **v2.0.0**, group Gameplay.
+**info.xml:** Immersive Identification, **v2.55.1**, group Gameplay.
 
 **ModuleConfig.xml** (ModConfig 5.0):
 
 - **Required:** `gamedata → gamedata` (self-contained drop-in, no required
   choices).
-- **One step** "Optional Components" → group "Compatibility" (`SelectAny`), two
+- **One step** "Optional Components" → group "Compatibility" (`SelectAny`), three
   optional plugins (all unchecked by default):
   1. **Neutralize FactionID HUD** → installs `FactionID Neutralized/gamedata`.
   2. **Skill System: Perception** → installs `Perception Skill Integration/gamedata`.
+  3. **st-wearable-devices Compatibility** → installs `WD Compatibility/gamedata` (§7.3).
 
 ---
 
@@ -505,6 +634,105 @@ overlays, with **zero edits** to the host mod:
   haru_skills' `ui_skills_icon_<skill>` convention.
 
 Without this component (and the host mod) there is no XP and no effect.
+
+### 7.3 st-wearable-devices Compatibility (`WD Compatibility/`)
+
+Gates identification behind wearable scanner gear from the **st-wearable-devices**
+(WD) mod, via a small **provider seam** in core: `ii_identify` calls the optional
+global `ii_identify.tier_provider()` once per `actor_on_update` and snapshots the
+result into `_tier`. Every override point reads `_tier`; when it's `nil` the mod
+behaves exactly as normal, so core stays inert without this add-on. The provider
+returns one of: `nil` (don't intervene), `{ active = false }` (installed but the kit
+isn't assembled → identification **blocked** at the single `identify_target` choke
+point), or `{ active = true, scan_base, max_dist, ignore_night, allow_ads, mag_boost,
+feat = {...} }` (tier params drive identification). When active, the tier values
+**replace** the matching MCM settings (scan-time chain, range, night penalty, ADS/mag
+enablement, and the faction/distance/relationship/rank/weapon display gates); the rest
+of the MCM (UI style, colours, key bind, …) is untouched.
+
+**New items** (all placeholder art — see the component `README`):
+- **Promin modules** — antenna, **OSD Scanner Module T1/T2/T3**, and process T1/T2/T3 —
+  real WD Promin bay-modules, installed via WD's own system (item use menu / bracer
+  customize screen), so they appear in the customize cells with their icons.
+  `ii_wd_modules.register()` **repurposes WD's two functionally-empty bays** (drops WD's
+  do-nothing `conn`/`side` `MODULES` entries) **and adds a fourth bay** so all four modules
+  fit at once:
+  - `conn` bay: the **antenna**.
+  - `side` bay: a **process** tier.
+  - `ii_osd` bay (added to `d_promin_config.BAYS`): an **OSD scanner** tier.
+  - (`map` bay: WD's own navigation module.)
+
+  The 4th bay requires a shipped **override of WD's `ui_wd_customize.xml`** (a 4th
+  `module_open_4`/`module_restricted_4`/`cell_4`) — WD's customize screen builds one cell per
+  `d_promin_config.BAYS` entry and ships XML for only three, so a 4th bay is otherwise a fatal
+  `module_open_4 not found`. All install through `ii_wd_modules.install`, which evicts any
+  module already in the target bay first (WD's `install_module` appends without checking).
+  All three of our bays are made active on every Promin tier so the kit works on a tier-1
+  Promin. WD persists the installed set; detection is
+  `d_promin.has_module("ii_ant"/"ii_osd_tN"/"ii_proc_tN")`.
+- **AR Scanner T1/T2/T3** — a **worn** bracer device (`d_ii_scanner.script`, mirroring WD's
+  `d_vektor`/`d_bracer`: `wd_worn` + `wd_slots.register_device` + `wd_exo`), 3 tiers
+  (range/ADS/mag/night). Shows identification on entities (the usual tags). Attaches **no
+  worn model** (invisible — a placeholder mesh showed a duplicate bracer) and registers its
+  own callbacks from `on_game_start` (this component isn't in WD's hardcoded `wd_boot` list,
+  and `wd_core.start()` wires only once).
+
+**Two INDEPENDENT channels** (separate bays, both installable at once):
+- **AR** = antenna installed + a worn AR scanner + bracer worn + Promin worn & powered →
+  identification on entities (the usual overlays).
+- **OSD** = an OSD scanner module installed + a process module + Promin worn & powered
+  (no antenna, no worn scanner, no bracer) → the Promin ident-page readout.
+
+`osd_only` (core suppresses **all** on-entity identification UI — main tags *and* in-scope
+markers, face redaction untouched) is set only in **pure OSD mode** (OSD ready and AR not).
+With both channels' gear, entity overlays *and* the Promin readout show together. The Promin
+ident page is gated on the OSD scanner module being installed.
+
+**Driver** (`ii_wd_compat.script`): polls WD state — `d_ii_scanner.worn_tier()`,
+`ii_wd_modules.process_tier()` / `osd_scanner_tier()` / `has_antenna()`, `d_bracer.is_worn()`,
+`d_promin.is_worn()/is_powered()` — and the user's tier values via
+`ii_identify.get_wd_tier_cfg()`, then builds the override table (cached, refreshed every
+~250 ms). Identification runs if either channel is ready; the scanner tier used is the best
+(max) of whichever are ready → `max_dist` + `allow_binoc` (T1) + `allow_ads` (T2) +
+`mag_boost` (T2) + `ignore_night` (T3); process tier → `scan_base` + the display-feature
+unlocks. **Binoculars** count under the tier system when the scanner unlocks them
+(`allow_binoc`, T1 by default): raised binoculars extend the tier's identify range by
+`binoc_range_mult` (`boost_params` tier branch), for both channels. All WD calls are `rawget`/`pcall`-guarded so the component is inert (returns `nil`)
+when WD or II is absent, and never throws into core's per-frame path.
+
+**Bootstrap gotcha** (fixed): `on_game_start` is auto-called by the engine for every
+script, but `actor_on_first_update` is a callback that must be wired via
+`RegisterScriptCallback` — an early version defined it as a bare global, so its body never
+ran. All wiring now happens in `on_game_start`.
+
+**Promin IDENTIFICATION tab**: installing the antenna adds a third Promin screen page
+(`pages = {"ident"}` on the antenna module → WD's `get_available_pages` puts it in the
+tab cycle). It mirrors the NAVIGATION page — reuses `d_promin_health_ui.build_chrome`
+(bg `ii_wd_tab_bg_ident`) + `build_bio` to keep the frame + left biomonitor, and draws the
+last-identified target in the **right panel** (the map's region, design rect
+`572,85,425,450`): a **portrait** (`obj:character_icon()`) + name/faction/rank/position/
+distance/weapon (locked fields `---`; monsters have no portrait) + a **scanning spinner**
+(`ii_wd_spinner.dds`, frame-cycled) shown over the portrait while a scan is in progress
+(driven by `ii_identify.get_scan_progress()`). The **IDENTIFICATION tab is a real baked tab**:
+the strip (IDENTIFICATION / BIOMONITOR / NAVIGATION, active one highlighted) is baked into
+the page background art — the ident page has its own `tablet_ui_main_ident.dds`, and WD's
+biomonitor + navigation backgrounds (`tablet_ui_main.dds`, `tablet_ui_main_map.dds`) are
+**overridden** so the third tab shows on every page (DXT5, matching WD's format). Data comes
+from `ii_identify.get_last_identified()` (a persistent snapshot written at scan *completion*
+in the render loop, respecting the tier feature gates, so the readout honours scan time). The Promin CRT
+screen has **no font** (WD renders numbers as pre-baked digit textures), so this ships a
+**monospace glyph atlas** (`ii_wd_font.dds` + a `textures_descr` mapping one id per ASCII
+code) + a compositor (`ii_wd_text.script`) that draws strings by binding per-character
+glyph textures onto slot widgets — the same mechanism as WD's clock. WD's page-builder
+table is a file-local with no seam, so the page needs a **VFS override of
+`d_promin_ui.script`** (verbatim copy + two `II-COMPAT` additions: the `ident` builder and
+a second `ctx.init_ii` for our own node xml) — re-sync on a WD update.
+
+**Untestable / placeholder** (flagged in the component `README`): the scanner is invisible
+(no worn model — re-enable + tune the attach in `sync_attachment` for real art); the
+scanner/module icons are generated placeholders; the IDENTIFICATION page's screen layout
+(coordinates in the 1100×600 design space) and glyph sizing are best-guess and will likely
+need in-game tuning. None affects the tier **logic**.
 
 ---
 
@@ -585,12 +813,15 @@ bodycam.get_fire_ray() -> {
 }
 ```
 
-`freeaim_ray()` reads the primary (eye) ray; `weapon_aim_ui()` projects a point
-`pos + dir * FREEAIM_PROJECT_DIST` (100 m) through `world2ui` — i.e. where the
-gameplay aim lands on the *render* screen, which is the reticle position — and
-`aim_center()` feeds it to `find_nearest_in_fov`. The whole path is guarded by
-`rawget(_G,"bodycam")` and stays inert (falls back to screen center) until the
-binding exists — safe on every engine.
+`freeaim_ray(source)` reads the ray — the weapon **barrel** ray (`bar_*`) under ADS,
+the first-eye ray otherwise. The angular target-assist consumes it **directly**:
+`aim_ray_world()` normalises it and `aim_angle_to_body()` measures the angle from it
+to each candidate (§3.3), so there is no screen projection in the hot path any more.
+(The old `weapon_aim_ui()` — projecting `pos + dir * FREEAIM_PROJECT_DIST` (100 m)
+through `world2ui` to a reticle screen point — and `aim_center()` survive only as
+the debug visualiser's aim marker.) The whole path is guarded by
+`rawget(_G,"bodycam")` and stays inert (falls back to the render camera / screen
+centre) until the binding exists — safe on every engine.
 
 **The binding does not ship with the stock bodycam engine and must be compiled
 in.** Implemented in `src/xrGame/bodycam_script.cpp` (added to the `bodycam`
@@ -603,55 +834,44 @@ Verify with `debug_log` on: the `[ii] aim(eye) ... ui=(x,y)` line should show an
 on-screen coordinate that tracks the target as you free-aim, while `aim(barrel)`
 is the off-screen cosmetic one.
 
-## 11. Redaction (dead-body head effect, engine)
+## 11. Face redaction (engine post-process)
 
-The **Bodycam** style (`ui_style = 3`, §1) and **`auto_identify`** are pure Lua
-and work on any engine build. **Redaction** needs the custom bodycam exe. It is
+The **Bodycam** style (`ui_style = 3`, §1) and **`auto_identify`** are pure Lua and
+work on any engine build. **Face redaction** needs the custom bodycam exe. It is
 **fully decoupled from identification** — its own subsystem, no tag/box/identify
-involvement:
+involvement. (A wider *corpse* redaction — dead-body / full-body boxes with
+`redact_dead`/`redact_area`/`redact_style`/`redact_padding` — existed in earlier
+versions and was **removed**; only face redaction remains. The engine binding names
+stay `redaction_*` — internal plumbing.)
 
-- **`redact_dead`** (toggle) — draw an effect over **every visible dead body in
-  range**, no identify needed, persistent while visible, any UI style.
-- **`redact_style`** (list) — `redaction` / `pixelate` / `black` (§ shader below).
-- **`redact_area`** (list) — `head` (head/face box) or `body` (full-body box,
-  centred `BODY_CENTER_LIFT` above the origin with body-sized extents). `redact_box_for`
-  dispatches; both use the same `box_extents` projection with different metres.
+- **`redact_face`** (toggle) — draw a distortion over the **face of every visible
+  humanoid in range, alive or dead**, no identify needed, persistent while visible,
+  any UI style.
+- **`redact_face_style`** (list) — `pixelate` / `black` (§ shader below).
+- **`redact_face_padding`** — extra margin around the face box as a fraction of its
+  size (`add_redaction_box` expands `hw/hh` by `1 + padding`), distance-independent.
+- **`redact_range`** (default 100 m) — the membership sweep uses this instead of the
+  identify `max_dist`, since redaction is passive (no aiming) and should reach as far
+  as a face is visible. A distant face still stops naturally once its box projects
+  below ~1 px (`screen_box`).
 - **`redact_strength`** — master intensity.
-- **`redact_padding`** — extra margin around the region as a fraction of its size
-  (`add_redaction_box` expands `hw/hh` by `1 + redact_padding`), distance-independent.
-  The bodycam outline has the equivalent **`box_padding`** applied in `render`.
 
-**Two independent redaction features, one engine pass:**
-Both features share **`redact_range`** (default 100 m) — the redaction membership
-sweep uses it instead of the identify `max_dist`, since redaction is passive (no
-aiming) and should reach as far as a body/face is visible. A distant face still
-stops naturally once its box projects below ~1 px (`screen_box`).
+`face_box_for` (3846) builds the box: a tight head box, nudged forward along
+`obj:direction()` so it sits over the face **front**, not the skull (humanoids only —
+`head_center` is nil for monsters). **Front-only**: it NEGATES its depth as a shader
+flag, so the shader uses a tight, front-biased band (`FACE_FRONT`/`FACE_BACK`) —
+only the face front + sides, not the back of the head. (The engine passes the depth
+through untouched, so no rebuild.)
 
-- **Corpse redaction** (`redact_dead`): dead NPCs/creatures in range, head or
-  full-body box (`redact_area`), `redact_padding`.
-- **Face redaction** (`redact_face`): the FACE of humanoids in range — **alive or
-  dead** — via `face_box_for` (a tighter head box, nudged forward along
-  `obj:direction()` so it sits over the face front, not the skull; humanoids only —
-  `head_center` is nil for monsters), own `redact_face_style` + `redact_face_padding`.
-  An entity already covered by corpse redaction this frame is skipped.
-  **Front-only**: `face_box_for` NEGATES its depth as a shader flag — the shader
-  then uses a tight, front-biased band (`FACE_FRONT`/`FACE_BACK`) so only the face
-  front + sides are redacted, not the back of the head. (Mod-side: the engine passes
-  the depth through untouched, so no rebuild.)
+One throttled sweep (`update_redact_membership`, 3876) builds `face_ids` (humanoid,
+alive/dead) in range, gated on the toggle.
 
-`redact_style`/`redact_face_style` each pick pixelate/black, but the engine redaction
-pass has ONE mode per frame, so `feed_redaction` uses the corpse style when corpse
-boxes are present, else the face style; **truly independent simultaneous styles
-need a per-box mode in the engine** (pending). Intensity (`redact_strength`) is
-shared. One throttled sweep (`update_redact_membership`) builds both `corpse_ids`
-(dead) and `face_ids` (humanoid, alive/dead), gated per toggle.
-
-**Behavior.** `feed_redaction` runs every frame, builds the combined box list (both
-features, `add_redaction_box(…, box_fn, padding)`), and submits in one atomic batch —
-**no LOS check**: the shader's depth mask handles occlusion per-pixel (gating on
-`db.actor:see` was redundant and caused a pop-in delay). Ids cached, boxes
+**Behavior.** `feed_redaction` (3935) runs every frame, builds the face box list
+(`add_redaction_box(…, face_box_for, redact_face_padding)`), and submits in one
+atomic batch — **no LOS check**: the shader's depth mask handles occlusion per-pixel
+(gating on `db.actor:see` was redundant and caused a pop-in delay). Ids cached, boxes
 re-projected every frame (tracks the settling ragdoll). Up to `REDACTION_MAX` (16)
-boxes total across both features.
+boxes total.
 (Identification's own dead handling is unchanged: a tag is dropped the instant its
 target dies, `render`'s `remove = not alive`.)
 
@@ -663,16 +883,16 @@ its timer expires; the `tracked` entry persists, so it reappears on re-sight.
 `hide_unseen` uses `tag_visible` = `db.actor:see` **AND** `has_clear_ray` (a
 fresh geometric static-ray) — `see` alone lags behind cover via its grace window,
 so the ray gives the near-instant drop; a `HIDE_GRACE_MS` (150) debounce rides
-out a one-frame ray flicker. **Full-body box** (`body_box_for`, used by both the
-bodycam outline and redaction) is the screen-space bounding box of the projected
-ragdoll bones (`BODY_BOX_BONES`) — so it tracks the physics ragdoll, unlike
+out a one-frame ray flicker. **Full-body box** (`body_box_for`, 3749, used by the
+bodycam full-body outline via `area_box_for`) is the screen-space bounding box of the
+projected ragdoll bones (`BODY_BOX_BONES`) — so it tracks the physics ragdoll, unlike
 `obj:position()` which stays at the last-alive spot; falls back to a vertical
 origin span for non-bip01 rigs. Bodycam outline thickness is `box_thickness` (px,
 fixed not distance-scaled), drawn with butted (non-overlapping) corners and
 UI_KX-corrected vertical edges (`draw_head_box`).
 
-**Actor-death teardown**: `teardown_ui()` hides all tag slots, clears `tracked`,
-drops cached corpses, and clears the engine redaction. Driven two ways: an
+**Actor-death teardown**: `teardown_ui()` (4273) hides all tag slots, clears
+`tracked`, drops cached face ids, and clears the engine redaction. Driven two ways: an
 `actor_on_before_death` callback fires it at the **moment of death** (the death
 screen can freeze `actor_on_update` with the last frame's tags still drawn, so
 the poll alone leaves them on the death screen), plus `actor_on_update` polls
@@ -683,20 +903,20 @@ exe — the box still shows, just no distortion). Multi-rect, SVP-marker style:
 
 ```
 bodycam.redaction_begin()                 -- start a frame's list
-bodycam.redaction_add(x0, y0, x1, y1)     -- one head box, NORMALISED [0,1], top-left origin
+bodycam.redaction_add(x0, y0, x1, y1, …)  -- one face box, NORMALISED [0,1], top-left origin (+ depth, world box)
 bodycam.redaction_commit(intensity)       -- publish atomically (intensity 0 / empty list clears)
 -- legacy single-rect wrappers kept: set_redaction_rect(...), clear_redaction()
 ```
 
-`redaction_submit()` converts each box's 1024×768 virtual-space centre/extents to
-`[0,1]` (divide by 1024/768, since that virtual space maps across the whole
+`redaction_submit()` (760) converts each box's 1024×768 virtual-space centre/extents
+to `[0,1]` (divide by 1024/768, since that virtual space maps across the whole
 screen); `intensity` = `redact_strength`.
 
-**Effect variant** (`redact_style`, MCM list → engine mode via `bodycam.redaction_set_mode`,
-a separate binding so older exes degrade to redaction): `0` redaction, `1` pixelate
-(mosaic censor), `2` black box. Passed to the shader in `redaction_count.y`. (The
-engine binding names stay `redaction_*` — internal plumbing, unchanged by the
-mod-facing "redaction" rename.)
+**Effect variant** (`redact_face_style`, MCM list → engine mode via
+`bodycam.redaction_set_mode`, a separate binding so older exes degrade gracefully):
+mode = list index − 1, so `0` pixelate (mosaic censor), `1` black box. Passed to the
+shader in `redaction_count.y`. (An earlier animated "glitch/redaction" tear mode was
+removed; the engine binding names stay `redaction_*` — internal plumbing.)
 
 **Depth mask (never over the viewmodel)**: each box also carries its **view-space
 depth** (`view_depth` in Lua = `(headPos − cam_pos)·cam_dir`, matching the engine's
@@ -704,29 +924,25 @@ depth** (`view_depth` in Lua = `(headPos − cam_pos)·cam_dir`, matching the en
 `set_ca("redaction_depths")`. The shader samples the scene depth (`s_position`,
 `r2_RT_P`, bound by the blender) and **draws only where the scene surface is within
 `band` metres of the box-centre depth, on BOTH sides** — cutting a foreground
-occluder (viewmodel, wall) in front AND the ground/background behind, so the effect
-hugs the body's depth *slab* instead of a flat rect over everything. `band` is
-**size-adaptive**: `band = clamp(max(span.x,span.y) × box-depth × REDACTION_BAND_K 0.8,
+occluder (viewmodel, wall) in front AND the background behind, so the effect hugs the
+target's depth *slab* instead of a flat rect over everything. For a face box this is
+what keeps the distortion off the gun/hands. `band` is **size-adaptive**:
+`band = clamp(max(span.x,span.y) × box-depth × REDACTION_BAND_K 0.8,
 REDACTION_BAND_MIN 0.45, REDACTION_BAND_MAX 2.5)` — it scales with the box's on-screen
-size × depth (a proxy for the object's own depth extent), so a close/angled body
-whose near end (feet/backpack) sits a metre-plus in front of its centre gets a band
-wide enough to cover its full depth, while a distant head stays tight. This evolved
-from a fixed 0.35 m margin (clipped the body front at angles) → a distance-relative
-`×0.55` (huge front gap at range) → the current size-adaptive two-sided band.
-Fundamental limit: a flat rect + depth slab still can't perfectly hug an angled 3D
-body; a per-object stencil mask would (bigger engine change, not done). A `continue`
-(not bail) lets an overlapping box still win. depth `0` = no test (the back-compat
-wrapper, and the in-scope SVP pass). The pixelate mode additionally re-checks each
-mosaic cell centre against the same slab so it never pulls an off-body colour into
-a block.
+size × depth. A `continue` (not bail) lets an overlapping box still win. depth `0` =
+no test (the back-compat wrapper, and the in-scope SVP pass); a **negative** depth is
+the FACE flag (front-biased band, § above). The pixelate mode additionally re-checks
+each mosaic cell centre against the same slab so it never pulls an off-target colour
+into a block.
 
 **Shader** (ships as gamedata, this repo): `gamedata/shaders/r3/bodycam_redaction.ps` —
 loaded at runtime by filename, DX11 path (`getShaderPath()` returns `"r3\\"`).
 Samples the scene RT via the shared `s_image`/`smp_base`; **loops** the rect array
 and, inside the first box a pixel hits (and passing the depth mask), applies the
-mode's effect (redaction = banded tear + chromatic aberration + dropout +
-scanline/noise; pixelate = quantise box UV to cells and resample; black = solid),
-feathered at the edges, scene untouched elsewhere. Reads `float4 redaction_params (intensity,time,…)`, `float4 redaction_count
+mode's effect (pixelate = quantise box UV to cells and resample; black = solid —
+the exposed modes; an older animated tear/`redaction` effect remains in the shader
+but is no longer selectable from MCM), feathered at the edges, scene untouched
+elsewhere. Reads `float4 redaction_params (intensity,time,…)`, `float4 redaction_count
 (.x = n, .y = mode)`, and `float4 redaction_rects[16]` set from C++ (rect array via
 `set_ca`).
 
@@ -798,22 +1014,26 @@ the SVP target's `Width`/`Height`. Shader `gamedata/shaders/r3/bodycam_svp_marke
 pass). Debug: console `r__bodycam_svp_marker_debug 1`. **No Lua changes** — the mod's
 existing code drives it. Phase 2 (richer bracket/sign) not yet built.
 
-**In-scope redaction** (same commit): the dead-body redaction also runs in
-the scope. `bodycam.redaction_add` gained WORLD box args (`wcx,wcy,wcz,whw,whh`,
-stored in `g_bodycam_redaction_world[16×6]`); `phase_svp_redaction` (called in
-`phase_svp_capture`, before the markers) reprojects each world box's 4
-camera-facing corners through the SVP camera to a scope-normalised rect and reuses
-`bodycam_redaction.ps` **unchanged** (depth `0` = no viewmodel mask in-scope). Lua-side
-`head_box_for`/`body_box_for` now also return the box's world centre + world
-half-extents (`body_box_for` accumulates a world AABB of the bones, so the in-scope
-box tracks the ragdoll too), and `feed_redaction` no longer bails when scoped — the
-engine draws the main-camera rects in the main pass and the world boxes in the SVP
-pass; the lens only samples the SVP output, so there's no double-draw. Relies on
-`SetActive` remapping `r2_RT_generic0`/`r2_RT_P` to the SVP RTs so the shader
-samples the scope scene.
+**In-scope redaction** (same commit): the face redaction also runs in the scope
+(gated by `pip_redact`). `bodycam.redaction_add` gained WORLD box args
+(`wcx,wcy,wcz,whw,whh`, stored in `g_bodycam_redaction_world[16×6]`);
+`phase_svp_redaction` (called in `phase_svp_capture`, before the markers) reprojects
+each world box's 4 camera-facing corners through the SVP camera to a scope-normalised
+rect and reuses `bodycam_redaction.ps` **unchanged** (depth `0` = no viewmodel mask
+in-scope). Lua-side `head_box_for`/`body_box_for`/`face_box_for` also return the box's
+world centre + world half-extents (`body_box_for` accumulates a world AABB of the
+bones via the reused `_bbw` accumulator, so the in-scope box tracks the ragdoll too),
+and `feed_redaction` no longer bails when scoped — the engine draws the main-camera
+rects in the main pass and the world boxes in the SVP pass; the lens only samples the
+SVP output, so there's no double-draw. Relies on `SetActive` remapping
+`r2_RT_generic0`/`r2_RT_P` to the SVP RTs so the shader samples the scope scene.
 
-## 13. Known repo drift (flagged during analysis)
+## 13. Notes on this document
 
-- **`README.md`** — verify its optional-component list matches the two components
-  currently in `ModuleConfig.xml` (FactionID Neutralized, Perception Skill
-  Integration).
+- This spec was reconciled against the tree at **v2.55.1**. Line-number citations
+  point into `ii_identify.script` at that revision — treat them as "near here",
+  since the file changes often; the function names are the durable anchors. For a
+  release-by-release view of behaviour changes, see **`CHANGELOG.md`**.
+- **`README.md`** — verify its optional-component list matches the three components in
+  `ModuleConfig.xml` (FactionID Neutralized, Perception Skill Integration,
+  st-wearable-devices Compatibility).

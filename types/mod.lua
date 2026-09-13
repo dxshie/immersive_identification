@@ -19,6 +19,12 @@
 ---@field REDACT_STYLE_LIST { label: string }[]
 ---@field REDACT_AREA_LIST { label: string }[]
 ---@field BOX_COLOR_SOURCE_LIST { label: string }[]
+---@field COLOR_DEFS { id: string, group: string, tbl: number[], def: number[] }[] configurable colours (MCM Colors section)
+---@field get_last_identified fun(): table? last-identified target snapshot (name/faction/rank/weap/icon/rank_level/x/y/z/dist), or nil
+---@field get_last_identified_id fun(): number? id of the last-identified target (cheap, no alloc), or nil
+---@field get_scan_progress fun(): number? progress 0..1 of the active scan (for the Promin OSD spinner), or nil
+---@field get_wd_tier_cfg fun(): table resolved WD-compat tier config (for the compat driver)
+---@field tier_provider (fun(): table?)? external tier-system provider (set by the WD compat addon)
 ---@field DEFAULT_KEY_NAME string DIK_keys field name, e.g. "DIK_X"
 ii_identify = {}
 

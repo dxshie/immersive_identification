@@ -1,0 +1,60 @@
+-- Identification Scanner: config (mirrors d_vektor_config / d_bracer_config).
+-- A 3-tier worn device. Placeholder art: every tier reuses WD's bracer_rigid mesh as
+-- the attach model and the bracer's transforms as a starting position -- these WILL
+-- overlap the real bracer and MUST be tuned in-game (there is no customize GUI wired
+-- for this placeholder device, so edit DEFAULTS below or add a wd_gui.register_device
+-- block later). Detection/tier logic does not depend on the visual being correct.
+
+-- The AR Scanner: a 3-tier WORN device (identification shown on entities, the usual way).
+-- The OSD scanner is NOT here -- it's a Promin MODULE (see ii_wd_modules.script), not a worn
+-- device, so this config/device only knows the AR (worn) scanner.
+SECTION = "ii_wd_scanner_t1"
+
+local PLACEHOLDER_MODEL = "wd\\bracer_rigid\\bracer_rigid"
+
+TIERS = {
+	{ id = "t1", section = "ii_wd_scanner_t1", model = PLACEHOLDER_MODEL, defaults = {} },
+	{ id = "t2", section = "ii_wd_scanner_t2", model = PLACEHOLDER_MODEL, defaults = {} },
+	{ id = "t3", section = "ii_wd_scanner_t3", model = PLACEHOLDER_MODEL, defaults = {} },
+}
+
+-- Numeric tier (1/2/3) for an AR scanner section, from its t1/t2/t3 suffix. nil otherwise.
+function tier_index_of(section)
+	local n = section and section:match("_t(%d)$")
+	return n and tonumber(n) or nil
+end
+
+-- Placeholder transforms (bracer defaults). Nudged forward along the forearm so it
+-- doesn't sit exactly on the bracer; still a guess -- tune in-game.
+local DEFAULTS = {
+	model_pos = { 0.0578507975669, 0.0000962907679, 0.06 },
+	model_rot = { 90.1812, -0.1302, 132.1815 },
+	model_scale = 0.7,
+}
+
+local FAMILY_FIELDS = {
+	{ "model_pos", true },
+	{ "model_rot", true },
+	{ "model_scale", false },
+}
+
+local cfg = wd_config.new({
+	section = SECTION,
+	global_key = "ii_wd_scanner",
+	tiers = TIERS,
+	family_fields = FAMILY_FIELDS,
+	user_fields = "all",
+	defaults = DEFAULTS,
+})
+
+transforms = cfg.transforms
+saved = cfg.saved
+reset_transforms = cfg.reset_transforms
+load_transforms = cfg.load_transforms
+save_global = cfg.save_global
+get_active_tier = cfg.get_active_tier
+get_tier_of = cfg.get_tier_of
+set_active_tier = cfg.set_active_tier
+reset_active_tier = cfg.reset_active_tier
+get_model = cfg.get_model
+resolve = cfg.resolve

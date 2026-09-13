@@ -52,7 +52,7 @@
               while IFS= read -r -d "" f; do
                 echo "== $f =="
                 "${pkgs.libxml2}/bin/xmllint" --noout "$f" || status=1
-              done < <(find gamedata fomod "FactionID Neutralized" "Perception Skill Integration" -name "*.xml" -print0)
+              done < <(find gamedata fomod "FactionID Neutralized" "Perception Skill Integration" "WD Compatibility" -name "*.xml" -print0)
               if [ "$status" -eq 0 ]; then
                 echo "All XML valid."
               fi
@@ -77,7 +77,7 @@
             type = "app";
             program = toString (pkgs.writeShellScript "format" ''
               set -euo pipefail
-              find gamedata "FactionID Neutralized" "Perception Skill Integration" \
+              find gamedata "FactionID Neutralized" "Perception Skill Integration" "WD Compatibility" \
                 -name "*.script" -print0 \
                 | xargs -0 -r "${pkgs.stylua}/bin/stylua"
               echo "Formatted all .script files."
@@ -88,7 +88,7 @@
             type = "app";
             program = toString (pkgs.writeShellScript "check-format" ''
               set -euo pipefail
-              find gamedata "FactionID Neutralized" "Perception Skill Integration" \
+              find gamedata "FactionID Neutralized" "Perception Skill Integration" "WD Compatibility" \
                 -name "*.script" -print0 \
                 | xargs -0 -r "${pkgs.stylua}/bin/stylua" --check
               echo "All .script files are formatted."
@@ -106,7 +106,7 @@
               fi
               out="./package/immersive-identification-fomod-v''${version}.zip"
               rm -f "$out"
-              "${pkgs.p7zip}/bin/7z" a -tzip -x'!.gitkeep' "$out" fomod gamedata README.md "FactionID Neutralized" "Perception Skill Integration"
+              "${pkgs.p7zip}/bin/7z" a -tzip -x'!.gitkeep' "$out" fomod gamedata README.md "FactionID Neutralized" "Perception Skill Integration" "WD Compatibility"
               echo "built $out"
             '');
           };

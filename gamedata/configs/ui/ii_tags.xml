@@ -88,6 +88,19 @@
 		<texture r="255" g="255" b="255" a="255">ii_white</texture>
 	</tag_box_right>
 
+	<!-- Simple 2 style (over the head): a faction-coloured circle, a relation-coloured
+	     triangle, and a thin rank-coloured bar above them. All sized/positioned/tinted
+	     per frame -> stretch="1" required (tmNative trap). r/g/b/a are neutral defaults. -->
+	<tag_s2_circle width="12" height="12" stretch="1">
+		<texture r="255" g="255" b="255" a="255">ii_dot</texture>
+	</tag_s2_circle>
+	<tag_s2_tri width="13" height="11" stretch="1">
+		<texture r="255" g="255" b="255" a="255">ii_tri</texture>
+	</tag_s2_tri>
+	<tag_s2_bar width="28" height="3" stretch="1">
+		<texture r="255" g="255" b="255" a="255">ii_white</texture>
+	</tag_s2_bar>
+
 	<!-- Header line: the target's faction, small and tinted the relation
 	     colour, the secondary/context line, same role as IQM's card_head. -->
 	<tag_head_sh>

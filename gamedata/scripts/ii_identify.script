@@ -72,7 +72,7 @@ DEFAULTS = {
 	-- aim source that reflects free aim -- either level.ETraceTarget.Weapon
 	-- (absent on the tested bodycam build) or a bodycam.get_fire_ray() engine
 	-- binding (see SPEC "Free-aim support"). Inert / harmless without either
-	fov_radius = 110, -- virtual-space px (1024-wide): target-assist size. Calibrated at the
+	fov_radius = 90, -- virtual-space px (1024-wide): target-assist size (MCM range 0-90). Calibrated at the
 	-- unzoomed FOV into an angular cone (aim_cone_rad), so the assist is magnification-
 	-- invariant -- works the same hip-firing or scoped at high zoom (see aim_angle_to_body)
 	require_los = true, -- target-assist fallback only picks targets with clear line of sight
@@ -94,13 +94,26 @@ DEFAULTS = {
 	steady_time = 0.6, -- seconds: how long the aim must hold still (binocular mode) before auto-identifying
 	card_scale = 1.0, -- flat size multiplier for the whole card (manual, not distance-based)
 	mini_scale_cutoff = 0.4, -- below this scale, show just the relation dot instead of the full card
+	ui_offset_x = 0, -- virtual-px (1024-wide) horizontal nudge for the on-screen UI elements
+	ui_offset_y = 0, -- virtual-px (768-tall) vertical nudge for the on-screen UI elements
+	mini_dist_scale = true, -- Minimal (dot) style: scale the dot with distance so a far target's dot
+	-- isn't oversized (near = bigger, far = smaller); off = flat card_scale like the other styles
 	binoc_boost = true, -- binoculars speed up + extend identify range, independent of binocular_mode
 	binoc_scan_mult = 0.4, -- scan_time multiplier while binoculars are raised (lower = faster reveal)
 	binoc_range_mult = 4.4, -- max_dist/fade_dist multiplier while binoculars are raised (flat, OR the
 	-- x1 base when binoc_zoom_scaling is on)
-	binoc_zoom_scaling = false, -- scale the binocular range multiplier by the binocular's magnification
-	-- (like ads_zoom_scaling): off = flat binoc_range_mult; on = binoc_range_mult * magnification
-	ads_mode = false, -- auto-trigger identify on a steady ADS (aim-down-sight) aim, like binocular_mode
+	binoc_zoom_scaling = false, -- use the binocular's REAL magnification (from a custom-exe engine
+	-- binding) as the range multiplier instead of the flat binoc_range_mult. Inert without that
+	-- binding (falls back to binoc_range_mult). NOT FOV-derived -- the camera FOV ratio is the raw
+	-- angular zoom (~19.6x), not the intended range factor (~4.4x), so it over-inflated the range.
+	ads_mode = false, -- auto-trigger identify while aiming down sight, once a target has been held
+	-- under the aim (or inside the FOV assist range when that's on) for ads_hold_time seconds
+	ads_hold_time = 0.6, -- seconds: how long a target must stay on-aim / in FOV-assist range while
+	-- ADS before auto-identifying (ADS mode). Dwell-on-target, distinct from binocular steady_time
+	hipfire_mode = false, -- auto-trigger identify while HIP-FIRING (not ADS, not binoculars), once a
+	-- target has been held under the aim for hipfire_hold_time -- for players who don't want the key
+	hipfire_hold_time = 1.0, -- seconds: how long a target must stay on-aim / in FOV-assist range while
+	-- hip-firing before auto-identifying (hipfire mode). Dwell-on-target, like ADS mode
 	ads_boost = true, -- aiming down sight speeds up + extends identify range, independent of ads_mode
 	ads_scan_mult = 0.6, -- scan_time multiplier while aiming down sight (gentler than binoculars)
 	ads_range_mult = 1.6, -- max_dist/fade_dist multiplier while aiming down sight (the x1 base)
@@ -124,6 +137,26 @@ DEFAULTS = {
 	show_weapon = true, -- show the target's currently-wielded weapon + caliber line (card + bodycam)
 	debug_log = false, -- write aim/trace diagnostics to the game log on each identify attempt
 	debug_draw = false, -- on-screen target-assist visualiser: aim dot, FOV ring, in-ring bone dots
+
+	-- st-wearable-devices compatibility (tier system). Only take effect when the optional
+	-- WD compat component is installed AND drives ii_identify.tier_provider (via
+	-- get_wd_tier_cfg below); completely inert otherwise. Retune every default tier here.
+	wd_require_kit = true, -- block identification entirely unless the full scanner kit is worn/assembled
+	wd_proc_t1 = 1.5, -- process-module tier 1/2/3 base scan time (seconds)
+	wd_proc_t2 = 1.0,
+	wd_proc_t3 = 0.5,
+	wd_scan_t1 = 10, -- scanner tier 1/2/3 identify range (metres)
+	wd_scan_t2 = 20,
+	wd_scan_t3 = 30,
+	wd_feat_faction = 1, -- process tier that unlocks each DISPLAY feature (1..3)
+	wd_feat_distance = 1,
+	wd_feat_relationship = 2,
+	wd_feat_rank = 2,
+	wd_feat_weapon = 3,
+	wd_scanner_ads = 2, -- scanner tier that unlocks scope/ADS support (1..3)
+	wd_scanner_binoc = 1, -- scanner tier that unlocks binocular identification (1..3; extends range x binoc_range_mult)
+	wd_scanner_mag = 2, -- scanner tier that unlocks the magnification range boost (1..3)
+	wd_scanner_nonight = 3, -- scanner tier that removes the night penalty (1..3)
 }
 
 -- Section name of the stock binoculars item (confirmed from this engine's
@@ -155,12 +188,13 @@ local PIP_AVAILABLE = rawget(_G, "is_svp_active") ~= nil
 -- Marker size in the shader's lens-UV space (0..1 of the disc radius, see
 -- svp_ui_markers_add()'s C++-side comment) -- a flat constant rather than an
 -- MCM slider for now, since this whole feature is still an in-progress
--- engine patch. PIP_MARKER_LIFT floats the marker above the head instead of
+-- engine patch. PIP_MARKER.lift floats the marker above the head instead of
 -- sitting on it (metres, on top of anchor_pos()'s own ANCHOR_LIFT), separate
 -- from the main HUD's anchor so the normal card/dot isn't affected by it.
 -- PIP_MARKER_RADIUS is the size AT the reference distance below.
-local PIP_MARKER_RADIUS = 0.03
-local PIP_MARKER_LIFT = 0.22
+-- Bundled into one local (radius/lift/ref-dist/scale floor+ceiling) to spare top-level
+-- locals (Lua 5.1's 200-per-chunk limit).
+local PIP_MARKER = { radius = 0.03, lift = 0.22, ref = 15, smin = 0.25, smax = 1.3 }
 
 -- Distance scaling for the PiP marker. The radius is a fixed fraction of the lens
 -- (screen space), so without this a far target -- whose head is small on screen --
@@ -169,20 +203,17 @@ local PIP_MARKER_LIFT = 0.22
 -- radius needs it. Scale ~ REF_DIST/dist (like apparent size), clamped so a very close
 -- target doesn't balloon and a distant one doesn't vanish. PIP_MARKER_RADIUS is the
 -- size at PIP_MARKER_REF_DIST metres (tuned so nearby targets look right).
-local PIP_MARKER_REF_DIST = 15 -- metres: distance at which PIP_MARKER_RADIUS is used as-is
-local PIP_MARKER_SCALE_MIN = 0.25 -- floor (far targets keep a visible dot)
-local PIP_MARKER_SCALE_MAX = 1.3 -- ceiling (very close targets don't balloon)
 local function pip_marker_radius(dist)
 	if not dist or dist <= 0 then
-		return PIP_MARKER_RADIUS
+		return PIP_MARKER.radius
 	end
-	local s = PIP_MARKER_REF_DIST / dist
-	if s < PIP_MARKER_SCALE_MIN then
-		s = PIP_MARKER_SCALE_MIN
-	elseif s > PIP_MARKER_SCALE_MAX then
-		s = PIP_MARKER_SCALE_MAX
+	local s = PIP_MARKER.ref / dist
+	if s < PIP_MARKER.smin then
+		s = PIP_MARKER.smin
+	elseif s > PIP_MARKER.smax then
+		s = PIP_MARKER.smax
 	end
-	return PIP_MARKER_RADIUS * s
+	return PIP_MARKER.radius * s
 end
 
 -- Fallback key when key_dik hasn't been captured yet (fresh install, or MCM
@@ -211,6 +242,8 @@ UI_STYLE_LIST = {
 	{ label = "card" },
 	{ label = "minimal" },
 	{ label = "bodycam" },
+	{ label = "simple2" },
+	{ label = "simple" },
 }
 
 -- Which distortion the redaction draws. Index order IS the engine mode passed to
@@ -273,7 +306,7 @@ local COL_NEUTRAL = { 214, 194, 140 }
 -- distinctly enough to stay readable alongside them.
 local FACTION_COLOR = {
 	stalker = { 220, 130, 40 }, -- loner orange
-	bandit = { 170, 130, 80 }, -- bandit tan/brown
+	bandit = { 150, 150, 150 }, -- bandit grey
 	dolg = { 195, 45, 45 }, -- duty red
 	freedom = { 90, 170, 70 }, -- freedom green
 	csky = { 120, 190, 230 }, -- clear sky pale blue
@@ -320,30 +353,171 @@ local UI_KX = 1
 
 local _prev_on_key_press = nil
 
-local _p = vector2()
-local _s = vector2()
+-- Shared scratch vectors bundled into ONE local (not nine) to stay well under Lua 5.1's
+-- 200-local-per-chunk limit. Each field is a single reusable scratch used in exactly one
+-- place (P/S, project_world, the box/aim/body helpers); reused, never per-call allocated.
+local _v = {
+	p = vector2(),
+	s = vector2(),
+	scratch = vector(),
+	box_c = vector(),
+	body_pt = vector(),
+	aim_pos = vector(),
+	aim_dir = vector(),
+	bb_pt = vector(),
+	face_c = vector(),
+}
 local function P(x, y)
-	return _p:set(x, y)
+	return _v.p:set(x, y)
 end
 local function S(x, y)
-	return _s:set(x, y)
+	return _v.s:set(x, y)
 end
-
-local _scratch = vector()
 
 -- --------------------------------------------------------------------------
 -- Config
 -- --------------------------------------------------------------------------
+-- Every MCM leaf-page id in ii_mcm.script, in tab order. read_config tries each to
+-- resolve an option's storage path ("ii/<page>/<key>"). MUST list every page ii_mcm
+-- defines -- a page missing here means that page's options silently never load. Global
+-- (not local) so it costs no top-level-local slot (Lua 5.1's 200-per-chunk limit).
+MCM_PAGES = {
+	"general",
+	"uistyle",
+	"targeting",
+	"binoc",
+	"ads",
+	"pip",
+	"faceredact",
+	"scantime",
+	"debug",
+	"wdcompat",
+	"colors",
+}
+
+-- Optional external TIER SYSTEM (st-wearable-devices compatibility). A compat addon
+-- assigns `ii_identify.tier_provider = function() ... end` returning either nil (system
+-- inactive -> normal behaviour) or an override table:
+--   { scan_base=<s>, max_dist=<m>, ignore_night=<bool>, allow_ads=<bool>, mag_boost=<bool>,
+--     feat = { faction=, distance=, relationship=, rank=, weapon= } }  -- feat gates the display
+-- actor_on_update snapshots it once per frame into _tier; every override point reads _tier
+-- and, when nil, behaves exactly as before -- so the whole feature is inert without the addon.
+-- Three states: provider returns nil (addon not intervening -> normal II); a table with
+-- active=true (kit assembled -> tier params drive identification); or a table with
+-- active~=true (addon installed but the kit isn't worn/assembled -> identification BLOCKED,
+-- since the scanner IS the identify device). tier_active/tier_blocked encode that.
+---@class ii_tier_override
+---@field active boolean kit assembled/worn -> tier params drive identification
+---@field scan_base number? fixed base scan time (seconds), from the process tier
+---@field max_dist number? identify range (metres), from the scanner tier
+---@field ignore_night boolean? scanner's no-night tier
+---@field allow_ads boolean? scanner unlocks scope/ADS support
+---@field allow_binoc boolean? scanner unlocks binocular identification (extends range by binoc_range_mult)
+---@field mag_boost boolean? scanner unlocks the magnification range boost
+---@field osd_only boolean? OSD scanner: identify normally but draw NO on-entity UI (tags/markers) -- the result shows only on the Promin ident page
+---@field feat table? per-feature display gates { faction, distance, relationship, rank, weapon }
+
+tier_provider = nil -- global (set by the compat script) so it costs no top-level-local slot
+---@type ii_tier_override|nil
+local _tier = nil -- this frame's tier_provider() result, or nil
+
+-- Last-identified target snapshot (for external readouts like the Promin ident page).
+-- Written in identify_target; read via get_last_identified(). One table = one local slot.
+local _last_id = { id = nil }
+
+-- Progress (0..1) of the currently-active scan (the furthest-along one if several), or nil
+-- if nothing is scanning. Updated every frame in render(); read right after. Drives the
+-- Promin OSD "scanning" spinner. Global so the WD compat page can read it.
+function get_scan_progress()
+	return _last_id.scan_frac
+end
+
+-- Cheap id-only accessor (no table allocation) for per-frame change-detection, e.g. the
+-- Promin notification pop-up polling for a new identification. Global.
+function get_last_identified_id()
+	return _last_id.id
+end
+
+-- The last target identified this session (or nil if none yet). Returns a fresh table:
+-- { name, faction, rank, weap, x, y, z, dist } -- any field may be nil if that data wasn't
+-- unlocked/available at identify time. `dist` is computed LIVE from the stored position to
+-- the actor (nil if either is unavailable). Global so the WD compat page can read it.
+function get_last_identified()
+	if not _last_id.id then
+		return nil
+	end
+	local dist = nil
+	local a = db.actor and db.actor:position()
+	if a and _last_id.x then
+		local dx, dy, dz = _last_id.x - a.x, _last_id.y - a.y, _last_id.z - a.z
+		dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+	end
+	return {
+		name = _last_id.name,
+		faction = _last_id.faction,
+		rank = _last_id.rank,
+		weap = _last_id.weap,
+		portrait = _last_id.portrait,
+		icon = _last_id.icon, -- faction emblem texture id
+		rank_level = _last_id.rank_level, -- numeric rank (1..8) or nil
+		x = _last_id.x,
+		y = _last_id.y,
+		z = _last_id.z,
+		dist = dist,
+	}
+end
+
+-- Resolved tier configuration for the WD compat driver (which lives in the optional
+-- component and can't read the local C). Returns the live MCM-backed values so the
+-- driver builds tier tables from the user's overrides. Global so the driver can call it.
+function get_wd_tier_cfg()
+	return {
+		require_kit = C.wd_require_kit,
+		proc = { C.wd_proc_t1, C.wd_proc_t2, C.wd_proc_t3 },
+		scan = { C.wd_scan_t1, C.wd_scan_t2, C.wd_scan_t3 },
+		feat = {
+			faction = C.wd_feat_faction,
+			distance = C.wd_feat_distance,
+			relationship = C.wd_feat_relationship,
+			rank = C.wd_feat_rank,
+			weapon = C.wd_feat_weapon,
+		},
+		scanner_ads = C.wd_scanner_ads,
+		scanner_binoc = C.wd_scanner_binoc,
+		scanner_mag = C.wd_scanner_mag,
+		scanner_nonight = C.wd_scanner_nonight,
+	}
+end
+local function tier_active()
+	return _tier ~= nil and _tier.active == true
+end
+local function tier_blocked()
+	return _tier ~= nil and _tier.active ~= true
+end
+
 local function read_config()
 	for key, default in pairs(DEFAULTS) do
 		local v = default
 		if ui_mcm and ui_mcm.get then
-			-- Option storage path mirrors the menu shape in ii_mcm.script: the
-			-- single "main" page nests options under "ii/main/<key>".
-			local got = ui_mcm.get("ii/main/" .. key)
-			if got ~= nil then
-				v = got
+			-- The menu is split into per-section leaf PAGES (ii_mcm.script), so each option
+			-- stores under "ii/<page>/<key>". Rather than track which page owns which key,
+			-- try each page and take the first hit: every option id is unique and lives on
+			-- exactly one page, and get() returns nil for a path with no option there. Only
+			-- runs on load / option-change, so the extra lookups cost nothing per frame.
+			for _, pg in ipairs(MCM_PAGES) do
+				local got = ui_mcm.get("ii/" .. pg .. "/" .. key)
+				if got ~= nil then
+					v = got
+					break
+				end
 			end
+		end
+		-- MCM/engine can marshal a checkbox as a NUMBER (0/1) rather than a Lua boolean,
+		-- and `0` is truthy under plain `if` -- so a *disabled* check would read as enabled.
+		-- This bit the WD "require kit" toggle (disabling it still blocked identification).
+		-- Coerce any boolean-default option to a real boolean so every checkbox is safe.
+		if type(default) == "boolean" and type(v) == "number" then
+			v = v ~= 0
 		end
 		C[key] = v
 	end
@@ -357,6 +531,24 @@ local function read_config()
 	local w = dev and dev.width or 0
 	local h = dev and dev.height or 0
 	UI_KX = (w > 0 and h > 0) and ((h / w) / (768 / 1024)) or 1
+
+	-- Apply the "Colors" section: mutate each live colour table IN PLACE (never
+	-- reassign -- SIGN_COLOR and tracked tags alias these refs). custom_colors off
+	-- restores the built-in default so toggling it needs no relaunch. Global lookup,
+	-- so it works regardless of this file's source order (COLOR_DEFS is defined below).
+	if COLOR_DEFS then
+		local on = C.custom_colors
+		for _, cd in ipairs(COLOR_DEFS) do
+			local d = cd.def
+			if on then
+				cd.tbl[1] = C["col_" .. cd.id .. "_r"] or d[1]
+				cd.tbl[2] = C["col_" .. cd.id .. "_g"] or d[2]
+				cd.tbl[3] = C["col_" .. cd.id .. "_b"] or d[3]
+			else
+				cd.tbl[1], cd.tbl[2], cd.tbl[3] = d[1], d[2], d[3]
+			end
+		end
+	end
 end
 
 -- C.key_dik comes straight from MCM's key-capture widget (whatever DIK/mouse
@@ -445,6 +637,85 @@ end
 -- fabricated one. Localised via "st_rank_" + id, the same convention this
 -- engine's own Discord Rich Presence integration uses (Actor.cpp:1442-1449),
 -- so it matches the game's own terminology instead of inventing new labels.
+-- Rank -> colour for the Simple 2 style's rank bar. A rarity-style gradient from grey
+-- (novice) through green/blue/purple/orange/red up to gold (legend). Keyed by the
+-- engine rank id (obj:rank_name); anything unknown / rankless falls back to grey.
+local RANK_COLOR = {
+	novice = { 165, 165, 165 }, -- grey
+	trainee = { 205, 205, 205 }, -- light grey
+	experienced = { 120, 200, 120 }, -- green
+	professional = { 90, 165, 235 }, -- blue
+	veteran = { 175, 120, 225 }, -- purple
+	expert = { 235, 165, 70 }, -- orange
+	master = { 225, 80, 70 }, -- red
+	legend = { 240, 205, 90 }, -- gold
+}
+local function rank_color(obj)
+	local rid = safe_call(obj.rank_name, obj)
+	return (rid and RANK_COLOR[rid]) or { 150, 150, 150 }
+end
+
+-- Rank id -> numeric level (novice=1 .. legend=8), for the notification card's "Rank N".
+-- Global (no top-level-local cost); nil for an unknown/rankless id.
+RANK_LEVEL = {
+	novice = 1,
+	trainee = 2,
+	experienced = 3,
+	professional = 4,
+	veteran = 5,
+	expert = 6,
+	master = 7,
+	legend = 8,
+}
+
+-- User-configurable colours (MCM "Colors" section). MCM has no colour-picker
+-- widget, so each colour is exposed as three 0-255 R/G/B tracks. This registry is
+-- the single source of truth for BOTH the runtime apply (read_config) and the menu
+-- generation (ii_mcm.script reads ii_identify.COLOR_DEFS): each entry points `tbl`
+-- at a LIVE colour table above, so applying overrides mutates it IN PLACE -- the
+-- faction/rank/relation tables are shared by reference (SIGN_COLOR aliases COL_*,
+-- tracked tags hold the same refs), so one in-place update recolours everything,
+-- including in-flight tags. Global (not local) so it costs no top-level-local slot.
+COLOR_DEFS = {
+	{ id = "rel_enemy", group = "rel", tbl = COL_ENEMY },
+	{ id = "rel_friend", group = "rel", tbl = COL_FRIEND },
+	{ id = "rel_neutral", group = "rel", tbl = COL_NEUTRAL },
+	{ id = "fac_stalker", group = "fac", tbl = FACTION_COLOR.stalker },
+	{ id = "fac_bandit", group = "fac", tbl = FACTION_COLOR.bandit },
+	{ id = "fac_dolg", group = "fac", tbl = FACTION_COLOR.dolg },
+	{ id = "fac_freedom", group = "fac", tbl = FACTION_COLOR.freedom },
+	{ id = "fac_csky", group = "fac", tbl = FACTION_COLOR.csky },
+	{ id = "fac_ecolog", group = "fac", tbl = FACTION_COLOR.ecolog },
+	{ id = "fac_killer", group = "fac", tbl = FACTION_COLOR.killer },
+	{ id = "fac_military", group = "fac", tbl = FACTION_COLOR.military },
+	{ id = "fac_monolith", group = "fac", tbl = FACTION_COLOR.monolith },
+	{ id = "fac_renegade", group = "fac", tbl = FACTION_COLOR.renegade },
+	{ id = "fac_zombied", group = "fac", tbl = FACTION_COLOR.zombied },
+	{ id = "fac_greh", group = "fac", tbl = FACTION_COLOR.greh },
+	{ id = "fac_trader", group = "fac", tbl = FACTION_COLOR.trader },
+	{ id = "fac_monster", group = "fac", tbl = FACTION_COLOR.monster },
+	{ id = "fac_isg", group = "fac", tbl = FACTION_COLOR.isg },
+	{ id = "fac_arena", group = "fac", tbl = FACTION_COLOR.arena },
+	{ id = "rank_novice", group = "rank", tbl = RANK_COLOR.novice },
+	{ id = "rank_trainee", group = "rank", tbl = RANK_COLOR.trainee },
+	{ id = "rank_experienced", group = "rank", tbl = RANK_COLOR.experienced },
+	{ id = "rank_professional", group = "rank", tbl = RANK_COLOR.professional },
+	{ id = "rank_veteran", group = "rank", tbl = RANK_COLOR.veteran },
+	{ id = "rank_expert", group = "rank", tbl = RANK_COLOR.expert },
+	{ id = "rank_master", group = "rank", tbl = RANK_COLOR.master },
+	{ id = "rank_legend", group = "rank", tbl = RANK_COLOR.legend },
+}
+
+-- Capture each colour's built-in default (for the custom_colors=off restore) and
+-- register its three MCM-backed keys so read_config picks them up generically.
+DEFAULTS.custom_colors = false -- master toggle: off = built-in colours, on = the overrides below
+for _, cd in ipairs(COLOR_DEFS) do
+	cd.def = { cd.tbl[1], cd.tbl[2], cd.tbl[3] }
+	DEFAULTS["col_" .. cd.id .. "_r"] = cd.tbl[1]
+	DEFAULTS["col_" .. cd.id .. "_g"] = cd.tbl[2]
+	DEFAULTS["col_" .. cd.id .. "_b"] = cd.tbl[3]
+end
+
 local function rank_label(obj)
 	local rid = safe_call(obj.rank_name, obj)
 	if not rid or rid == "" then
@@ -497,7 +768,9 @@ end
 -- id is the fallback. Returns nil (no line) rather than a placeholder when
 -- there's no weapon to show.
 local function held_weapon_label(obj)
-	if not C.show_weapon then
+	-- Under the tier system the weapon feature is gated at snapshot (feat.weapon), so
+	-- skip the C.show_weapon MCM gate here; otherwise it's the normal user toggle.
+	if not tier_active() and not C.show_weapon then
 		return nil
 	end
 	local wpn = safe_call(obj.best_weapon, obj)
@@ -591,7 +864,7 @@ local function project_world(pos)
 	if not w2u then
 		return nil
 	end
-	local ui = w2u(_scratch:set(pos), false, false)
+	local ui = w2u(_v.scratch:set(pos), false, false)
 	if not ui or ui.x < -9000 then
 		return nil
 	end
@@ -643,8 +916,6 @@ end
 local BOX_HALF_W = 0.17
 local BOX_HALF_H = 0.22
 
-local _box_c = vector()
-
 -- Screen bounding box (1024x768 virtual space) of a box of metric half-extents
 -- hw_m/hh_m centred at world `center`, as cx,cy,hw,hh.
 --
@@ -667,7 +938,7 @@ local function screen_box(center, hw_m, hh_m)
 	for sx = -1, 1, 2 do
 		for sy = -1, 1, 2 do
 			local px, py = project_world(
-				_box_c:set(
+				_v.box_c:set(
 					center.x + cr.x * hw_m * sx + ct.x * hh_m * sy,
 					center.y + cr.y * hw_m * sx + ct.y * hh_m * sy,
 					center.z + cr.z * hw_m * sx + ct.z * hh_m * sy
@@ -865,7 +1136,9 @@ end
 
 -- The point the FOV target-assist circle is measured from this frame: the
 -- weapon's real aim point when free-aim assist is enabled and available,
--- otherwise the fixed screen centre.
+-- otherwise the fixed screen centre. NOTE: the live assist is now angular
+-- (aim_angle_to_body / aim_cone_rad) -- this and weapon_aim_ui above only feed the
+-- debug visualiser (draw_debug) and the aim-debug dump now, not target selection.
 local function aim_center()
 	if C.freeaim_assist then
 		local sx, sy = weapon_aim_ui()
@@ -892,7 +1165,6 @@ local BODY_BONES = {
 	"bip01_l_calf",
 	"bip01_r_calf",
 }
-local _body_pt = vector() -- scratch for the monster vertical-span fallback (debug draw)
 
 -- --------------------------------------------------------------------------
 -- Debug (MCM "Log aim debug"): on every identify attempt, dump the trace/aim
@@ -1245,7 +1517,7 @@ end
 -- only ever returned when nothing else in the FOV circle qualifies at all.
 -- Forward declarations, defined after _fov_baseline + the aim-ray helpers below:
 --   aim_angle_to_body(obj) -> smallest ANGLE (radians) from the true aim ray to any
---     sampled body point, or nil. The angular analogue of screen_dist_to_body.
+--     sampled body point, or nil (the angular measure the assist selects on).
 --   aim_cone_rad() -> the assist tolerance as an angle (fov_radius calibrated at the
 --     unzoomed FOV), so it's a CONSTANT real angle -- magnification-invariant.
 -- The assist is measured angularly (from where the scope/gun actually points) rather
@@ -1254,6 +1526,11 @@ end
 -- misses by the sway offset. Angles from the aim ray have neither problem.
 local aim_angle_to_body
 local aim_cone_rad
+-- aim_model_target(max_dist) -> the stalker/monster whose MODEL the crosshair is over
+-- (mesh raycast along the true aim ray), or nil. The "aiming at it" fallback for when the
+-- assist cone can't catch a bone (too close / aiming at the mesh between the angularly
+-- spread bone samples). Forward-declared; defined below after the aim-ray helpers.
+local aim_model_target
 
 local function find_nearest_in_fov(max_dist)
 	if not db.actor or not level.iterate_nearest then
@@ -1291,7 +1568,18 @@ local function find_nearest_in_fov(max_dist)
 		return false -- keep scanning the full set within max_dist
 	end)
 
-	return best_obj or best_busy_obj
+	local pick = best_obj or best_busy_obj
+	if pick then
+		return pick
+	end
+	-- Cone caught no bone (too close, or aiming at the model between the angularly-spread
+	-- bone samples). Fall back to a mesh raycast: if the crosshair is on the target's MODEL,
+	-- take it -- the same "aiming at it" pick used when FOV assist is off.
+	local model = aim_model_target(max_dist)
+	if model and (not C.require_los or has_los(model)) then
+		return model
+	end
+	return nil
 end
 
 -- Debug: dump why find_nearest_in_fov accepts/rejects each nearby NPC. Mirrors
@@ -1362,8 +1650,6 @@ end
 -- the caller fall through to the camera trace / FOV assist) when the aim ray or
 -- ray_pick is unavailable, the ray hits geometry first, or it hits a non-NPC.
 local _aim_ray = nil
-local _aim_pos = vector()
-local _aim_dir = vector()
 local function freeaim_target(max_dist)
 	local px, py, pz, dx, dy, dz = freeaim_ray()
 	if not (px and py and pz and dx and dy and dz) then
@@ -1384,8 +1670,8 @@ local function freeaim_target(max_dist)
 		if db.actor then
 			_aim_ray:set_ignore_object(db.actor)
 		end
-		_aim_ray:set_position(_aim_pos:set(px, py, pz))
-		_aim_ray:set_direction(_aim_dir:set(dx, dy, dz))
+		_aim_ray:set_position(_v.aim_pos:set(px, py, pz))
+		_aim_ray:set_direction(_v.aim_dir:set(dx, dy, dz))
 		_aim_ray:set_range(max_dist)
 		if _aim_ray:query() then
 			return _aim_ray:get_object()
@@ -1516,7 +1802,11 @@ end
 -- they ARE held as "looking through them". Calibration runs every frame
 -- from actor_on_update() regardless of feature state, so the baseline is
 -- already warm whenever is_binoc_active() is actually called.
-local FOV_ZOOM_RATIO = 0.7 -- current fov must drop below this fraction of baseline to count as zoomed
+-- FOV-ratio thresholds, bundled into one table (spares top-level-local slots -- Lua 5.1's
+-- 200-per-chunk limit). binoc/ads = fov must drop below this fraction of the unzoomed
+-- baseline to count as zoomed/aiming; mag_min = below this ratio the FOV barely narrowed
+-- (treat as un-magnified, x1).
+local _ZOOMCFG = { binoc = 0.7, ads = 0.85, mag_min = 1.05 }
 local _fov_baseline = 60 -- self-corrects within moments of normal (unzoomed) play either way
 
 -- ADS (aim-down-sight) state, tracked from STOCK engine callbacks so it works on ANY
@@ -1546,7 +1836,7 @@ local function is_binoc_active()
 	if not fov or fov <= 0 then
 		return true
 	end -- can't read fov: fail open to "held" behaviour
-	return fov < _fov_baseline * FOV_ZOOM_RATIO
+	return fov < _fov_baseline * _ZOOMCFG.binoc
 end
 
 -- Is the actor aiming down sight (ADS) with a weapon right now? Prefers the
@@ -1555,7 +1845,6 @@ end
 -- is_binoc_active() uses, with a gentler ratio because ADS narrows the FOV less
 -- than a scope or binoculars. Binoculars are excluded (that's binocular mode's
 -- job), so ADS and binocular boosts never both fire.
-local ADS_ZOOM_RATIO = 0.85 -- fov must drop below this fraction of baseline to count as ADS (fallback only)
 local function is_ads_active()
 	if is_binoc_held() then
 		return false
@@ -1564,6 +1853,13 @@ local function is_ads_active()
 	-- callbacks (see _ads above). Works on ANY exe and for 1x optics that change no FOV
 	-- -- the case the heuristics below can't detect. When true we are aiming, period.
 	if _ads.zoomed then
+		-- Self-heal a stuck flag: zoom_out normally clears it, but a build that skips that
+		-- callback on holster/weapon-switch could leave it set at hipfire. An empty hand
+		-- (no active item) is never ADS, so reset and treat as lowered.
+		if db.actor and not safe_call(db.actor.active_item, db.actor) then
+			_ads.zoomed = false
+			return false
+		end
 		return true
 	end
 	-- Fallbacks, in case a given build doesn't dispatch the zoom callbacks:
@@ -1591,7 +1887,7 @@ local function is_ads_active()
 	if not fov or fov <= 0 then
 		return false
 	end
-	return fov < _fov_baseline * ADS_ZOOM_RATIO
+	return fov < _fov_baseline * _ZOOMCFG.ads
 end
 
 -- Current effective aiming magnification (1.0 = 1x), or nil when not meaningfully
@@ -1605,7 +1901,6 @@ end
 --      the zoom is recoverable from device().fov against the self-calibrating
 --      unzoomed baseline (_fov_baseline, see update_fov_baseline).
 local SVP_MAG_AVAILABLE = rawget(_G, "svp_scope_magnification") ~= nil
-local MAG_FOV_MIN = 1.05 -- below this the FOV barely narrowed: treat as un-magnified (x1)
 local function scope_magnification()
 	if SVP_MAG_AVAILABLE then
 		-- Only trust the PiP binding while a scope is ACTIVELY rendering. The engine's
@@ -1630,7 +1925,25 @@ local function scope_magnification()
 	local fov = dev and dev.fov
 	if fov and fov > 0 and _fov_baseline > 0 then
 		local m = _fov_baseline / fov
-		if m > MAG_FOV_MIN then
+		if m > _ZOOMCFG.mag_min then
+			return m
+		end
+	end
+	return nil
+end
+
+-- The binocular's REAL magnification from the engine, or nil on a stock exe. Unlike
+-- scope_magnification(), this deliberately does NOT fall back to the camera-FOV ratio: for
+-- binoculars that ratio is the raw ANGULAR zoom (e.g. ~19.6x), not the intended range
+-- factor (~4.4x), so scaling the identify range by it blew the range far out (50 m -> ~977 m
+-- instead of the intended 50 x 4.4 = 220 m). Without a real engine binding the binocular
+-- range uses the flat MCM binoc_range_mult (the "range multiplier" = the magnification) --
+-- see boost_params()'s binoc branch. The bodycam.* binding is the future engine-mod seam.
+local function binoc_engine_magnification()
+	local bc = rawget(_G, "bodycam")
+	if bc and bc.binoc_magnification then
+		local ok, m = pcall(bc.binoc_magnification)
+		if ok and m and m > 1 then
 			return m
 		end
 	end
@@ -1650,7 +1963,7 @@ end
 -- virtual UI height that spans the vertical FOV, so px/768 * fov = the subtended angle.
 -- At 1x this matches the old screen ring exactly, so hip-fire feel is unchanged.
 function aim_cone_rad()
-	local base = C.fov_radius or 110
+	local base = C.fov_radius or 90
 	local fov_deg = (_fov_baseline and _fov_baseline > 0) and _fov_baseline or 60
 	return (base / 768) * (fov_deg * math.pi / 180)
 end
@@ -1682,45 +1995,100 @@ local function aim_ray_world()
 	return _aim.o, _aim.d
 end
 
+-- Mesh raycast along the TRUE aim ray (aim_ray_world -- works on ANY engine via the camera
+-- fallback, unlike freeaim_target which needs the bodycam fire-ray binding). Returns the
+-- stalker/monster whose MODEL the crosshair is over, or nil. This is the "are we aiming at
+-- the model" fallback the FOV assist uses when its bone-cone can't catch a bone (too close,
+-- or aiming at the mesh surface between the angularly-spread bone samples). Reuses the
+-- shared _aim_ray pick object; rqtBoth so walls block; ignores the actor's own capsule.
+-- Assigns the forward-declared upvalue so find_nearest_in_fov (above) can call it.
+function aim_model_target(max_dist)
+	if not rawget(_G, "ray_pick") then
+		return nil
+	end
+	local o, dir = aim_ray_world()
+	if not o or not dir then
+		return nil
+	end
+	local ok, obj = pcall(function()
+		if not _aim_ray then
+			_aim_ray = ray_pick()
+		end
+		_aim_ray:set_flags(RQT_BOTH)
+		if db.actor then
+			_aim_ray:set_ignore_object(db.actor)
+		end
+		_aim_ray:set_position(o)
+		_aim_ray:set_direction(dir)
+		_aim_ray:set_range(max_dist)
+		if _aim_ray:query() then
+			return _aim_ray:get_object()
+		end
+		return nil
+	end)
+	if not ok or not obj then
+		return nil
+	end
+	if db.actor and obj:id() == db.actor:id() then
+		return nil
+	end
+	if not (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) then
+		return nil
+	end
+	return obj
+end
+
+-- Vertical lift samples (metres) for backing up a non-bip01 rig (monster) with a span
+-- at its origin, shared by aim_angle_to_body and body_box_for.
+local MONSTER_SPAN = { 0.3, 0.9, 1.5 }
+
+-- Angle (radians) between a ray (origin ox,oy,oz + UNIT dir dx,dy,dz) and a world point.
+-- 0 when the point is essentially on the origin (dead-centre). Module-level so the
+-- per-candidate sweeps don't allocate a fresh closure each call (hot path).
+local function ray_point_angle(ox, oy, oz, dx, dy, dz, px, py, pz)
+	local bx, by, bz = px - ox, py - oy, pz - oz
+	local m = math.sqrt(bx * bx + by * by + bz * bz)
+	if m < 0.01 then
+		return 0
+	end
+	local dot = (bx * dx + by * dy + bz * dz) / m
+	if dot > 1 then
+		dot = 1
+	elseif dot < -1 then
+		dot = -1
+	end
+	return math.acos(dot)
+end
+
 -- Smallest angle (radians) from the aim ray to any sampled body point (head, torso,
 -- pelvis, limbs -- so aiming anywhere on the entity counts), or nil. Angular analogue of
--- screen_dist_to_body; a vertical span at the origin backs up monsters without bip01.
+-- the old screen-distance test; a vertical span at the origin backs up monsters without bip01.
 function aim_angle_to_body(obj)
 	local o, dir = aim_ray_world()
 	if not o or not dir then
 		return nil
 	end
+	local ox, oy, oz = o.x, o.y, o.z
+	local dx, dy, dz = dir.x, dir.y, dir.z
 	local base = obj:position()
 	local best = nil
-	local function test(px, py, pz)
-		local bx, by, bz = px - o.x, py - o.y, pz - o.z
-		local m = math.sqrt(bx * bx + by * by + bz * bz)
-		if m < 0.01 then
-			best = 0 -- essentially on the aim origin: count as dead-centre
-			return
-		end
-		local dot = (bx * dir.x + by * dir.y + bz * dir.z) / m
-		if dot > 1 then
-			dot = 1
-		elseif dot < -1 then
-			dot = -1
-		end
-		local a = math.acos(dot)
-		if not best or a < best then
-			best = a
-		end
-	end
 	local found = false
 	for _, bone in ipairs(BODY_BONES) do
 		local p = safe_call(obj.bone_position, obj, bone)
 		if p and p:distance_to_sqr(base) < 16 then -- sane bone (within 4 m of origin)
 			found = true
-			test(p.x, p.y, p.z)
+			local a = ray_point_angle(ox, oy, oz, dx, dy, dz, p.x, p.y, p.z)
+			if not best or a < best then
+				best = a
+			end
 		end
 	end
 	if not found then -- monster / non-bip01 rig: sample a vertical span at the origin
-		for _, lift in ipairs({ 0.3, 0.9, 1.5 }) do
-			test(base.x, base.y + lift, base.z)
+		for _, lift in ipairs(MONSTER_SPAN) do
+			local a = ray_point_angle(ox, oy, oz, dx, dy, dz, base.x, base.y + lift, base.z)
+			if not best or a < best then
+				best = a
+			end
 		end
 	end
 	return best
@@ -1849,6 +2217,9 @@ end
 -- night_penalty_max in the dead of night), scaled by darkness_factor above so
 -- the slowdown eases in over dusk instead of snapping on.
 local function night_scan_mult()
+	if _tier and _tier.active and _tier.ignore_night then
+		return 1 -- scanner's no-night tier
+	end
 	if not C.night_penalty then
 		return 1
 	end
@@ -2045,6 +2416,11 @@ end
 -- a non-empty community id; (boosted, eff_max_dist, eff_fade_dist) come from
 -- the caller's boost_params() snapshot.
 local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, scan_mult, auto_mode)
+	-- Tier system installed but the kit isn't assembled/worn: the scanner IS the identify
+	-- device, so block all identification. Single choke point -- every path commits here.
+	if tier_blocked() then
+		return
+	end
 	local dist = safe_call(function()
 		return obj:position():distance_to(db.actor:position())
 	end)
@@ -2061,24 +2437,36 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 	-- perception skill level (if the Skill System integration is present)
 	-- shaves a further fraction off, and finally familiarity (below) discounts
 	-- a target you've identified before.
-	local eff_scan_ms = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max_dist))
-	eff_scan_ms = math.floor(eff_scan_ms * rank_scan_mult(obj))
-	eff_scan_ms = math.floor(eff_scan_ms * night_scan_mult())
-	if boosted then
-		eff_scan_ms = math.floor(eff_scan_ms * (scan_mult or 1.0))
+	local eff_scan_ms
+	if tier_active() then
+		-- Tier system (WD compat): the process-module tier sets a FIXED base scan time;
+		-- only the night penalty still applies (and only below the scanner's no-night
+		-- tier). The MCM scan-time modifiers (distance/rank/familiarity/perception/boost/
+		-- instant) are intentionally ignored here -- the tiers govern scan speed.
+		local t = _tier ---@cast t ii_tier_override
+		local base_ms = t.scan_base and math.floor(t.scan_base * 1000) or SCAN_MS
+		eff_scan_ms = math.floor(base_ms * night_scan_mult())
+	else
+		eff_scan_ms = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max_dist))
+		eff_scan_ms = math.floor(eff_scan_ms * rank_scan_mult(obj))
+		eff_scan_ms = math.floor(eff_scan_ms * night_scan_mult())
+		if boosted then
+			eff_scan_ms = math.floor(eff_scan_ms * (scan_mult or 1.0))
+		end
+		eff_scan_ms = math.floor(eff_scan_ms * perception_scan_mult())
 	end
-	eff_scan_ms = math.floor(eff_scan_ms * perception_scan_mult())
 
 	local id = obj:id()
 	local tg = time_global()
 
-	if C.familiarity_boost and remembered[id] then
+	if not tier_active() and C.familiarity_boost and remembered[id] then
 		eff_scan_ms = math.floor(eff_scan_ms * C.familiarity_scan_mult)
 	end
 
 	-- Instant identify: skip the whole scanning phase (no spinner, no wait) so
-	-- the tag reveals immediately. Overrides every scan-time factor above.
-	if C.instant_identify then
+	-- the tag reveals immediately. Overrides every scan-time factor above. Ignored
+	-- under the tier system (the tier base scan time governs instead).
+	if not tier_active() and C.instant_identify then
 		eff_scan_ms = 0
 	end
 
@@ -2116,16 +2504,39 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 		tracked[oldest_id] = nil
 	end
 
+	-- Which data lines this tag shows. Under the tier system (WD compat) each feature is
+	-- gated by the module tiers (_tier.feat.*), IGNORING the C.show_* MCM toggles; without
+	-- it, the normal user toggles apply (rank/relationship always shown, distance never --
+	-- distance is a tier-only readout). The gate is folded into the snapshot here so the
+	-- draw code just checks field presence (see draw_slot). ft nil => non-tier path.
+	local ft = (_tier and _tier.active) and _tier.feat or nil
+	local show_faction = ft and (ft.faction == true) or (not ft and C.show_faction)
+	local show_name = ft and true or C.show_name
+	local show_rank = ft and (ft.rank == true) or (not ft and true)
+	local show_weapon = ft and (ft.weapon == true) or (not ft and C.show_weapon)
+	local show_rel = ft and (ft.relationship == true) or not ft
+	local show_dist = ft and (ft.distance == true) or false
+
+	-- Portrait for the Promin OSD readout (a ui_npc_u_* texture region). character_icon() is
+	-- only valid for InventoryOwners, so it errors on monsters -- guarded; nil = no portrait.
+	local portrait = safe_call(obj.character_icon, obj)
+	portrait = (portrait and portrait ~= "") and portrait or nil
+
 	tracked[id] = {
 		t0 = tg,
-		col = relation_color(obj),
+		col = show_rel and relation_color(obj) or COL_NEUTRAL,
 		fcol = faction_color(comm),
-		sign = relation_sign(obj),
-		header = faction_label(comm),
-		name = display_name(obj, comm),
+		sign = show_rel and relation_sign(obj) or "o",
+		header = show_faction and faction_label(comm) or nil,
+		name = show_name and display_name(obj, comm) or nil,
 		icon = faction_icon_id(comm),
-		rank = rank_label(obj),
-		weap = held_weapon_label(obj),
+		rank = show_rank and rank_label(obj) or nil,
+		rank_col = rank_color(obj),
+		rank_level = show_rank and RANK_LEVEL[safe_call(obj.rank_name, obj) or ""] or nil, -- for the notification card
+
+		weap = show_weapon and held_weapon_label(obj) or nil,
+		portrait = portrait, -- for the Promin OSD readout (captured at reveal, see render())
+		want_dist = show_dist,
 		scan_ms = eff_scan_ms,
 		max_dist = eff_max_dist,
 		fade_dist = eff_fade_dist,
@@ -2138,6 +2549,11 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 		fade_ms = FADE_MS,
 		hold_ms = HOLD_MS,
 	}
+
+	-- NB: the Promin OSD readout (_last_id, read by get_last_identified) is NOT populated
+	-- here at scan START -- it's captured in render() at the moment the scan COMPLETES, so
+	-- the readout respects scan time (a slower process module = a longer wait before the
+	-- target appears on the Promin) and keeps the previous target until the new one finishes.
 end
 
 -- Snapshot the current binocular-boost state into the triple both the keypress
@@ -2151,19 +2567,45 @@ end
 -- active scan_time multiplier. Binoculars take priority over ADS so the two never
 -- stack. Each boost carries its own scan + range multipliers from its MCM section.
 local function boost_params()
+	if tier_active() then
+		-- Tier system: range comes from the scanner tier (t.max_dist). Binoculars count when
+		-- the scanner unlocks them (allow_binoc, tier 1+) and extend the tier range by
+		-- binoc_range_mult; ADS counts only when the scanner unlocks scope/ADS (allow_ads),
+		-- with the magnification range boost at the scanner's mag tier (mag_boost). scan_mult
+		-- is unused (identify_target's tier branch sets scan time from the process tier).
+		local t = _tier ---@cast t ii_tier_override
+		local base_max = t.max_dist or C.max_dist
+		local binoc = t.allow_binoc and is_binoc_active() or false
+		local ads = (not binoc) and t.allow_ads and is_ads_active() or false
+		local range_mult = 1.0
+		if binoc then
+			range_mult = C.binoc_range_mult
+		elseif ads and t.mag_boost then
+			local mag = scope_magnification()
+			if mag and mag > 1 then
+				range_mult = mag
+			end
+		end
+		local eff = base_max * range_mult
+		return binoc, ads, (binoc or ads), eff, eff, 1.0
+	end
 	local binoc = is_binoc_active()
 	local ads = (not binoc) and is_ads_active()
 	local boosted = false
 	local scan_mult, range_mult = 1.0, 1.0
 	if binoc and C.binoc_boost then
 		boosted = true
-		scan_mult, range_mult = C.binoc_scan_mult, C.binoc_range_mult
-		-- Optionally scale the binocular range by its magnification, like ADS. Off by
-		-- default so existing setups keep the flat binoc_range_mult.
+		scan_mult = C.binoc_scan_mult
+		-- Range = base_max x the binocular's magnification. binoc_range_mult IS that
+		-- magnification (the MCM "range multiplier"), e.g. 4.4 -> a 50 m base becomes 220 m.
+		-- With binoc_zoom_scaling on we REPLACE it with the engine's real magnification when
+		-- available (custom-exe binding); we never derive it from the camera FOV -- that
+		-- ratio is the raw angular zoom (~19.6x), which over-inflated the range.
+		range_mult = C.binoc_range_mult
 		if C.binoc_zoom_scaling then
-			local mag = scope_magnification()
+			local mag = binoc_engine_magnification()
 			if mag and mag > 1 then
-				range_mult = range_mult * mag
+				range_mult = mag
 			end
 		end
 	elseif ads and C.ads_boost then
@@ -2196,8 +2638,8 @@ local function try_identify(auto_mode)
 	end
 	debug_dump_aim()
 	debug_dump_candidates()
-	local binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
-	if C.require_binoculars and not binoc then
+	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	if C.require_binoculars and not tier_active() and not binoc then
 		return
 	end
 
@@ -2254,8 +2696,8 @@ local function update_auto_identify(tg)
 		return
 	end
 
-	local binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
-	if C.require_binoculars and not binoc then
+	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	if C.require_binoculars and not tier_active() and not binoc then
 		return
 	end
 
@@ -2284,13 +2726,23 @@ end
 -- previous frame would let a slow continuous pan stay "steady" forever.
 local STEADY_MAX_D2 = 0.002 -- squared-distance tolerance between unit vectors, ~2.6 degrees
 
-local steady_anchor = nil -- vector(), the camera direction steadiness is measured against
-local steady_start_tg = nil
-local steady_last_sweep_tg = 0 -- last time the steady sweep ran (throttle)
+-- Binocular steady-aim state, bundled into one table (spares top-level-local slots -- Lua
+-- 5.1's 200-per-chunk limit): anchor = the camera direction steadiness is measured against
+-- (a reused vector), start = when the current steady hold began, last_sweep = last sweep tick.
+local _steady = { anchor = nil, start = nil, last_sweep = 0 }
+local STEADY_SWEEP_MS = 250 -- re-sweep cadence while the trigger stays armed
+-- ADS-mode dwell state (bundled to spare top-level locals): armed = a valid target is
+-- currently under the aim; start = when it first appeared; last = last identify tick;
+-- check = last presence re-evaluation (throttles the per-frame raycasts).
+-- ADS + hipfire dwell state, bundled into one table (spares top-level-local slots -- Lua
+-- 5.1's 200-per-chunk limit). Each: armed = a valid target is currently under the aim;
+-- start = when it first appeared; last = last identify tick; check = last presence re-eval.
+local _dwell =
+	{ ads = { armed = false, start = 0, last = 0, check = 0 }, hip = { armed = false, start = 0, last = 0, check = 0 } }
 
 local function reset_steady()
-	steady_anchor = nil
-	steady_start_tg = nil
+	_steady.anchor = nil
+	_steady.start = nil
 end
 
 -- Identify every alive, community-tagged, visible target whose body falls inside the
@@ -2304,8 +2756,8 @@ local function sweep_identify_in_fov(tg)
 	if not db.actor or not level.iterate_nearest then
 		return
 	end
-	local binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
-	if C.require_binoculars and not binoc then
+	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	if C.require_binoculars and not tier_active() and not binoc then
 		return
 	end
 	local cone = aim_cone_rad()
@@ -2327,17 +2779,127 @@ local function sweep_identify_in_fov(tg)
 		end
 		return false -- sweep the whole set within eff_max_dist
 	end)
+
+	-- Fallback: also identify whatever the crosshair is directly on the MODEL of, in case the
+	-- cone missed it (too close, or aiming at the mesh between the angularly-spread bones).
+	local model = aim_model_target(eff_max_dist)
+	if model and (not C.require_los or has_los(model)) then
+		local comm = safe_call(model.character_community, model)
+		if comm and comm ~= "" then
+			identify_target(model, comm, boosted, eff_max_dist, eff_fade_dist, scan_mult, true)
+		end
+	end
 end
 
--- Steady-aim auto-identify for both binocular mode and ADS mode: once the aim holds
--- still for steady_time, sweep-identify EVERY target in the FOV (not just the one at
--- the crosshair), and keep re-sweeping (throttled) while the aim stays steady -- so
--- targets that come into range / into view, or that you move closer to, get picked up
--- instead of being missed by a one-shot trigger. Either mode can drive it.
-local STEADY_SWEEP_MS = 250 -- re-sweep cadence while the aim holds steady
+-- ADS-mode dwell trigger: keep a valid target under the aim -- directly (crosshair on
+-- it) or, when fov_assist is on, inside the FOV assist range -- CONTINUOUSLY for
+-- ads_hold_time, then auto-identify (and keep identifying, throttled, while a target
+-- stays there). Unlike the binocular steadiness trigger below, this is dwell-on-target:
+-- holding the aim still on empty air does nothing; a target must actually be present, but
+-- you CAN track a moving one. Resets the instant no valid target is under the aim.
+local function update_ads_dwell(tg)
+	if not (C.ads_mode and is_ads_active()) or not db.actor then
+		_dwell.ads.armed = false
+		return
+	end
+	-- Throttle the raycast presence check (dwell timing still uses tg, so it's exact);
+	-- 100 ms is well under any sane hold time and keeps ADS cheap.
+	if tg - _dwell.ads.check < 100 then
+		return
+	end
+	_dwell.ads.check = tg
+	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	if C.require_binoculars and not tier_active() and not binoc then
+		_dwell.ads.armed = false
+		return
+	end
+	-- Is a valid target under the aim right now? Direct hit, or the FOV-assist pick when
+	-- fov_assist is on (get_target_obj handles both via allow_fov).
+	local obj = get_target_obj(eff_max_dist, C.fov_assist)
+	local present = false
+	if obj and obj:id() ~= db.actor:id() and safe_call(obj.alive, obj) then
+		local comm = safe_call(obj.character_community, obj)
+		present = comm and comm ~= "" and has_los(obj) and true or false
+	end
+	if not present then
+		_dwell.ads.armed = false -- nothing valid on aim -> reset the dwell
+		return
+	end
+	if not _dwell.ads.armed then
+		_dwell.ads.armed = true
+		_dwell.ads.start = tg
+		_dwell.ads.last = 0
+		return
+	end
+	-- Held long enough: identify (throttled). fov_assist on -> sweep everyone in the FOV
+	-- assist range; off -> just the target directly under the aim.
+	if (tg - _dwell.ads.start) >= (C.ads_hold_time or 0.6) * 1000 then
+		if tg - _dwell.ads.last >= STEADY_SWEEP_MS then
+			_dwell.ads.last = tg
+			if C.fov_assist then
+				sweep_identify_in_fov(tg)
+			else
+				try_identify(true)
+			end
+		end
+	end
+end
+
+-- Hipfire dwell trigger: identify a target you keep under the aim while hip-firing (NOT
+-- aiming down sight, NOT through binoculars) for hipfire_hold_time -- for players who'd
+-- rather not press the key. Same dwell-on-target logic as the ADS version, gated on hipfire.
+-- State is _dwell.hip (bundled with _dwell.ads above to spare top-level-local slots).
+local function update_hipfire_dwell(tg)
+	if not (C.hipfire_mode and db.actor) or is_ads_active() or is_binoc_active() then
+		_dwell.hip.armed = false
+		return
+	end
+	if tg - _dwell.hip.check < 100 then
+		return
+	end
+	_dwell.hip.check = tg
+	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	if C.require_binoculars and not tier_active() and not binoc then
+		_dwell.hip.armed = false
+		return
+	end
+	local obj = get_target_obj(eff_max_dist, C.fov_assist)
+	local present = false
+	if obj and obj:id() ~= db.actor:id() and safe_call(obj.alive, obj) then
+		local comm = safe_call(obj.character_community, obj)
+		present = comm and comm ~= "" and has_los(obj) and true or false
+	end
+	if not present then
+		_dwell.hip.armed = false
+		return
+	end
+	if not _dwell.hip.armed then
+		_dwell.hip.armed = true
+		_dwell.hip.start = tg
+		_dwell.hip.last = 0
+		return
+	end
+	if (tg - _dwell.hip.start) >= (C.hipfire_hold_time or 1.0) * 1000 then
+		if tg - _dwell.hip.last >= STEADY_SWEEP_MS then
+			_dwell.hip.last = tg
+			if C.fov_assist then
+				sweep_identify_in_fov(tg)
+			else
+				try_identify(true)
+			end
+		end
+	end
+end
+
+-- Steady-aim auto-identify. Binocular mode uses camera STEADINESS (hold the aim still for
+-- steady_time, then sweep-identify the FOV); ADS mode uses target DWELL (update_ads_dwell
+-- above); hipfire mode also uses target DWELL (update_hipfire_dwell). All run every frame;
+-- each self-gates on its own toggle + aim context.
 local function update_binocular_scan(tg)
-	local mode_active = (C.binocular_mode and is_binoc_active()) or (C.ads_mode and is_ads_active())
-	if not mode_active then
+	update_ads_dwell(tg)
+	update_hipfire_dwell(tg)
+
+	if not (C.binocular_mode and is_binoc_active()) then
 		reset_steady()
 		return
 	end
@@ -2349,33 +2911,25 @@ local function update_binocular_scan(tg)
 		return
 	end
 
-	if not steady_anchor then
-		steady_anchor = vector():set(dir)
-		steady_start_tg = tg
+	if not _steady.anchor then
+		_steady.anchor = vector():set(dir)
+		_steady.start = tg
 		return
 	end
 
-	local dx, dy, dz = dir.x - steady_anchor.x, dir.y - steady_anchor.y, dir.z - steady_anchor.z
+	local dx, dy, dz = dir.x - _steady.anchor.x, dir.y - _steady.anchor.y, dir.z - _steady.anchor.z
 	if (dx * dx + dy * dy + dz * dz) > STEADY_MAX_D2 then
-		steady_anchor:set(dir)
-		steady_start_tg = tg
+		_steady.anchor:set(dir)
+		_steady.start = tg
 		return
 	end
 
-	-- Held steady long enough (throttled while steady). Respect the FOV target-assist
-	-- toggle (context-sensitive: fov_assist_binoc through binoculars, fov_assist
-	-- otherwise -- same rule as the manual key path):
-	--   * assist ON  -> sweep-identify every target inside the assist ring.
-	--   * assist OFF -> require a DIRECT aim: identify only the target under the
-	--     crosshair (try_identify with allow_fov off does exactly that). No ring assist.
-	if (tg - steady_start_tg) >= C.steady_time * 1000 then
-		if tg - steady_last_sweep_tg >= STEADY_SWEEP_MS then
-			steady_last_sweep_tg = tg
-			local allow_fov = C.fov_assist
-			if is_binoc_active() then
-				allow_fov = C.fov_assist_binoc
-			end
-			if allow_fov then
+	-- Held steady long enough (throttled). Respect the binocular FOV-assist toggle:
+	-- on -> sweep-identify every target inside the assist ring; off -> a DIRECT aim only.
+	if (tg - _steady.start) >= C.steady_time * 1000 then
+		if tg - _steady.last_sweep >= STEADY_SWEEP_MS then
+			_steady.last_sweep = tg
+			if C.fov_assist_binoc then
 				sweep_identify_in_fov(tg)
 			else
 				try_identify(true) -- direct aim only (allow_fov off inside try_identify)
@@ -2470,6 +3024,10 @@ function IiTags:InitControls()
 		local box_bottom = self.xml:InitStatic("tag_box_bottom", self)
 		local box_left = self.xml:InitStatic("tag_box_left", self)
 		local box_right = self.xml:InitStatic("tag_box_right", self)
+		-- Simple 2 style shapes.
+		local s2_circle = self.xml:InitStatic("tag_s2_circle", self)
+		local s2_tri = self.xml:InitStatic("tag_s2_tri", self)
+		local s2_bar = self.xml:InitStatic("tag_s2_bar", self)
 		self.slots[i] = {
 			shadow = shadow,
 			line_sh = line_sh,
@@ -2494,6 +3052,9 @@ function IiTags:InitControls()
 			box_bottom = box_bottom,
 			box_left = box_left,
 			box_right = box_right,
+			s2_circle = s2_circle,
+			s2_tri = s2_tri,
+			s2_bar = s2_bar,
 		}
 		-- hidden starts unset (falsy) so this first hide_slot() call actually
 		-- runs the Show(false) calls below, instead of short-circuiting on its
@@ -2568,6 +3129,14 @@ local function hide_box_widgets(s)
 	end
 end
 
+-- Simple 2 style shapes (circle, triangle, rank bar). Hidden every frame at the top of
+-- draw_slot; only the simple2 branch re-shows them.
+local function hide_s2_widgets(s)
+	s.s2_circle:Show(false)
+	s.s2_tri:Show(false)
+	s.s2_bar:Show(false)
+end
+
 function IiTags:hide_slot(i)
 	local s = self.slots[i]
 	if not s or s.hidden then
@@ -2576,6 +3145,7 @@ function IiTags:hide_slot(i)
 	s.hidden = true
 	hide_card_widgets(s)
 	hide_box_widgets(s)
+	hide_s2_widgets(s)
 	s.glow:Show(false)
 	s.node:Show(false)
 	s.spinner:Show(false)
@@ -2618,7 +3188,7 @@ end
 --     target is OUTSIDE max range (rejected for distance),
 --   * the distance (metres) to each candidate as text on it,
 --   * the radius value as text.
--- Distances match find_nearest_in_fov exactly (screen_dist_to_body vs fov_radius),
+-- The test matches find_nearest_in_fov exactly (aim_angle_to_body vs aim_cone_rad),
 -- so what you see is precisely what the assist tests. Pure debug: gated on
 -- C.debug_draw, iterates once per frame, dot/text pools reused (no per-frame alloc).
 function IiTags:draw_debug()
@@ -2722,8 +3292,8 @@ function IiTags:draw_debug()
 						end
 					end
 					if not drew then -- monster / non-bip01 rig: the vertical-span fallback
-						for _, lift in ipairs({ 0.3, 0.9, 1.5 }) do
-							local sx, sy = project_world(_body_pt:set(base.x, base.y + lift, base.z))
+						for _, lift in ipairs(MONSTER_SPAN) do
+							local sx, sy = project_world(_v.body_pt:set(base.x, base.y + lift, base.z))
 							if sx then
 								tx, ty = tx or sx, ty or sy
 								if not dot(sx, sy, 6, 200, cr, cg, cb) then
@@ -2824,17 +3394,6 @@ end
 ---@type any
 local _overlay_bc = nil -- set for the current frame in render() (begin..commit)
 
--- Submit one rect to the depth overlay. Coords are in the mod's 1024x768 virtual
--- space; the engine scales them to real pixels (dwWidth/1024, dwHeight/768 -- the
--- same stretch world2ui uses). world anchor drives the per-pixel depth test.
-local function overlay_rect_v(vx0, vy0, vx1, vy1, a, r, g, b, wx, wy, wz)
-	local bc = _overlay_bc
-	if not bc then
-		return
-	end
-	pcall(bc.overlay_rect, vx0, vy0, vx1, vy1, r / 255, g / 255, b / 255, a / 255, wx or 0, wy or 0, wz or 0)
-end
-
 local function draw_head_box(s, cx, cy, hw, hh, alpha, r, g, b, wx, wy, wz)
 	local t = C.box_thickness or 2
 	if t < 1 then
@@ -2846,21 +3405,8 @@ local function draw_head_box(s, cx, cy, hw, hh, alpha, r, g, b, wx, wy, wz)
 	local w, h = hw * 2, hh * 2
 	local vh = math.max(1, h - 2 * t) -- vertical edges fill between top & bottom
 
-	-- Depth-aware path: submit the 4 edges as world-anchored rects to the engine
-	-- (occluded per-pixel by walls/viewmodel) and hide the flat CUIStatic edges.
-	if _overlay_bc and wx then
-		s.box_top:Show(false)
-		s.box_bottom:Show(false)
-		s.box_left:Show(false)
-		s.box_right:Show(false)
-		overlay_rect_v(x0, y0, x0 + w, y0 + t, a, r, g, b, wx, wy, wz) -- top
-		overlay_rect_v(x0, y0 + h - t, x0 + w, y0 + h, a, r, g, b, wx, wy, wz) -- bottom
-		overlay_rect_v(x0, y0 + t, x0 + tw, y0 + h - t, a, r, g, b, wx, wy, wz) -- left
-		overlay_rect_v(x0 + w - tw, y0 + t, x0 + w, y0 + h - t, a, r, g, b, wx, wy, wz) -- right
-		return
-	end
-
-	-- Fallback: flat CUIStatic edges (no depth awareness).
+	-- Flat CUIStatic edges (the depth-aware world-anchored overlay path for the box was
+	-- removed). wx/wy/wz are unused now but kept in the signature for the caller.
 	local col = GetARGB(a, r, g, b)
 	s.box_top:SetWndSize(S(w, t))
 	s.box_top:SetWndPos(P(x0, y0))
@@ -2903,6 +3449,22 @@ local SPIN_PERIOD_MS = 900 -- one full rotation
 -- that same "blob" problem.
 local NODE_SCALE_MAX = 1.4
 
+-- Minimal (dot) style distance scale: 1.0 at ~20 m, larger up close, smaller far, so a
+-- distant target's dot isn't oversized. Clamped both ways. Constants inline to spare
+-- top-level locals (Lua 5.1's 200-per-chunk limit).
+local function mini_dist_scale_factor(dist)
+	if not dist or dist <= 0 then
+		return 1
+	end
+	local s = 20 / dist
+	if s < 0.4 then
+		s = 0.4
+	elseif s > 1.6 then
+		s = 1.6
+	end
+	return s
+end
+
 local function draw_node_glow(s, hx, hy, scale, alpha, r, g, b)
 	local node_scale = math.min(scale, NODE_SCALE_MAX)
 	local ns = 7 * node_scale
@@ -2930,16 +3492,14 @@ local function draw_shadowed_text(main, sh, x, y, alpha, r, g, b, shadow_a)
 	main:Show(true)
 end
 
--- Depth-aware TEXT: DISABLED -> text uses the normal CUIStatic path (always visible),
--- so text always shows. The engine font-to-RT path (bodycam.overlay_text) never
--- rendered mid-combine: dxFontRender::OnRender inherits state + transform, and NEITHER
--- the clean-render-state fix (v2.36) NOR the captured-2D-transform replay (v2.38) made
--- the font draw into rt_bodycam_text (debug 3 stayed a black/empty RT). The font asset
--- itself is fine (stat_font is a core engine font). The box stays viewmodel-masked (its
--- own engine path works). Re-enable only with the glyph-emitter rework (build glyph
--- quads through the proven stub_screen_space path, bypassing CGameFont). See
--- docs/engine-depth-overlay.md.
-local DEPTH_TEXT = false
+-- Depth-aware TEXT: ENABLED via the engine glyph-emitter (custom bodycam exe).
+-- overlay_text_add submits each line (virtual coords + world anchor); the engine's
+-- phase_bodycam_text rasterises the glyphs directly as screen-space quads (atlas UVs,
+-- bypassing CGameFont::OnRender -- the transform-inheritance that left rt_bodycam_text
+-- empty across v2.31..v2.38), then composites depth-tested (occluded by walls +
+-- viewmodel, like the box). Inert on a stock exe: overlay_text_add is absent there, so
+-- draw_bodycam_line falls back to the flat CUIStatic text. See docs/engine-depth-overlay.md.
+local DEPTH_TEXT = true
 
 -- Draw one bodycam text line either depth-aware (engine overlay, occluded by
 -- walls/viewmodel) or, when disabled/absent, as the flat CUIStatic shadowed text.
@@ -3035,7 +3595,8 @@ function IiTags:draw_slot(
 	box_hh,
 	box_wx,
 	box_wy,
-	box_wz
+	box_wz,
+	rank_col
 )
 	local s = self.slots[i]
 	if not s then
@@ -3043,6 +3604,7 @@ function IiTags:draw_slot(
 	end
 	s.hidden = false
 	hide_box_widgets(s) -- box only ever re-shown by the bodycam branch below
+	hide_s2_widgets(s) -- Simple 2 shapes only ever re-shown by the simple2 branch below
 
 	local r, g, b = col[1], col[2], col[3]
 	scale = scale or 1
@@ -3093,6 +3655,79 @@ function IiTags:draw_slot(
 		return
 	end
 
+	-- Simple style: a compact horizontal strip above the head -- the Card style's
+	-- relation-coloured dot + glow, then the faction logo, then the name.
+	if C.ui_style == 5 then
+		hide_card_widgets(s)
+		if s.icon_key ~= icon_id then
+			pcall(s.icon.InitTexture, s.icon, icon_id)
+			s.icon_key = icon_id
+		end
+		local has_name = name and name ~= ""
+		if name ~= s.simple_last_name then
+			if has_name then
+				s.name:SetText(name)
+				s.name_sh:SetText(name)
+				s.name:AdjustWidthToText()
+				s.name_sh:AdjustWidthToText()
+				s.simple_nw = s.name:GetWidth()
+			else
+				s.simple_nw = 0
+			end
+			s.simple_last_name = name
+		end
+		local name_w = has_name and (s.simple_nw or 0) or 0
+		local has_icon = icon_id and icon_id ~= ""
+
+		local node_scale = math.min(scale, NODE_SCALE_MAX)
+		local glow_w = math.max(2, math.floor(7 * node_scale * 2.8 * UI_KX + 0.5)) -- dot glow footprint
+		local icon_w = math.floor(16 * scale + 0.5)
+		local gap = math.floor(5 * scale + 0.5)
+		local row_y = hy - math.floor(14 * scale + 0.5) -- lift the strip above the head
+
+		local total = glow_w
+		if has_icon then
+			total = total + gap + icon_w
+		end
+		if has_name then
+			total = total + gap + name_w
+		end
+		local cursor = hx - total / 2
+
+		draw_node_glow(s, cursor + glow_w / 2, row_y, scale, alpha, r, g, b)
+		cursor = cursor + glow_w
+
+		if has_icon then
+			cursor = cursor + gap
+			s.icon:SetWndPos(P(math.floor(cursor), math.floor(row_y - icon_w / 2)))
+			s.icon:SetWndSize(S(icon_w, icon_w))
+			s.icon:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+			s.icon:Show(true)
+			cursor = cursor + icon_w
+		else
+			s.icon:Show(false)
+		end
+
+		if has_name then
+			cursor = cursor + gap
+			draw_shadowed_text(
+				s.name,
+				s.name_sh,
+				math.floor(cursor),
+				math.floor(row_y - 9),
+				alpha,
+				235,
+				230,
+				220,
+				math.floor(180 * alpha / 255)
+			)
+		else
+			s.name:Show(false)
+			s.name_sh:Show(false)
+		end
+		return
+	end
+
 	-- Bodycam style: an unfilled, faction-coloured outline box locked to the
 	-- head bone and auto-scaled so it stays a constant real-world size around
 	-- the head -- no plate, dot, or sign, just the frame. box_hw/box_hh are nil
@@ -3119,7 +3754,7 @@ function IiTags:draw_slot(
 			local tx = math.floor(box_cx + box_hw + BODYCAM_TEXT_PAD)
 			local ty = math.floor(box_cy - box_hh)
 			local shadow_a = math.floor(180 * alpha / 255)
-			if C.show_name and name and name ~= "" then
+			if name and name ~= "" then
 				draw_bodycam_line(
 					s.name,
 					s.name_sh,
@@ -3137,7 +3772,7 @@ function IiTags:draw_slot(
 				)
 				ty = ty + BODYCAM_LINE_H
 			end
-			if C.show_faction and header and header ~= "" then
+			if header and header ~= "" then
 				draw_bodycam_line(
 					s.head,
 					s.head_sh,
@@ -3155,7 +3790,7 @@ function IiTags:draw_slot(
 				)
 				ty = ty + BODYCAM_LINE_H
 			end
-			if C.show_weapon and weap and weap ~= "" then
+			if weap and weap ~= "" then
 				draw_bodycam_line(
 					s.weap,
 					s.weap_sh,
@@ -3176,6 +3811,50 @@ function IiTags:draw_slot(
 		return
 	end
 
+	-- Simple 2 style: over the head -- a faction-coloured circle and a relation-coloured
+	-- (red enemy / green friendly / grey neutral) triangle side by side, with a thin
+	-- rank-coloured bar spanning them above. Distance-scaled (scale) and anchored at the
+	-- head like the PiP markers. Shape WIDTHS are UI_KX-corrected so the circle/triangle
+	-- stay round/undistorted on wide screens (the virtual->screen stretch, same trick as
+	-- the node dot); heights aren't.
+	if C.ui_style == 4 then
+		hide_card_widgets(s)
+		s.glow:Show(false)
+		s.node:Show(false)
+		local sc = scale
+		local cd = 12 * sc -- circle diameter (also the row height driver)
+		local tw, th = 13 * sc, 11 * sc -- triangle width / height
+		local gap = 3 * sc -- gap between circle and triangle
+		local bh = math.max(2, 3 * sc) -- rank bar height
+		local bgap = 3 * sc -- gap between the bar and the shapes
+		local kx = UI_KX
+		local cw = math.max(2, math.floor(cd * kx + 0.5)) -- circle screen width (kept round)
+		local twx = math.max(2, math.floor(tw * kx + 0.5)) -- triangle screen width
+		local gpx = gap * kx
+		local roww = cw + gpx + twx
+		local left = hx - roww / 2
+		local rowh = math.max(cd, th)
+		local cy = hy - rowh / 2 - 2 * sc -- sit the shapes just above the head anchor
+
+		s.s2_circle:SetWndSize(S(cw, cd))
+		s.s2_circle:SetWndPos(P(math.floor(left), math.floor(cy - cd / 2)))
+		s.s2_circle:SetTextureColor(GetARGB(alpha, fcol[1], fcol[2], fcol[3]))
+		s.s2_circle:Show(true)
+
+		local rc = SIGN_COLOR[sign] or COL_NEUTRAL
+		s.s2_tri:SetWndSize(S(twx, th))
+		s.s2_tri:SetWndPos(P(math.floor(left + cw + gpx), math.floor(cy - th / 2)))
+		s.s2_tri:SetTextureColor(GetARGB(alpha, rc[1], rc[2], rc[3]))
+		s.s2_tri:Show(true)
+
+		local rk = rank_col or { 150, 150, 150 }
+		s.s2_bar:SetWndSize(S(math.floor(roww), math.floor(bh)))
+		s.s2_bar:SetWndPos(P(math.floor(left), math.floor(cy - rowh / 2 - bgap - bh)))
+		s.s2_bar:SetTextureColor(GetARGB(alpha, rk[1], rk[2], rk[3]))
+		s.s2_bar:Show(true)
+		return
+	end
+
 	-- Mini fallback: below the cutoff, the card doesn't fit any more, so just
 	-- show the relation dot -- the same node the leader line would otherwise
 	-- connect to a card, minus the card. `scale` is a single flat MCM value
@@ -3193,13 +3872,13 @@ function IiTags:draw_slot(
 		s.icon_key = icon_id
 	end
 
-	-- Which lines this style shows (the toggles are generic across the text
-	-- styles): faction (header), name and weapon are user toggles; rank shows
-	-- whenever the target has one. The faction icon patch stays regardless.
-	local has_head = C.show_faction and header and header ~= ""
-	local has_name = C.show_name and name and name ~= ""
+	-- Which lines this style shows. Presence of each field already encodes its show
+	-- decision (folded in at snapshot time: the C.show_* toggles, or the tier feature
+	-- gates under WD compat -- see identify_target). So here it's pure field-presence.
+	local has_head = header and header ~= ""
+	local has_name = name and name ~= ""
 	local has_rank = rank and rank ~= ""
-	local has_weap = C.show_weapon and weap and weap ~= ""
+	local has_weap = weap and weap ~= ""
 	local pad, accent_w = 8, 3
 	local iw = 16 * scale
 	local lead = 5 * scale
@@ -3541,33 +4220,38 @@ local BODY_BOX_BONES = {
 	"bip01_l_foot",
 	"bip01_r_foot",
 }
-local _bb_pt = vector()
+-- Reused world-AABB accumulator for body_box_for: a module-level scratch so the
+-- per-frame box build allocates neither a table nor a closure (hot path). bbw_add
+-- grows it; body_box_for resets _bbw.has = false at the start of each build.
+local _bbw = { has = false, minx = 0, miny = 0, minz = 0, maxx = 0, maxy = 0, maxz = 0 }
+local function bbw_add(px, py, pz)
+	if not _bbw.has then
+		_bbw.has = true
+		_bbw.minx, _bbw.miny, _bbw.minz = px, py, pz
+		_bbw.maxx, _bbw.maxy, _bbw.maxz = px, py, pz
+		return
+	end
+	if px < _bbw.minx then
+		_bbw.minx = px
+	elseif px > _bbw.maxx then
+		_bbw.maxx = px
+	end
+	if py < _bbw.miny then
+		_bbw.miny = py
+	elseif py > _bbw.maxy then
+		_bbw.maxy = py
+	end
+	if pz < _bbw.minz then
+		_bbw.minz = pz
+	elseif pz > _bbw.maxz then
+		_bbw.maxz = pz
+	end
+end
 local function body_box_for(obj)
 	local base = obj:position()
 	local minx, miny, maxx, maxy
-	-- World-space AABB of the same bones, for the in-scope reprojection.
-	local wminx, wminy, wminz, wmaxx, wmaxy, wmaxz
-	local function acc_world(px, py, pz)
-		if not wminx then
-			wminx, wminy, wminz, wmaxx, wmaxy, wmaxz = px, py, pz, px, py, pz
-		else
-			if px < wminx then
-				wminx = px
-			elseif px > wmaxx then
-				wmaxx = px
-			end
-			if py < wminy then
-				wminy = py
-			elseif py > wmaxy then
-				wmaxy = py
-			end
-			if pz < wminz then
-				wminz = pz
-			elseif pz > wmaxz then
-				wmaxz = pz
-			end
-		end
-	end
+	-- World-space AABB of the same bones (in _bbw), for the in-scope reprojection.
+	_bbw.has = false
 	for _, bone in ipairs(BODY_BOX_BONES) do
 		local p = safe_call(obj.bone_position, obj, bone)
 		if p and p:distance_to_sqr(base) < 25 then -- sane bone (within 5 m of origin)
@@ -3587,15 +4271,15 @@ local function body_box_for(obj)
 						maxy = sy
 					end
 				end
-				acc_world(p.x, p.y, p.z)
+				bbw_add(p.x, p.y, p.z)
 			end
 		end
 	end
 
 	if not minx then
 		-- monster / non-bip01 rig: bound a vertical span at the origin instead.
-		for _, lift in ipairs({ 0.2, 0.8, 1.5 }) do
-			local sx, sy = project_world(_bb_pt:set(base.x, base.y + lift, base.z))
+		for _, lift in ipairs(MONSTER_SPAN) do
+			local sx, sy = project_world(_v.bb_pt:set(base.x, base.y + lift, base.z))
 			if sx then
 				if not minx then
 					minx, miny, maxx, maxy = sx, sy, sx, sy
@@ -3611,7 +4295,7 @@ local function body_box_for(obj)
 						maxy = sy
 					end
 				end
-				acc_world(base.x, base.y + lift, base.z)
+				bbw_add(base.x, base.y + lift, base.z)
 			end
 		end
 		if not minx then
@@ -3631,10 +4315,10 @@ local function body_box_for(obj)
 	-- widest of the X/Z spans, vertical = Y span), padded a touch, for the
 	-- in-scope reprojection. Falls back to a metric guess if no world data.
 	local wcx, wcy, wcz, whw, whh
-	if wminx then
-		wcx, wcy, wcz = (wminx + wmaxx) * 0.5, (wminy + wmaxy) * 0.5, (wminz + wmaxz) * 0.5
-		whw = math.max(wmaxx - wminx, wmaxz - wminz) * 0.5 + 0.1
-		whh = (wmaxy - wminy) * 0.5 + 0.1
+	if _bbw.has then
+		wcx, wcy, wcz = (_bbw.minx + _bbw.maxx) * 0.5, (_bbw.miny + _bbw.maxy) * 0.5, (_bbw.minz + _bbw.maxz) * 0.5
+		whw = math.max(_bbw.maxx - _bbw.minx, _bbw.maxz - _bbw.minz) * 0.5 + 0.1
+		whh = (_bbw.maxy - _bbw.miny) * 0.5 + 0.1
 	else
 		wcx, wcy, wcz, whw, whh = base.x, base.y + 0.9, base.z, 0.45, 0.95
 	end
@@ -3660,7 +4344,6 @@ end
 local FACE_HALF_W = 0.12 -- the face is narrower/shorter than the whole head box
 local FACE_HALF_H = 0.15
 local FACE_FWD = 0.08 -- metres to push the box toward the face front, along facing
-local _face_c = vector()
 local function face_box_for(obj)
 	local hc = head_center(obj)
 	if not hc then
@@ -3668,7 +4351,7 @@ local function face_box_for(obj)
 	end
 	local dir = safe_call(obj.direction, obj)
 	if dir then
-		hc = _face_c:set(hc.x + dir.x * FACE_FWD, hc.y + dir.y * FACE_FWD, hc.z + dir.z * FACE_FWD)
+		hc = _v.face_c:set(hc.x + dir.x * FACE_FWD, hc.y + dir.y * FACE_FWD, hc.z + dir.z * FACE_FWD)
 	end
 	local cx, cy, hw, hh, depth = screen_box(hc, FACE_HALF_W, FACE_HALF_H)
 	if not cx then
@@ -3750,7 +4433,7 @@ end
 -- camera), so the same submission feeds both. The main-pass rects are simply
 -- against the wrong picture inside the lens, but the lens only samples the SVP
 -- pass's output, so there's no conflict.
-local function feed_redaction(tg, pip_active, suppress_main)
+local function feed_redaction(suppress_main)
 	local bc = redaction_binding()
 	if not bc then
 		return
@@ -3820,6 +4503,11 @@ local function render(tg)
 	-- draws. (pip_active already hides the main HUD on its own; this also covers
 	-- the ADS-without-PiP and pip_markers-off cases, plus the main-pass redaction.)
 	local suppress_main = (C.ads_hide_main and is_ads_active()) or (C.pip_hide_main and pip_scope)
+	-- OSD scanner mode: identification still runs (tracked/_last_id populated for the Promin
+	-- ident page), but NO identification UI draws on entities -- neither the main-view tags
+	-- nor the in-scope PiP markers. Face redaction is intentionally NOT gated on this (it's a
+	-- separate censoring feature, driven by feed_redaction/suppress_main, not identity reveal).
+	local osd_only = _tier ~= nil and _tier.active == true and _tier.osd_only == true
 	-- Unconditional on PIP_AVAILABLE (not pip_active): runs every frame the
 	-- engine supports it, scoped or not, so lowering the scope mid-reveal
 	-- still publishes one more (empty) snapshot instead of leaving the last
@@ -3844,6 +4532,8 @@ local function render(tg)
 	-- drawing immediately, so the second pass below can see every card's
 	-- anchor at once before any of them are actually positioned.
 	local active_n = 0
+
+	_last_id.scan_frac = nil -- recomputed below: progress of any in-progress scan this frame
 
 	for id, e in pairs(tracked) do
 		-- Per-instance range/speed, captured at identify time in try_identify()
@@ -3892,6 +4582,12 @@ local function render(tg)
 			local phase_alpha, scanning = 0, false
 			if elapsed < scan_ms then
 				scanning = true
+				-- Track the furthest-along in-progress scan for the Promin OSD spinner
+				-- (get_scan_progress). Reset each frame before this loop.
+				local f = (scan_ms > 0) and (elapsed / scan_ms) or 1
+				if not _last_id.scan_frac or f > _last_id.scan_frac then
+					_last_id.scan_frac = f
+				end
 			elseif elapsed < scan_ms + fade_ms then
 				phase_alpha = (elapsed - scan_ms) / fade_ms
 			elseif elapsed < scan_ms + fade_ms + hold_ms then
@@ -3904,6 +4600,25 @@ local function render(tg)
 			end
 
 			local pos = anchor_pos(obj)
+
+			-- Promin OSD readout: snapshot this target for the ident page the first frame its
+			-- scan COMPLETES (osd_done gates it to once). Done here rather than at scan start
+			-- so the readout respects scan time and keeps the previously-identified target
+			-- until the new one finishes -- mirroring the moment the on-entity tag reveals.
+			-- Fields come straight from the (already tier-gated) tracked entry.
+			if not scanning and not e.osd_done then
+				e.osd_done = true
+				_last_id.id = id
+				_last_id.name, _last_id.faction = e.name, e.header
+				_last_id.rank, _last_id.weap = e.rank, e.weap
+				_last_id.rank_level = e.rank_level
+				_last_id.icon = e.icon -- faction emblem texture id (for the notification card)
+				_last_id.portrait = e.portrait
+				_last_id.x = pos and pos.x or nil
+				_last_id.y = pos and pos.y or nil
+				_last_id.z = pos and pos.z or nil
+			end
+
 			local dist = apos and pos:distance_to(apos) or 0
 			local dist_fade = 1
 			if dist > fade_dist then
@@ -3927,12 +4642,12 @@ local function render(tg)
 				-- colour/alpha there only carries the spinner's own alpha
 				-- (0.9, matching the HUD spinner's fixed GetARGB(230,...)),
 				-- not phase_alpha, which is still 0 for the whole scan.
-				if pip_active then
+				if pip_active and not osd_only then
 					local col, fcol = e.col, e.fcol
 					local alpha = scanning and (0.9 * dist_fade) or (phase_alpha * dist_fade)
 					svp_ui_markers_add(
 						pos.x,
-						pos.y + PIP_MARKER_LIFT,
+						pos.y + PIP_MARKER.lift,
 						pos.z,
 						fcol[1] / 255,
 						fcol[2] / 255,
@@ -3948,10 +4663,36 @@ local function render(tg)
 
 				active_n = active_n + 1
 				local a = active_pool[active_n]
-				a.hx, a.hy, a.header, a.name = sx, sy, e.header, e.name
+				-- User X/Y nudge (virtual px) for all on-screen UI elements.
+				local off_x, off_y = C.ui_offset_x or 0, C.ui_offset_y or 0
+				-- Distance-to-target readout (tier system's distance feature). LIVE (recomputed
+				-- each frame), appended to the name line so it needs no extra widget; rounded to
+				-- whole metres so the card's text-width cache only rebusts once per metre walked.
+				-- Only the text styles (card/bodycam) draw the name line, so it shows only there.
+				local nm = e.name
+				if e.want_dist and dist then
+					local m = string.format("%dm", math.floor(dist + 0.5))
+					nm = (nm and nm ~= "") and (nm .. "  " .. m) or m
+				end
+				a.hx, a.hy, a.header, a.name = sx + off_x, sy + off_y, e.header, nm
 				a.a = math.floor(255 * phase_alpha * dist_fade + 0.5)
 				a.col, a.icon, a.scanning = e.col, e.icon, scanning
-				a.scale, a.rank = C.card_scale, e.rank
+				-- Minimal (dot, style 2, opt-in) and Simple 2 (style 4, always) scale with
+				-- distance so a far target's marker isn't oversized; other styles keep the
+				-- flat card_scale.
+				if (C.ui_style == 2 and C.mini_dist_scale) or C.ui_style == 4 or C.ui_style == 5 then
+					a.scale = C.card_scale * mini_dist_scale_factor(dist)
+					-- Pull the marker DOWN toward the head as the target gets far. Its size is
+					-- floored to stay visible while the head keeps shrinking, so without this
+					-- the floored marker floats high over the now-tiny head. Close range (raw
+					-- >= ~0.85, under ~24 m) is untouched.
+					local raw = 20 / math.max(dist, 1)
+					a.hy = a.hy + math.min(16, math.max(0, 0.85 - raw) * 20)
+				else
+					a.scale = C.card_scale
+				end
+				a.rank = e.rank
+				a.rank_col = e.rank_col
 				a.fcol, a.sign = e.fcol, e.sign
 				a.weap = e.weap
 
@@ -3965,7 +4706,8 @@ local function render(tg)
 						-- Loosen the box off the model by box_padding (a fraction of
 						-- its size, so it stays proportional at any distance).
 						local bp = 1 + (C.box_padding or 0)
-						a.box_cx, a.box_cy, a.box_hw, a.box_hh = bcx, bcy, bhw * bp, bhh * bp
+						a.box_cx, a.box_cy = bcx + off_x, bcy + off_y
+						a.box_hw, a.box_hh = bhw * bp, bhh * bp
 						-- World anchor for depth-aware overlay drawing (engine occlusion).
 						a.box_wx, a.box_wy, a.box_wz = bwx, bwy, bwz
 					else
@@ -3987,13 +4729,12 @@ local function render(tg)
 		svp_ui_markers_commit()
 	end
 
-	-- Drive the engine redaction pass with every visible corpse's head box (custom
-	-- bodycam exe only; inert otherwise). feed_redaction clears it when nothing
-	-- qualifies or a PiP scope is up (the main-camera rects would be against the
-	-- wrong picture then, same reasoning as the card/dot).
-	feed_redaction(tg, pip_active, suppress_main)
+	-- Drive the engine redaction pass with every in-range face box (custom bodycam exe
+	-- only; inert otherwise). Submits every frame -- an empty set clears the pass -- and
+	-- feeds both the main pass and the SVP pass (see feed_redaction's own comment).
+	feed_redaction(suppress_main)
 
-	if pip_active or suppress_main then
+	if pip_active or suppress_main or osd_only then
 		for i = 1, MAX_TAGS do
 			TAGS:hide_slot(i)
 		end
@@ -4050,7 +4791,8 @@ local function render(tg)
 				ai.box_hh,
 				ai.box_wx,
 				ai.box_wy,
-				ai.box_wz
+				ai.box_wz,
+				ai.rank_col
 			)
 		end
 	end
@@ -4122,6 +4864,15 @@ end
 
 local function actor_on_update()
 	update_fov_baseline() -- keep this warm even while the mod is disabled
+
+	-- Snapshot the optional external tier system (WD compat) once for this frame. Every
+	-- override point reads _tier; nil = the addon isn't driving us -> normal behaviour.
+	if tier_provider then
+		local ok, r = pcall(tier_provider)
+		_tier = (ok and type(r) == "table") and r or nil
+	else
+		_tier = nil
+	end
 
 	-- Actor death: clear everything we drew so no tag/box/redaction lingers on
 	-- the death screen. Polled here (idempotent); also fires if the actor object

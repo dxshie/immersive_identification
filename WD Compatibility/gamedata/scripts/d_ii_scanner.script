@@ -1,0 +1,108 @@
+-- Identification Scanner: worn device (mirrors d_bracer / d_vektor, minus the in-device
+-- screen/UI/sensors -- this device has no readout of its own; it just needs to be worn
+-- and expose its tier). Mounts on the bracer via wd_slots, attaches a placeholder model.
+-- Exposes is_worn() and worn_tier() for the identification driver (ii_wd_compat.script).
+
+local SECTION = d_ii_scanner_config.SECTION
+local ATT_NAME = SECTION
+local ATT_BONE = "l_forearm_twist" -- same forearm as the bracer (placeholder; tune with transforms)
+
+-- forward decl so the owner closure can call it
+local sync_attachment
+
+local owner = wd_worn.new({
+	attach_label = "st_attach_ii_wd_scanner",
+	detach_label = "st_detach_ii_wd_scanner",
+	save_key = "ii_wd_scanner_worn",
+	wear_group = "ii_wd_scanner",
+	get_obj_value = function(obj)
+		return obj and obj:section()
+	end,
+	on_attach = function(obj)
+		if not (obj and d_ii_scanner_config.set_active_tier(obj:section())) then
+			return false
+		end
+		if not sync_attachment() then
+			return false
+		end
+		return obj:section()
+	end,
+	on_detach = function()
+		sync_attachment()
+		d_ii_scanner_config.reset_active_tier()
+	end,
+})
+
+function is_worn()
+	return owner.is_attached()
+end
+
+-- 1/2/3 while a scanner is worn, else nil. The active tier section -> numeric index.
+function worn_tier()
+	if not owner.is_attached() then
+		return nil
+	end
+	local t = d_ii_scanner_config.get_active_tier()
+	return t and d_ii_scanner_config.tier_index_of(t.section) or nil
+end
+
+local function is_attachment_present()
+	return wd_attach.has_attachment(ATT_NAME)
+end
+
+-- Logical-only device: we deliberately attach NO visible worn model. Reusing WD's
+-- bracer mesh as a placeholder showed a duplicate bracer on the arm; the scanner only
+-- needs its worn STATE (tracked by wd_worn) and tier, not a visual. Keep any stale
+-- attachment cleared and return true so on_attach treats the visual-less sync as success
+-- (wd_worn sets `attached` before calling on_attach, so is_worn() is already true here).
+-- To ship a real model later: attach { name=ATT_NAME, model=get_model(), bone=ATT_BONE,
+-- parent=d_bracer_config.SECTION, transforms=... } when is_worn(), and tune the transforms.
+function sync_attachment()
+	wd_attach.detach(ATT_NAME)
+	return true
+end
+
+function get_menu_text(obj)
+	return owner.get_menu_text(obj)
+end
+
+function toggle_attach(obj)
+	-- Route through wd_slots so mounting respects the bracer being worn (can_mount checks it).
+	wd_slots.toggle(obj)
+end
+
+local function actor_on_first_update()
+	owner.detach_if_dropped()
+	sync_attachment()
+end
+
+-- Registered from ii_wd_compat.on_game_start (this component isn't in WD's hardcoded
+-- wd_boot device list, and wd_core.start() wires callbacks only once, so we wire our own
+-- directly rather than depend on being registered before that runs). register_device /
+-- register (exo) just populate lookup tables consumed later, so calling them at
+-- on_game_start is safe. Wire drop-poll straight to actor_on_update (detach_if_dropped
+-- self-gates on is_attached, so the unthrottled call is cheap).
+function register()
+	wd_slots.register_device({
+		id = "ii_wd_scanner",
+		slot = "ii_wd_scanner", -- own logical slot (string id; no dedicated bracer hardpoint needed)
+		matches_section = function(section)
+			return d_ii_scanner_config.get_tier_of(section) ~= nil
+		end,
+		owner = owner,
+		is_present = is_attachment_present,
+		resync = sync_attachment,
+	})
+	wd_exo.register_device({
+		id = "ii_wd_scanner",
+		names = { ATT_NAME },
+		resync = sync_attachment,
+	})
+	d_ii_scanner_config.load_transforms()
+	wd_trader.register("ii_wd_scanner_t1", 1)
+
+	RegisterScriptCallback("actor_on_first_update", actor_on_first_update)
+	RegisterScriptCallback("actor_on_update", owner.detach_if_dropped)
+	RegisterScriptCallback("save_state", owner.save)
+	RegisterScriptCallback("load_state", owner.load)
+end

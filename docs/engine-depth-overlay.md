@@ -1,6 +1,29 @@
 # Depth-aware bodycam overlay (box + text)
 
 STATUS:
+- **TEXT — REWRITTEN as a direct glyph emitter (current), needs rebuild + in-game
+  test.** Root cause of the v2.31..v2.38 empty-RT failures, confirmed by reading the
+  engine: `CGameFont::Out()` only *queues* strings; the real draw is
+  `dxFontRender::OnRender` (`dxFontRender.cpp:25`), which sets ONLY its shader and
+  inherits the live render STATE + TRANSFORM. Mid-combine that transform is the 3D
+  camera, so the font's screen-space verts were mangled → empty `rt_bodycam_text`.
+  Clean-state (v2.36) and captured-2D-transform replay (v2.38) both chased the symptom.
+  **Fix:** delete `CGameFont` from the render loop. `phase_bodycam_text` Pass 1 now
+  rasterises glyphs itself — for each submitted line it builds screen-space `FVF::TL`
+  glyph quads (UVs = `TCMap/atlasPx`) into `rt_bodycam_text` via a new shader
+  `bodycam_glyph.ps` + `CBlender_bodycam_glyph` (binds the font atlas as `s_base` from
+  the `.create()` texture) — the SAME proven path the overlay rects use, so the
+  transform is irrelevant. The font (`stat_font`) is kept only as an atlas/metrics
+  provider (`CharTC`/`HeightNative`/`Interval`/`AtlasTexture` added to `GameFont`); atlas
+  pixel dims read from the bound atlas at pass time. Pass 2 (`bodycam_text.ps` composite,
+  depth-tested vs `s_position`) is UNCHANGED — it always worked. Lua: `DEPTH_TEXT=true`,
+  `draw_bodycam_line` → `overlay_text_add`. Files: `bodycam_glyph.ps` (new),
+  `blender_nightvision.{h,cpp}`, `r4_rendertarget.{h,cpp}`, `r4_rendertarget_phase_combine.cpp`
+  (Pass 1), `GameFont.{h,cpp}`. Assumes ASCII/single-byte text (stat_font). `TEXT_VH`
+  (15 virtual px) tunes line height. The old `g_bodycam_ui_xform_*` capture in
+  `r4_R_render.cpp` is now inert (unused) — safe to remove on a later pass. Debug:
+  `r__bodycam_text_debug 3` shows the raw glyph RT, `2` = magenta geometry test.
+- (superseded) below: the original box + font-to-RT text notes.
 - **BOX — APPLIED (v2.30.0), needs rebuild + in-game test.** Engine globals
   `g_bodycam_overlay_rects[64*11]`/count + cvar `r__bodycam_overlay`; bindings
   `bodycam.overlay_begin/rect/commit`; `CBlender_bodycam_overlay` + shader

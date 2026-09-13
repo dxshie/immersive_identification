@@ -1,0 +1,128 @@
+; Immersive Identification <-> st-wearable-devices compatibility: item sections.
+;
+; Loose .ltx under configs/ is auto-included by Anomaly (no #include needed), same
+; convention WD itself uses (mod_system_promin.ltx). Placeholder art throughout:
+; icons reuse our shipped ii_wd\ui\icon_ii_wd_null; visuals reuse WD's own meshes
+; (this component is only ever installed alongside WD, so those assets are present).
+;
+; Two item families:
+;   - Promin MODULES (antenna, OSD scanner t1..t3, process t1..t3): install into the Promin
+;     via WD's Promin system, shown in the bracer customize UI. They repurpose WD's `conn`
+;     and `side` bays (no new bays -- a 4th crashes WD's customize UI). conn holds the
+;     antenna OR an OSD scanner (mutually exclusive = the AR-vs-OSD channel switch); side
+;     holds a process tier. See ii_wd_modules.script.
+;   - AR SCANNER (t1..t3): a worn device mounted on the bracer, toggled via our
+;     d_ii_scanner device script (mirrors WD's d_bracer / d_vektor pattern).
+
+; ---- Promin modules (install via our own action) --------------------------------
+
+[ii_wd_module_base]:identity_immunities
+GroupControlSection  = spawn_group
+discovery_dependency =
+$spawn          = "devices\promin"
+class           = II_ATTCH
+kind            = i_wearable_module
+cform           = skeleton
+visual          = wd\world\promin_module_world.ogf
+inv_weight      = 0.08
+icons_texture   = ii_wd\ui\icon_ii_wd_null
+inv_grid_width  = 1
+inv_grid_height = 1
+inv_grid_x      = 0
+inv_grid_y      = 0
+cost            = 4000
+; Install via WD's Promin system (so they show + install in the bracer customize UI).
+; Menu text = WD's get_module_menu_text; install goes through our ii_wd_modules.install,
+; which evicts any module already in the target bay first (WD's install_module appends
+; without checking, so the shared conn/side bays would otherwise stack modules).
+use1_functor = d_promin.get_module_menu_text
+use1_action_functor = ii_wd_modules.install
+
+[ii_wd_antenna]:ii_wd_module_base
+inv_name        = st_ii_wd_antenna
+inv_name_short  = st_ii_wd_antenna
+description     = st_ii_wd_antenna_descr
+icons_texture   = ii_wd\ui\icon_ii_wd_antenna
+cost            = 4500
+
+[ii_wd_process_t1]:ii_wd_module_base
+inv_name        = st_ii_wd_process_t1
+inv_name_short  = st_ii_wd_process_t1
+description     = st_ii_wd_process_t1_descr
+icons_texture   = ii_wd\ui\icon_ii_wd_process
+cost            = 5000
+
+[ii_wd_process_t2]:ii_wd_module_base
+inv_name        = st_ii_wd_process_t2
+inv_name_short  = st_ii_wd_process_t2
+description     = st_ii_wd_process_t2_descr
+icons_texture   = ii_wd\ui\icon_ii_wd_process
+cost            = 9000
+
+[ii_wd_process_t3]:ii_wd_module_base
+inv_name        = st_ii_wd_process_t3
+inv_name_short  = st_ii_wd_process_t3
+description     = st_ii_wd_process_t3_descr
+icons_texture   = ii_wd\ui\icon_ii_wd_process
+cost            = 16000
+
+; OSD scanner: a Promin MODULE (conn bay, shares with the antenna -> mutually exclusive).
+; Installing it feeds identification to the Promin IDENTIFICATION page (no on-entity UI).
+; 3 tiers = range/ADS/mag/night, like the AR scanner. Uses the radar icon.
+[ii_wd_osd_scanner_t1]:ii_wd_module_base
+inv_name        = st_ii_wd_osd_scanner_t1
+inv_name_short  = st_ii_wd_osd_scanner_t1
+description     = st_ii_wd_osd_scanner_t1_descr
+icons_texture   = ii_wd\ui\icon_ii_wd_scanner
+cost            = 7000
+
+[ii_wd_osd_scanner_t2]:ii_wd_module_base
+inv_name        = st_ii_wd_osd_scanner_t2
+inv_name_short  = st_ii_wd_osd_scanner_t2
+description     = st_ii_wd_osd_scanner_t2_descr
+icons_texture   = ii_wd\ui\icon_ii_wd_scanner
+cost            = 13000
+
+[ii_wd_osd_scanner_t3]:ii_wd_module_base
+inv_name        = st_ii_wd_osd_scanner_t3
+inv_name_short  = st_ii_wd_osd_scanner_t3
+description     = st_ii_wd_osd_scanner_t3_descr
+icons_texture   = ii_wd\ui\icon_ii_wd_scanner
+cost            = 22000
+
+; ---- AR Scanner (worn device, mounted on the bracer) ----------------------------
+; Identification shown ON entities (the usual overlays). The OSD scanner is a Promin
+; module instead (defined above), not a worn device.
+
+[ii_wd_scanner_t1]:identity_immunities
+GroupControlSection  = spawn_group
+discovery_dependency =
+$spawn          = "devices\promin"
+class           = II_ATTCH
+kind            = i_device
+cform           = skeleton
+visual          = wd\world\promin_world.ogf
+inv_name        = st_ii_wd_scanner_t1
+inv_name_short  = st_ii_wd_scanner_t1
+description     = st_ii_wd_scanner_t1_descr
+inv_weight      = 0.25
+icons_texture   = ii_wd\ui\icon_ii_wd_ar_scanner
+inv_grid_width  = 1
+inv_grid_height = 1
+inv_grid_x      = 0
+inv_grid_y      = 0
+cost            = 7000
+use1_functor = d_ii_scanner.get_menu_text
+use1_action_functor = d_ii_scanner.toggle_attach
+
+[ii_wd_scanner_t2]:ii_wd_scanner_t1
+inv_name        = st_ii_wd_scanner_t2
+inv_name_short  = st_ii_wd_scanner_t2
+description     = st_ii_wd_scanner_t2_descr
+cost            = 13000
+
+[ii_wd_scanner_t3]:ii_wd_scanner_t1
+inv_name        = st_ii_wd_scanner_t3
+inv_name_short  = st_ii_wd_scanner_t3
+description     = st_ii_wd_scanner_t3_descr
+cost            = 22000
