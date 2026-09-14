@@ -105,11 +105,11 @@ DEFAULTS = {
 	-- isn't oversized (near = bigger, far = smaller); off = flat card_scale like the other styles
 	binoc_boost = true, -- binoculars speed up + extend identify range, independent of binocular_mode
 	binoc_scan_mult = 0.4, -- scan_time multiplier while binoculars are raised (lower = faster reveal)
-	binoc_range_mult = 4.4, -- max_dist/fade_dist multiplier while binoculars are raised (flat, OR the
-	-- x1 base when binoc_zoom_scaling is on)
-	binoc_zoom_scaling = false, -- use the binocular's REAL magnification (from a custom-exe engine
-	-- binding) as the range multiplier instead of the flat binoc_range_mult. Inert without that
-	-- binding (falls back to binoc_range_mult). NOT FOV-derived -- the camera FOV ratio is the raw
+	binoc_range_mult = 4.4, -- max_dist/fade_dist multiplier while binoculars are raised, when
+	-- binoc_zoom_scaling is OFF (the flat "max-distance multiplier")
+	binoc_zoom_scaling = false, -- ON: scale the range by the binocular's REAL CURRENT magnification
+	-- (live, from scope_magnification -> SVP/PiP binding's true value, else the camera-FOV ratio;
+	-- a future bodycam.binoc_magnification wins if present) instead of the flat binoc_range_mult
 	-- angular zoom (~19.6x), not the intended range factor (~4.4x), so it over-inflated the range.
 	ads_mode = false, -- auto-trigger identify while aiming down sight, once a target has been held
 	-- under the aim (or inside the FOV assist range when that's on) for ads_hold_time seconds
@@ -1879,6 +1879,40 @@ local function binoc_engine_magnification()
 	return nil
 end
 
+-- The binoculars' REAL current magnification, for the range boost (boost_params binoc branch).
+-- Only called while binoculars are ACTIVE (the caller guarantees it), which lets us pick the
+-- accurate source in order:
+--   1. bodycam.binoc_magnification -- a future exact custom binding, if present.
+--   2. svp_scope_magnification() -- the SVP/PiP engine value, which reports the binoculars'
+--      TRUE scale (e.g. 1.7-4.4x). Read DIRECTLY here (not via scope_magnification), skipping
+--      its is_svp_active scope-gate: that gate flickers false for binoculars -- true_pip_on &&
+--      IsSVPActive (engine) -- which was dropping us onto the wrong FOV fallback below.
+--   3. FOV fallback (engines with no SVP binding): the raw camera-FOV ratio over-reads badly
+--      for binoculars (~19x at max zoom vs a real ~4.4x -- binoculars narrow the FOV far more
+--      than their optical zoom), so soften it with sqrt: sqrt(19) ~= 4.4x at max, tapering
+--      gently at lower zoom. Approximate, only used without the SVP binding.
+local function binoc_magnification()
+	local m = binoc_engine_magnification()
+	if m then
+		return m
+	end
+	if SVP_MAG_AVAILABLE then
+		local ok, sm = pcall(svp_scope_magnification)
+		if ok and sm and sm > 1 then
+			return sm
+		end
+	end
+	local dev = device and device()
+	local fov = dev and dev.fov
+	if fov and fov > 0 and _fov_baseline > 0 then
+		local raw = _fov_baseline / fov
+		if raw > _ZOOMCFG.mag_min then
+			return math.sqrt(raw)
+		end
+	end
+	return nil
+end
+
 -- Reusable ray_pick object for the free-aim mesh raycast below (has_los uses its own).
 local _aim_ray = nil
 
@@ -2469,14 +2503,15 @@ local function boost_params()
 	if binoc and C.binoc_boost then
 		boosted = true
 		scan_mult = C.binoc_scan_mult
-		-- Range = base_max x the binocular's magnification. binoc_range_mult IS that
-		-- magnification (the MCM "range multiplier"), e.g. 4.4 -> a 50 m base becomes 220 m.
-		-- With binoc_zoom_scaling on we REPLACE it with the engine's real magnification when
-		-- available (custom-exe binding); we never derive it from the camera FOV -- that
-		-- ratio is the raw angular zoom (~19.6x), which over-inflated the range.
+		-- Two range modes, chosen by binoc_zoom_scaling:
+		--   OFF -> the flat MCM "max-distance multiplier" (binoc_range_mult), e.g. 4.4.
+		--   ON  -> the binocular's REAL CURRENT magnification, so the range tracks how far the
+		--          binoculars are actually zoomed (see binoc_magnification: SVP true value when
+		--          available, else a sqrt-softened camera-FOV ratio). Falls back to
+		--          binoc_range_mult if no magnification is readable.
 		range_mult = C.binoc_range_mult
 		if C.binoc_zoom_scaling then
-			local mag = binoc_engine_magnification()
+			local mag = binoc_magnification()
 			if mag and mag > 1 then
 				range_mult = mag
 			end

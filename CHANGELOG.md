@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Fixed: binocular "scale by magnification" read the wrong zoom.** It now uses the
+  binocular's **real magnification** (e.g. 1.7–4.4×): the SVP/PiP engine value read directly
+  (bypassing the `is_svp_active` scope-gate, which flickered false for binoculars and dropped
+  it onto the wrong source). On engines with **no SVP binding**, the raw camera-FOV ratio
+  over-reads for binoculars (~19× at max zoom), so it's **softened with `sqrt`** (`sqrt(19) ≈
+  4.4×` at max, tapering gently below). With the option **off**, it uses the flat max-distance
+  multiplier (`binoc_range_mult`) as before.
+
 - **Fixed: the Crooks readout wouldn't re-show the first target when looking back and forth.**
   The last-identified snapshot was captured once per target (on scan completion), so re-aiming
   an already-identified stalker never re-pointed it — and Crooks (which draws only that
