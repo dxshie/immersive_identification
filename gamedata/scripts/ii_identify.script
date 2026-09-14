@@ -69,9 +69,13 @@ DEFAULTS = {
 	-- binoculars; independent of the master toggle for the binocular case
 	freeaim_assist = false, -- bodycam / free-aim engines: centre the FOV target-assist on where the
 	-- weapon actually points instead of the fixed screen centre. Needs an
-	-- aim source that reflects free aim -- either level.ETraceTarget.Weapon
-	-- (absent on the tested bodycam build) or a bodycam.get_fire_ray() engine
-	-- binding (see SPEC "Free-aim support"). Inert / harmless without either
+	-- aim source that reflects free aim -- either the global ETraceTarget.Weapon
+	-- weapon trace or a bodycam.get_fire_ray() engine binding (see SPEC "Free-aim
+	-- support"). Inert / harmless without either
+	freeaim_fire_ray = true, -- use the custom bodycam.get_fire_ray() engine binding as a free-aim source.
+	-- Turn OFF to disable it entirely and rely only on the STANDARD engine trace
+	-- (level.get_target_*(ETraceTarget.Weapon)) -- for A/B testing the two, or running without the
+	-- custom exe. No effect on a stock engine (the binding is absent there anyway).
 	fov_radius = 90, -- virtual-space px (1024-wide, 768-tall): target-assist radius (MCM range 0-90).
 	-- A straight screen-pixel ring around the aim point (screen_dist_to_body); a target whose
 	-- nearest body point projects within this many px of the crosshair is a candidate.
@@ -1061,11 +1065,14 @@ local _redaction_dbg_active = false
 -- it. Two possible sources, in order of preference:
 --
 --   1. level.get_target_pos(ETraceTarget.Weapon) -- a world point along the
---      rendered weapon barrel. Clean, but requires the ETraceTarget binding AND
---      for that binding to actually reflect free aim. On the tested bodycam
---      build NEITHER held: ETraceTarget is entirely absent, and even where it
---      exists it traces screen centre (free aim is applied in the render /
---      ballistic layer, not the logical weapon pick that Lua sees).
+--      rendered weapon barrel. NOTE: ETraceTarget is a GLOBAL enum table, not
+--      `level.ETraceTarget` -- the engine registers it in module(L), while only the
+--      get_target_* FUNCTIONS live under `level` (xray-monolith level_script.cpp:2595
+--      vs 2623). We were reading the wrong namespace, so this path always looked
+--      "absent" when the enum was there all along. On this bodycam exe
+--      g_get_target_pos(TT_WEAPON) builds the point from the barrel matrix
+--      (`barrel_matrix.k`, hud->world), so it SHOULD reflect free aim -- needs an
+--      in-game check now that we actually reach it.
 --
 --   2. bodycam.get_fire_ray() -- the gameplay aim ray {pos,dir} from the actor's
 --      first-eye camera. Under bodycam the render camera (which world2ui and the
@@ -1084,6 +1091,12 @@ local FREEAIM_PROJECT_DIST = 100 -- metres along the fire ray to project for the
 -- anything else -> the first-eye / bullet ray (the hip-fire crosshair). Falls back to
 -- the eye ray if the barrel fields are absent (no weapon / knife / stock exe).
 local function freeaim_ray(source)
+	-- Master gate for OUR custom engine binding: off -> behave as if get_fire_ray weren't
+	-- present, so every free-aim path (freeaim_target, aim_model_target, weapon_aim_ui) falls
+	-- back to the standard engine trace (ETraceTarget.Weapon) / camera instead.
+	if not C.freeaim_fire_ray then
+		return nil
+	end
 	local bc = rawget(_G, "bodycam")
 	if not (bc and bc.get_fire_ray) then
 		return nil
@@ -1112,8 +1125,11 @@ local function freeaim_is_ads()
 end
 
 local function weapon_aim_ui()
-	if level and level.get_target_pos and level.ETraceTarget then
-		local wpos = safe_call(level.get_target_pos, level.ETraceTarget.Weapon)
+	-- ETraceTarget is a GLOBAL enum table (engine registers it in module(L), NOT under
+	-- `level` -- level_script.cpp), so it's `ETraceTarget.Weapon`, not `level.ETraceTarget`.
+	local ET = rawget(_G, "ETraceTarget")
+	if level and level.get_target_pos and ET then
+		local wpos = safe_call(level.get_target_pos, ET.Weapon)
 		if wpos and not (wpos.x == 0 and wpos.y == 0 and wpos.z == 0) then
 			local sx, sy = project_world(wpos)
 			if sx then
@@ -1305,9 +1321,9 @@ local function debug_dump_aim()
 		dbg(string.format("cam_pos=%s cam_dir=%s fov=%.1f", fv(dev.cam_pos), fv(dev.cam_dir), dev.fov or -1))
 	end
 
-	local ET = level and level.ETraceTarget
+	local ET = rawget(_G, "ETraceTarget")
 	if not ET then
-		dbg("level.ETraceTarget MISSING (no weapon-trace binding on this engine)")
+		dbg("ETraceTarget MISSING (no weapon-trace enum global on this engine)")
 	else
 		dbg(
 			string.format(
@@ -1736,9 +1752,9 @@ end
 -- --------------------------------------------------------------------------
 -- Identify trigger
 -- --------------------------------------------------------------------------
--- Traces from the equipped weapon's own hit-test first (level.ETraceTarget.Weapon
--- reads the attached hud item's pick result -- the same barrel-aligned trace
--- the engine uses for firing, not the camera centre), falls back to the
+-- Traces from the equipped weapon's own hit-test first (get_target_obj(ETraceTarget.Weapon)
+-- -- global enum, see weapon_aim_ui -- reads the attached hud item's pick result, the same
+-- barrel-aligned trace the engine uses for firing, not the camera centre), falls back to the
 -- camera trace, and if neither hit anything, falls back to the nearest
 -- identifiable target within the on-screen FOV circle.
 --
@@ -1778,8 +1794,9 @@ local function get_target_obj(max_dist, allow_fov)
 	end
 
 	local direct = nil
-	if level.ETraceTarget then
-		direct = accept(safe_call(level.get_target_obj, level.ETraceTarget.Weapon))
+	local ET = rawget(_G, "ETraceTarget") -- GLOBAL enum (not level.ETraceTarget); see weapon_aim_ui
+	if ET then
+		direct = accept(safe_call(level.get_target_obj, ET.Weapon))
 	end
 	if not direct then
 		direct = accept(safe_call(level.get_target_obj))

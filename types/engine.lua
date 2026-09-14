@@ -225,12 +225,22 @@ function RegisterScriptCallback(event_name, fn) end
 ---------------------------------------------------------------------------
 -- src/xrGame/level_script.cpp, CLevel::script_register, `module(L, "level")`.
 ---@class LevelApi
----@field ETraceTarget { Actor: integer, Camera: integer, Weapon: integer, Device: integer } level_script.cpp:2418-2424
 level = {}
+
+--- Trace-source enum. IMPORTANT: registered as a GLOBAL (engine does it in `module(L)`,
+--- NOT `module(L, "level")` -- level_script.cpp:2595), so it is `ETraceTarget.Weapon`, NOT
+--- `level.ETraceTarget.Weapon`. Only the get_target_* FUNCTIONS live under `level` (2623+).
+--- Present on themrdemonized/xray-monolith and the bodycam fork; nil on a stock exe.
+---@class ETraceTarget
+---@field Actor integer
+---@field Camera integer
+---@field Weapon integer
+---@field Device integer
+ETraceTarget = {}
 
 --- Object under the given trace source's crosshair (defaults to camera).
 --- level_script.cpp:1947 `g_get_target_obj`, bound level_script.cpp:2446-2447.
----@param trace_target integer? one of level.ETraceTarget.*
+---@param trace_target integer? one of ETraceTarget.* (global enum)
 ---@return game_object|nil
 function level.get_target_obj(trace_target) end
 
@@ -241,13 +251,13 @@ function level.get_target_obj(trace_target) end
 --- attached (e.g. no weapon in hand). level_script.cpp `g_get_target_pos`,
 --- bound alongside get_target_obj. Confirmed on themrdemonized/xray-monolith
 --- and asuparabekon/xray-monolith-bodycam (branch bodycam-mt).
----@param trace_target integer? one of level.ETraceTarget.*
+---@param trace_target integer? one of ETraceTarget.* (global enum)
 ---@return Fvector
 function level.get_target_pos(trace_target) end
 
 --- Distance to what the given trace source is aimed at. Bound alongside
 --- get_target_obj / get_target_pos.
----@param trace_target integer? one of level.ETraceTarget.*
+---@param trace_target integer? one of ETraceTarget.* (global enum)
 ---@return number
 function level.get_target_dist(trace_target) end
 

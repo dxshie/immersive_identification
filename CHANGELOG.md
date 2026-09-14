@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Fixed the `ETraceTarget` weapon-trace lookup.** It's a *global* enum (the engine
+  registers it in `module(L)`, not under `level`), so our `level.ETraceTarget` guard was
+  always nil and the whole `get_target_obj/pos(Weapon)` path was dead. Now read from the
+  global — the standard engine weapon trace (which builds off the barrel matrix, so it should
+  reflect free-aim) is live again.
+- **New "Use bodycam fire-ray binding" toggle** (Targeting MCM page, default on): turn off to
+  disable our custom `bodycam.get_fire_ray()` engine binding entirely and rely only on the
+  standard `ETraceTarget.Weapon` trace — for A/B testing the two free-aim sources, or running
+  without the custom exe.
+
 - **FOV target-assist reverted to a straight screen radius.** The angular-cone logic (which
   reinterpreted `fov_radius` as an angle measured from the aim ray) has been removed — the
   assist once again acquires the target whose nearest body point projects within `fov_radius`

@@ -791,9 +791,13 @@ weapon actually points on a free-aim / bodycam engine
 diagnosis (via the `debug_log` MCM option) established that on the tested bodycam
 build **neither** ordinary Lua source works:
 
-- `level.ETraceTarget` / `level.get_target_pos(Weapon)` — **absent** on that build;
-  and even where present it traces screen center, because free aim is applied in
-  the render/ballistic layer, not the logical weapon pick the script sees.
+- `level.get_target_pos(Weapon)` — the weapon trace **was reachable all along**; the
+  earlier "absent" reading was a namespace bug on our side: `ETraceTarget` is a **global**
+  enum (engine registers it in `module(L)`, level_script.cpp:2595), not `level.ETraceTarget`,
+  so the guard was always nil. The engine's `g_get_target_pos(TT_WEAPON)` builds the point
+  from the weapon's `barrel_matrix` (hud→world), so it *should* reflect free aim — pending an
+  in-game check now that we read the enum from the right place. `bodycam.get_fire_ray()`
+  remains the guaranteed source.
 - `bodycam.get_state()` — exposes only the **camera's** orientation
   (`camera_yaw ≈ atan2(cam_dir.x, cam_dir.z)`, `camera_pitch ≈ asin(cam_dir.y)`)
   and a ~zero `vm_rot`. None of it encodes the weapon's offset from center.
