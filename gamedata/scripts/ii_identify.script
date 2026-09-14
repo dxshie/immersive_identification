@@ -61,6 +61,9 @@ DEFAULTS = {
 	show_rank = true, -- show the target's rank line (card + bodycam, and the Crooks readout)
 	instant_identify = false, -- skip the scan wait/spinner entirely: the tag reveals immediately on
 	-- identify (bypasses scan_time and all the scan-time multipliers)
+	instant_exclude_hipfire = false, -- when instant_identify is on, keep the normal scan wait while HIP-firing
+	instant_exclude_ads = false, -- when instant_identify is on, keep the normal scan wait while aiming down sight
+	instant_exclude_binoc = false, -- when instant_identify is on, keep the normal scan wait through binoculars
 	scan_time = 0.35, -- seconds: "scanning" pulse before the tag reveals
 	fade_time = 0.45, -- seconds: fade in / fade out
 	hold_time = 4.0, -- seconds: tag stays fully visible
@@ -142,6 +145,9 @@ DEFAULTS = {
 	show_weapon = true, -- show the target's currently-wielded weapon + caliber line (card + bodycam)
 	debug_log = false, -- write aim/trace diagnostics to the game log on each identify attempt
 	debug_draw = false, -- on-screen target-assist visualiser: aim dot, FOV ring, in-ring bone dots
+	debug_sim_stock = false, -- TESTING: pretend the custom engine bindings (bodycam.* + SVP/PiP) are
+	-- absent, so the mod runs its stock-engine fallbacks -- lets you test on a stock exe without
+	-- copying the custom one. Does NOT touch stock bindings (ETraceTarget, ray_pick).
 
 	-- st-wearable-devices compatibility (tier system). Only take effect when the optional
 	-- WD compat component is installed AND drives ii_identify.tier_provider (via
@@ -398,8 +404,13 @@ end
 -- (not local) so it costs no top-level-local slot (Lua 5.1's 200-per-chunk limit).
 MCM_PAGES = {
 	"general",
-	"uistyle",
+	-- UI Style is a nested container: its options live in sub-pages, so paths are
+	-- ii/uistyle/<sub>/<key> (see ii_mcm.script). List each sub-page's path prefix here.
+	"uistyle/general",
+	"uistyle/bodycam",
+	"uistyle/crooks",
 	"targeting",
+	"hipfire",
 	"binoc",
 	"ads",
 	"pip",
@@ -604,6 +615,16 @@ local function safe_call(fn, ...)
 		return v
 	end
 	return nil
+end
+
+-- The custom bodycam engine module (bodycam.*), or nil on a stock exe. Central accessor so
+-- the debug_sim_stock toggle can make the whole mod behave as if the custom bindings weren't
+-- compiled in (for testing stock-engine fallbacks without copying the custom exe).
+local function ext_bodycam()
+	if C.debug_sim_stock then
+		return nil
+	end
+	return rawget(_G, "bodycam")
 end
 
 -- --------------------------------------------------------------------------
@@ -996,7 +1017,7 @@ end
 local REDACTION_MAX = 16 -- must match BODYCAM_REDACTION_MAX in the engine + shader
 
 local function redaction_binding()
-	local bc = rawget(_G, "bodycam")
+	local bc = ext_bodycam()
 	if bc and bc.redaction_begin and bc.redaction_add and bc.redaction_commit then
 		return bc
 	end
@@ -1082,7 +1103,7 @@ local FREEAIM_PROJECT_DIST = 100 -- metres along the aim ray to project for the 
 -- The gameplay aim ray (actor first-eye camera) via the custom bodycam.get_fire_ray() binding.
 -- Returns origin + unit dir, or nil on an engine without the binding.
 local function freeaim_ray()
-	local bc = rawget(_G, "bodycam")
+	local bc = ext_bodycam()
 	if not (bc and bc.get_fire_ray) then
 		return nil
 	end
@@ -1313,7 +1334,7 @@ local function debug_dump_aim()
 	local cx, cy = aim_center()
 	dbg(string.format("aim_center=(%.0f, %.0f)  screen_center=(%d, %d)", cx, cy, UI_CX, UI_CY))
 
-	local bc = rawget(_G, "bodycam")
+	local bc = ext_bodycam()
 	if not (bc and bc.get_state) then
 		dbg("bodycam module not present")
 	else
@@ -1794,7 +1815,7 @@ local function is_ads_active()
 	-- Fallbacks, in case a given build doesn't dispatch the zoom callbacks:
 	-- Bodycam camera ADS flag, ONLY when its logic is ACTIVE (when disabled the
 	-- get_state() ads field is stale/false and would wrongly report "hip").
-	local bc = rawget(_G, "bodycam")
+	local bc = ext_bodycam()
 	if bc and bc.get_state then
 		local ok, st = pcall(bc.get_state)
 		if ok and type(st) == "table" and st.active and st.ads ~= nil then
@@ -1804,7 +1825,7 @@ local function is_ads_active()
 	-- A live PiP scope means we're aiming down a sight: it doesn't narrow the MAIN
 	-- camera FOV (the zoom lives in the second viewport), so the FOV heuristic can't
 	-- see it -- detect it directly.
-	if PIP_AVAILABLE then
+	if PIP_AVAILABLE and not C.debug_sim_stock then
 		local ok, a = pcall(is_svp_active)
 		if ok and a then
 			return true
@@ -1831,7 +1852,7 @@ end
 --      unzoomed baseline (_fov_baseline, see update_fov_baseline).
 local SVP_MAG_AVAILABLE = rawget(_G, "svp_scope_magnification") ~= nil
 local function scope_magnification()
-	if SVP_MAG_AVAILABLE then
+	if SVP_MAG_AVAILABLE and not C.debug_sim_stock then
 		-- Only trust the PiP binding while a scope is ACTIVELY rendering. The engine's
 		-- svp_mag is set while the SVP optics pass runs but is NOT reset on unscope, so
 		-- it holds the last scope's value (e.g. 3x) at hipfire / on a scopeless weapon
@@ -1839,7 +1860,7 @@ local function scope_magnification()
 		-- engine binding was also fixed to gate on IsSVPActive; this guard makes it
 		-- correct without needing that rebuild.)
 		local scoped = true
-		if PIP_AVAILABLE then
+		if PIP_AVAILABLE and not C.debug_sim_stock then
 			local ok, a = pcall(is_svp_active)
 			scoped = ok and a and true or false
 		end
@@ -1869,7 +1890,7 @@ end
 -- range uses the flat MCM binoc_range_mult (the "range multiplier" = the magnification) --
 -- see boost_params()'s binoc branch. The bodycam.* binding is the future engine-mod seam.
 local function binoc_engine_magnification()
-	local bc = rawget(_G, "bodycam")
+	local bc = ext_bodycam()
 	if bc and bc.binoc_magnification then
 		local ok, m = pcall(bc.binoc_magnification)
 		if ok and m and m > 1 then
@@ -1886,17 +1907,16 @@ end
 --   2. svp_scope_magnification() -- the SVP/PiP engine value, which reports the binoculars'
 --      TRUE scale (e.g. 1.7-4.4x). Read DIRECTLY here (not via scope_magnification), skipping
 --      its is_svp_active scope-gate: that gate flickers false for binoculars -- true_pip_on &&
---      IsSVPActive (engine) -- which was dropping us onto the wrong FOV fallback below.
---   3. FOV fallback (engines with no SVP binding): the raw camera-FOV ratio over-reads badly
---      for binoculars (~19x at max zoom vs a real ~4.4x -- binoculars narrow the FOV far more
---      than their optical zoom), so soften it with sqrt: sqrt(19) ~= 4.4x at max, tapering
---      gently at lower zoom. Approximate, only used without the SVP binding.
+--      IsSVPActive (engine) -- which was dropping us onto the FOV fallback below.
+--   3. FOV fallback (engines with no SVP binding): the camera-FOV ratio (self-calibrating
+--      baseline / current fov), same source scope_magnification uses -- returned as-is so the
+--      applied range multiplier matches the magnification shown (no extra shaping).
 local function binoc_magnification()
 	local m = binoc_engine_magnification()
 	if m then
 		return m
 	end
-	if SVP_MAG_AVAILABLE then
+	if SVP_MAG_AVAILABLE and not C.debug_sim_stock then
 		local ok, sm = pcall(svp_scope_magnification)
 		if ok and sm and sm > 1 then
 			return sm
@@ -1907,7 +1927,7 @@ local function binoc_magnification()
 	if fov and fov > 0 and _fov_baseline > 0 then
 		local raw = _fov_baseline / fov
 		if raw > _ZOOMCFG.mag_min then
-			return math.sqrt(raw)
+			return raw
 		end
 	end
 	return nil
@@ -2366,11 +2386,19 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 		eff_scan_ms = math.floor(eff_scan_ms * C.familiarity_scan_mult)
 	end
 
-	-- Instant identify: skip the whole scanning phase (no spinner, no wait) so
-	-- the tag reveals immediately. Overrides every scan-time factor above. Ignored
-	-- under the tier system (the tier base scan time governs instead).
+	-- Instant identify: skip the whole scanning phase (no spinner, no wait) so the tag reveals
+	-- immediately. Overrides every scan-time factor above. Ignored under the tier system (the
+	-- tier base scan time governs instead). Per-aim-mode excludes let you keep the normal scan
+	-- wait for a specific mode (e.g. instant hip-fire but a scan delay through binoculars).
 	if not tier_active() and C.instant_identify then
-		eff_scan_ms = 0
+		local binoc = is_binoc_active()
+		local ads = (not binoc) and is_ads_active()
+		local excluded = (binoc and C.instant_exclude_binoc)
+			or (ads and C.instant_exclude_ads)
+			or (not binoc and not ads and C.instant_exclude_hipfire)
+		if not excluded then
+			eff_scan_ms = 0
+		end
 	end
 
 	if tracked[id] then
@@ -3312,7 +3340,7 @@ local BODYCAM_LINE_H = 19
 -- guarded-existence pattern as the redaction/marker paths; inert on a stock exe, where
 -- draw_head_box falls back to the (non-depth-aware) CUIStatic edges.
 local function overlay_binding()
-	local bc = rawget(_G, "bodycam")
+	local bc = ext_bodycam()
 	if bc and bc.overlay_begin and bc.overlay_rect and bc.overlay_commit then
 		return bc
 	end
@@ -4526,7 +4554,7 @@ local function render(tg)
 	-- pip_scope: a PiP scope is physically rendering (regardless of our toggles).
 	-- pip_active: our in-scope UI path is on (pip_markers gates it) -- off = behave
 	-- as if there were no PiP support (normal HUD, no in-scope markers).
-	local pip_scope = PIP_AVAILABLE and is_svp_active()
+	local pip_scope = PIP_AVAILABLE and not C.debug_sim_stock and is_svp_active()
 	local pip_active = C.pip_markers and pip_scope
 	-- Suppress ALL main-view drawing (HUD tags + main-pass redaction) while aiming
 	-- down sight (ads_hide_main) or while a scope is up (pip_hide_main). The
@@ -4543,7 +4571,7 @@ local function render(tg)
 	-- engine supports it, scoped or not, so lowering the scope mid-reveal
 	-- still publishes one more (empty) snapshot instead of leaving the last
 	-- scoped frame's markers published indefinitely.
-	if PIP_AVAILABLE then
+	if PIP_AVAILABLE and not C.debug_sim_stock then
 		svp_ui_markers_begin()
 	end
 
@@ -4794,7 +4822,7 @@ local function render(tg)
 	-- and even when not currently scoped -- see begin() above): without
 	-- this, the last scoped frame's markers would otherwise linger
 	-- published forever once tracked drains out, or once the scope lowers.
-	if PIP_AVAILABLE then
+	if PIP_AVAILABLE and not C.debug_sim_stock then
 		svp_ui_markers_commit()
 	end
 

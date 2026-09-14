@@ -97,9 +97,19 @@ function on_mcm_load()
 	-- Because an option's MCM storage path is "<top>/<page>/<id>", every option lives
 	-- under "ii/<section>/<id>" now (NOT "ii/main/..."): read_config resolves that by
 	-- trying each page (see MCM_PAGES there), and presets_ii.ltx paths match these ids.
-	local function page(id, gr)
-		return { id = id, sh = true, gr = gr }
+	local function page(id, gr, precondition)
+		return { id = id, sh = true, gr = gr, precondition = precondition }
 	end
+
+	-- The Wearable Devices page is hidden entirely unless the optional WD compat FOMOD
+	-- component is installed (its driver script registers the `ii_wd_compat` global). Without
+	-- it, tier_provider is never set and every wd_* option is inert, so showing the page would
+	-- just be confusing dead settings. MCM evaluates this precondition when rendering the tree.
+	local wd_installed = {
+		function()
+			return rawget(_G, "ii_wd_compat") ~= nil
+		end,
+	}
 
 	local tree = {
 		id = "ii",
@@ -126,28 +136,43 @@ function on_mcm_load()
 					opt_track("fade_dist", 5, 500, 10),
 				},
 			},
-			page("uistyle", {
-				opt_title("ui_mcm_ii_uistyle_title"),
-				opt_list("ui_style", ui_style_content),
-				opt_list("crooks_pos", crooks_pos_content),
-				opt_track("crooks_x", -500, 500, 5, 0),
-				opt_track("crooks_y", -100, 700, 5, 0),
-				opt_list("box_area", redact_area_content),
-				opt_list("box_color_source", box_color_source_content),
-				opt_track("box_thickness", 1, 6, 0.5, 1),
-				opt_track("box_padding", 0, 1, 0.05, 2),
-				opt_track("box_opacity", 0.1, 1, 0.05, 2),
-				opt_check("show_name"),
-				opt_check("show_faction"),
-				opt_check("show_rank"),
-				opt_check("show_weapon"),
-				opt_check("color_by_relation"),
-				opt_track("card_scale", 0.5, 2, 0.05, 2),
-				opt_track("mini_scale_cutoff", 0.1, 1, 0.05, 2),
-				opt_check("mini_dist_scale"),
-				opt_track("ui_offset_x", -200, 200, 5),
-				opt_track("ui_offset_y", -200, 200, 5),
-			}),
+			-- UI Style is a CONTAINER (no `sh`), so MCM shows its sub-pages (General/Bodycam/Crooks)
+			-- in the third column. A container can hold NO options directly (MCM only codes options on
+			-- sh=true nodes), so the general options live in the "general" sub-page. Option storage
+			-- paths become ii/uistyle/<sub>/<key> -- kept in sync in MCM_PAGES + presets_ii.ltx.
+			{
+				id = "uistyle",
+				gr = {
+					page("general", {
+						opt_title("ui_mcm_ii_uistyle_title"),
+						opt_list("ui_style", ui_style_content),
+						opt_check("show_name"),
+						opt_check("show_faction"),
+						opt_check("show_rank"),
+						opt_check("show_weapon"),
+						opt_check("color_by_relation"),
+						opt_track("card_scale", 0.5, 2, 0.05, 2),
+						opt_track("mini_scale_cutoff", 0.1, 1, 0.05, 2),
+						opt_check("mini_dist_scale"),
+						opt_track("ui_offset_x", -200, 200, 5),
+						opt_track("ui_offset_y", -200, 200, 5),
+					}),
+					page("bodycam", {
+						opt_title("ui_mcm_ii_bodycam_title"),
+						opt_list("box_area", redact_area_content),
+						opt_list("box_color_source", box_color_source_content),
+						opt_track("box_thickness", 1, 6, 0.5, 1),
+						opt_track("box_padding", 0, 1, 0.05, 2),
+						opt_track("box_opacity", 0.1, 1, 0.05, 2),
+					}),
+					page("crooks", {
+						opt_title("ui_mcm_ii_crooks_title"),
+						opt_list("crooks_pos", crooks_pos_content),
+						opt_track("crooks_x", -500, 500, 5, 0),
+						opt_track("crooks_y", -100, 700, 5, 0),
+					}),
+				},
+			},
 			page("targeting", {
 				opt_title("ui_mcm_ii_targeting_title"),
 				opt_check("fov_assist"),
@@ -156,8 +181,12 @@ function on_mcm_load()
 				opt_check("require_los"),
 				opt_check("hide_off_aim"),
 				opt_check("auto_identify"),
+			}),
+			page("hipfire", {
+				opt_title("ui_mcm_ii_hipfire_title"),
 				opt_check("hipfire_mode"),
 				opt_track("hipfire_hold_time", 0, 3, 0.1, 1),
+				opt_check("instant_exclude_hipfire"),
 			}),
 			page("binoc", {
 				opt_title("ui_mcm_ii_binoc_title"),
@@ -169,6 +198,7 @@ function on_mcm_load()
 				opt_track("binoc_scan_mult", 0.1, 1, 0.05, 2),
 				opt_track("binoc_range_mult", 1, 5, 0.1, 1),
 				opt_check("binoc_zoom_scaling"),
+				opt_check("instant_exclude_binoc"),
 			}),
 			page("ads", {
 				opt_title("ui_mcm_ii_ads_title"),
@@ -179,6 +209,7 @@ function on_mcm_load()
 				opt_track("ads_range_mult", 1, 5, 0.1, 1),
 				opt_check("ads_zoom_scaling"),
 				opt_check("ads_hide_main"),
+				opt_check("instant_exclude_ads"),
 			}),
 			page("pip", {
 				opt_title("ui_mcm_ii_pip_title"),
@@ -217,6 +248,7 @@ function on_mcm_load()
 				opt_title("ui_mcm_ii_debug_title"),
 				opt_check("debug_log"),
 				opt_check("debug_draw"),
+				opt_check("debug_sim_stock"),
 			}),
 			-- st-wearable-devices compatibility: override the module/scanner tier values.
 			-- Inert unless the optional WD compat component is installed (it reads these via
@@ -244,7 +276,7 @@ function on_mcm_load()
 				opt_track("wd_scanner_ads", 1, 3, 1),
 				opt_track("wd_scanner_mag", 1, 3, 1),
 				opt_track("wd_scanner_nonight", 1, 3, 1),
-			}),
+			}, wd_installed),
 		},
 	}
 

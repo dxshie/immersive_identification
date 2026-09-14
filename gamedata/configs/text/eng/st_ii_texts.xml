@@ -3,7 +3,10 @@
 	<string id="ui_mcm_menu_ii"><text>Immersive Identification</text></string>
 	<string id="ui_mcm_menu_general"><text>General</text></string>
 	<string id="ui_mcm_menu_uistyle"><text>UI Style</text></string>
+	<string id="ui_mcm_menu_bodycam"><text>Bodycam</text></string>
+	<string id="ui_mcm_menu_crooks"><text>Crooks</text></string>
 	<string id="ui_mcm_menu_targeting"><text>Targeting</text></string>
+	<string id="ui_mcm_menu_hipfire"><text>Hipfire</text></string>
 	<string id="ui_mcm_menu_binoc"><text>Binoculars</text></string>
 	<string id="ui_mcm_menu_ads"><text>Aim Down Sight</text></string>
 	<string id="ui_mcm_menu_pip"><text>PiP Scope</text></string>
@@ -25,7 +28,16 @@
 
 	<string id="ui_mcm_ii_general_title"><text>General</text></string>
 	<string id="ui_mcm_ii_uistyle_title"><text>UI Style</text></string>
+	<string id="ui_mcm_ii_bodycam_title"><text>Bodycam</text></string>
+	<string id="ui_mcm_ii_crooks_title"><text>Crooks</text></string>
 	<string id="ui_mcm_ii_targeting_title"><text>Targeting</text></string>
+	<string id="ui_mcm_ii_hipfire_title"><text>Hipfire</text></string>
+	<string id="ui_mcm_ii_instant_exclude_hipfire"><text>Exclude hipfire from instant identify</text></string>
+	<string id="ui_mcm_ii_instant_exclude_hipfire_desc"><text>When Instant identify is on, keep the normal scanning wait while hip-firing (only ADS / binoculars stay instant). No effect unless Instant identify is on.</text></string>
+	<string id="ui_mcm_ii_instant_exclude_ads"><text>Exclude ADS from instant identify</text></string>
+	<string id="ui_mcm_ii_instant_exclude_ads_desc"><text>When Instant identify is on, keep the normal scanning wait while aiming down sight. No effect unless Instant identify is on.</text></string>
+	<string id="ui_mcm_ii_instant_exclude_binoc"><text>Exclude binoculars from instant identify</text></string>
+	<string id="ui_mcm_ii_instant_exclude_binoc_desc"><text>When Instant identify is on, keep the normal scanning wait while looking through binoculars. No effect unless Instant identify is on.</text></string>
 
 	<string id="ui_mcm_ii_enabled"><text>Enable identification</text></string>
 	<string id="ui_mcm_ii_enabled_desc"><text>Master on/off switch.</text></string>
@@ -41,13 +53,13 @@
 
 	<string id="ui_mcm_ii_box_area"><text>Bodycam box area</text></string>
 	<string id="ui_mcm_ii_box_area_desc"><text>Bodycam style: draw the outline rectangle around just the head/face, or around the full body.</text></string>
-	<string id="ii_uistyle_box_area_lst_head"><text>Head / face</text></string>
-	<string id="ii_uistyle_box_area_lst_body"><text>Full body</text></string>
+	<string id="ii_uistyle_bodycam_box_area_lst_head"><text>Head / face</text></string>
+	<string id="ii_uistyle_bodycam_box_area_lst_body"><text>Full body</text></string>
 
 	<string id="ui_mcm_ii_box_color_source"><text>Bodycam box colour</text></string>
 	<string id="ui_mcm_ii_box_color_source_desc"><text>Bodycam style: colour the outline rectangle by faction, or by relationship (red enemy / green friendly / grey neutral).</text></string>
-	<string id="ii_uistyle_box_color_source_lst_faction"><text>Faction colour</text></string>
-	<string id="ii_uistyle_box_color_source_lst_relation"><text>Relationship (red/green/grey)</text></string>
+	<string id="ii_uistyle_bodycam_box_color_source_lst_faction"><text>Faction colour</text></string>
+	<string id="ii_uistyle_bodycam_box_color_source_lst_relation"><text>Relationship (red/green/grey)</text></string>
 
 	<string id="ui_mcm_ii_box_thickness"><text>Box outline thickness</text></string>
 	<string id="ui_mcm_ii_box_thickness_desc"><text>Bodycam style: thickness of the outline rectangle's edges, in pixels.</text></string>
@@ -241,6 +253,8 @@
 	<string id="ui_mcm_ii_debug_log_desc"><text>Write aim/trace diagnostics to the game log (xray_*.log) on each identify attempt. For troubleshooting free-aim target acquisition. Leave off normally.</text></string>
 	<string id="ui_mcm_ii_debug_draw"><text>Debug draw</text></string>
 	<string id="ui_mcm_ii_debug_draw_desc"><text>On-screen visualiser for the FOV target-assist: a RED dot at the current aim point, a YELLOW ring showing the assist radius (fov_radius, with its value as text), and dots on the bones of every entity whose body falls inside the ring -- GREEN if within identify range, RED if the target is beyond max range -- each labelled with its distance in metres. Also shows the current scope magnification and the effective max range (base widened by the binocular/ADS boost). For tuning fov_radius / max range / diagnosing target acquisition. Leave off normally.</text></string>
+	<string id="ui_mcm_ii_debug_sim_stock"><text>Simulate stock engine (ignore custom bindings)</text></string>
+	<string id="ui_mcm_ii_debug_sim_stock_desc"><text>TESTING: makes the mod behave as if the custom engine bindings (bodycam free-aim / redaction / in-scope markers and the SVP/PiP magnification) were not compiled in, so it runs its stock-engine fallbacks. Lets you test on a stock exe without copying the custom one. Does not affect stock bindings (weapon trace, raycast). Leave off for normal play.</text></string>
 
 	<!-- List-content ids: MCM resolves each modifier_index dropdown entry as
 	     "<page>_<option>_lst_" + the bare label from ii_identify.MODIFIER_LIST,
@@ -250,15 +264,15 @@
 	<string id="ii_general_modifier_index_lst_shift"><text>Shift</text></string>
 	<string id="ii_general_modifier_index_lst_alt"><text>Alt</text></string>
 
-	<string id="ii_uistyle_ui_style_lst_card"><text>Card</text></string>
-	<string id="ii_uistyle_ui_style_lst_minimal"><text>Minimal</text></string>
-	<string id="ii_uistyle_ui_style_lst_bodycam"><text>Bodycam</text></string>
-	<string id="ii_uistyle_ui_style_lst_simple2"><text>Simple 2</text></string>
-	<string id="ii_uistyle_ui_style_lst_simple"><text>Simple</text></string>
-	<string id="ii_uistyle_ui_style_lst_crooks"><text>Crooks</text></string>
-	<string id="ii_uistyle_crooks_pos_lst_bottom_left"><text>Bottom left</text></string>
-	<string id="ii_uistyle_crooks_pos_lst_bottom_middle"><text>Bottom middle</text></string>
-	<string id="ii_uistyle_crooks_pos_lst_bottom_right"><text>Bottom right</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_card"><text>Card</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_minimal"><text>Minimal</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_bodycam"><text>Bodycam</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_simple2"><text>Simple 2</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_simple"><text>Simple</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_crooks"><text>Crooks</text></string>
+	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_left"><text>Bottom left</text></string>
+	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_middle"><text>Bottom middle</text></string>
+	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_right"><text>Bottom right</text></string>
 	<string id="ui_mcm_ii_crooks_pos"><text>Crooks: screen position</text></string>
 	<string id="ui_mcm_ii_crooks_pos_desc"><text>Which screen corner the Crooks readout (FACTION | NAME of the last identified stalker) anchors to. Fine-tune with the X/Y offsets below.</text></string>
 	<string id="ui_mcm_ii_crooks_x"><text>Crooks: X offset</text></string>

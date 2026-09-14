@@ -2,13 +2,35 @@
 
 ## Unreleased
 
+- The **Wearable Devices** MCM page is now **hidden unless the optional WD compat component is
+  installed** (detected via its `ii_wd_compat` driver). Without the component the tier system
+  never runs anyway, so the page was just inert settings — now it's out of the way, and the
+  mod behaves exactly as if Wearable Devices didn't exist.
+
+- **Fixed: Hipfire auto-identify silently stopped working** after Hipfire got its own MCM
+  page — its options weren't in the page-path list `read_config` scans, so they always read
+  their (off) defaults. Restored.
+- **Fixed: UI-style dropdown values (and Bodycam/Crooks list options) showed raw string ids**
+  after the UI Style page became nested — the list-entry string ids are path-derived and moved
+  with the options. Renamed to the new nested paths.
+
+- **UI Style is now an expandable MCM section** with **General / Bodycam / Crooks** sub-pages
+  (shown in MCM's third column) — the box-outline settings live under **Bodycam**, the
+  screen-position/offset settings under **Crooks**, and the rest under **General**.
+
 - **Fixed: binocular "scale by magnification" read the wrong zoom.** It now uses the
   binocular's **real magnification** (e.g. 1.7–4.4×): the SVP/PiP engine value read directly
   (bypassing the `is_svp_active` scope-gate, which flickered false for binoculars and dropped
-  it onto the wrong source). On engines with **no SVP binding**, the raw camera-FOV ratio
-  over-reads for binoculars (~19× at max zoom), so it's **softened with `sqrt`** (`sqrt(19) ≈
-  4.4×` at max, tapering gently below). With the option **off**, it uses the flat max-distance
-  multiplier (`binoc_range_mult`) as before.
+  it onto the wrong source), else the camera-FOV ratio as-is — so the applied range multiplier
+  matches the magnification shown on the debug line. With the option **off**, it uses the flat
+  max-distance multiplier (`binoc_range_mult`) as before.
+- New **per-mode "exclude from instant identify"** toggles (Hipfire / ADS / Binoculars pages):
+  when Instant identify is on, keep the normal scanning wait for the excluded mode(s) — e.g.
+  instant hip-fire but a scan delay through binoculars.
+- **Hipfire** options moved to their own MCM page (were on the Targeting page).
+- New debug toggle **"Simulate stock engine (ignore custom bindings)"** (Debug page): makes the
+  mod behave as if the custom bodycam/SVP engine bindings aren't present, so you can test the
+  stock-engine fallbacks without copying the custom exe.
 
 - **Fixed: the Crooks readout wouldn't re-show the first target when looking back and forth.**
   The last-identified snapshot was captured once per target (on scan completion), so re-aiming
