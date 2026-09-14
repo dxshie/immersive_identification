@@ -2301,7 +2301,23 @@ local function award_perception_xp(amount)
 	if not C.perception_compat then
 		return false
 	end
-	local lv = haru_skills and haru_skills.skills_levels and haru_skills.skills_levels["perception"]
+	local hs = haru_skills
+	if not hs then
+		return false
+	end
+	-- ORPHAN GUARD. haru_skills persists each skill's LEVEL in the save (skills_levels) but
+	-- rebuilds its STATS config (skills_stats, from the installed skill_*.ltx) fresh each load.
+	-- If our Perception Skill Integration is UNINSTALLED from a save that once had it,
+	-- skills_levels["perception"] survives (from the save) while skills_stats["perception"] is
+	-- gone -- an orphan. Feeding XP to it would eventually cross the level-up threshold, and
+	-- haru_skills' level-up does `pairs(skills_stats[name])`, which crashes on the nil stats
+	-- table (bad argument #1 to 'pairs'). So: only feed the skill when it's actually configured
+	-- this session. Guarded on skills_stats being a table so a variant that doesn't expose it
+	-- falls back to the old behaviour rather than silently never granting XP.
+	if type(hs.skills_stats) == "table" and type(hs.skills_stats["perception"]) ~= "table" then
+		return false
+	end
+	local lv = hs.skills_levels and hs.skills_levels["perception"]
 	if not lv or type(lv.experience) ~= "number" then
 		return false
 	end

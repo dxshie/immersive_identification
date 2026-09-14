@@ -41,4 +41,5 @@ ii_identify = {}
 -- assumed present.
 ---@class haru_skills
 ---@field skills_levels table<string, { current_level: number, max_level: number, experience: number, requirement: number }>
+---@field skills_stats table<string, table> per-skill stats config, rebuilt from the installed skill_*.ltx each load (absent for a skill orphaned in the save after its config was uninstalled)
 haru_skills = {}
