@@ -111,7 +111,7 @@
 	<string id="ui_mcm_ii_fov_assist_desc"><text>When you don't land a direct hit, identify the nearest target within the on-screen assist circle. Turn off to require aiming directly at the target.</text></string>
 
 	<string id="ui_mcm_ii_freeaim_assist"><text>Free-aim target assist</text></string>
-	<string id="ui_mcm_ii_freeaim_assist_desc"><text>For free-aim setups (e.g. bodycam): center the assist on where the weapon is actually pointing instead of the screen center, using the engine's weapon trace. Harmless if your weapon already points at the screen center — it just falls back to center there.</text></string>
+	<string id="ui_mcm_ii_freeaim_assist_desc"><text>For free-aim setups (e.g. bodycam): center the assist on where you're actually aiming instead of the screen center. Firearms work on any engine (via the weapon trace); a knife or raised binoculars need the custom bodycam engine's aim binding. Harmless otherwise — it just falls back to the screen center.</text></string>
 
 	<string id="ui_mcm_ii_fov_radius"><text>Target-assist radius (px)</text></string>
 	<string id="ui_mcm_ii_fov_radius_desc"><text>Aim tolerance for picking a target without a direct hit. Measured as an angle from where you aim, so it works the same whether hip-firing or scoped at any magnification (0 = direct hit only).</text></string>

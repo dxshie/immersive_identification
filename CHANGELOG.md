@@ -2,13 +2,14 @@
 
 ## Unreleased
 
-- **Removed the custom `bodycam.get_fire_ray()` engine binding.** Free-aim identification now
-  runs entirely on the standard engine weapon trace (`get_target_obj/pos(ETraceTarget.Weapon)`)
-  — which is barrel-accurate and reflects free aim — so the custom Lua binding we'd added to
-  the bodycam exe (and the `freeaim_ray`/`freeaim_target`/`aim_ray_world` plumbing and the
-  temporary "Use bodycam fire-ray binding" toggle) are all gone. The engine fork no longer
-  needs the `get_fire_ray` export. No behaviour change on a build where the weapon trace works;
-  free-aim assist now also works on plain xray-monolith builds (any exe with `ETraceTarget`).
+- **Free-aim identification now works for every held item** (firearm, knife, binoculars).
+  Firearms use the standard engine weapon trace (`get_target_obj/pos(ETraceTarget.Weapon)`),
+  which is barrel-accurate and works on any exe — including plain xray-monolith (the enum is a
+  global `ETraceTarget`, a namespace trap we'd been reading wrong). Knife / raised binoculars
+  have no meaningful weapon barrel (their weapon trace is the cosmetic HUD model), so those
+  fall back to the actor's first-eye aim camera via the custom `bodycam.get_fire_ray()` binding
+  — the only source that reflects free aim for non-firearms. The binding is guarded, so
+  firearms still work without the custom exe; only knife/binoc free-aim needs it.
 
 - **Fixed the `ETraceTarget` weapon-trace lookup.** It's a *global* enum (the engine
   registers it in `module(L)`, not under `level`), so our `level.ETraceTarget` guard was

@@ -361,6 +361,8 @@ local _v = {
 	scratch = vector(),
 	box_c = vector(),
 	body_pt = vector(),
+	aim_pos = vector(),
+	aim_dir = vector(),
 	bb_pt = vector(),
 	face_c = vector(),
 }
@@ -1052,15 +1054,42 @@ end
 local _redaction_dbg_active = false
 
 -- Free-aim target-assist centre. On a normal engine the weapon points at the screen centre,
--- so the FOV assist circle is centred on (512,384). On a bodycam / free-aim engine the barrel
--- points OFF-centre, so the assist follows it via the standard engine weapon trace
--- (get_target_pos(ETraceTarget.Weapon)) -- see weapon_aim_ui below.
--- Free-aim aim point: the world point along the actual rendered weapon barrel, from the
--- standard engine weapon trace get_target_pos(ETraceTarget.Weapon) -- a GLOBAL enum
--- (registered in module(L), so `ETraceTarget.Weapon`, NOT `level.ETraceTarget`). The engine
--- builds the point off the weapon's barrel matrix, so it reflects free aim. We project it to
--- the reticle screen point. Returns nil when unavailable (caller falls back to screen centre).
+-- so the FOV assist circle is centred on (512,384). On a bodycam / free-aim engine the aim
+-- points OFF-centre, so the assist follows it. Two sources (see weapon_aim_ui):
+--   1. bodycam.get_fire_ray() -- the actor's first-eye aim camera. Reflects free aim for EVERY
+--      held item (gun, knife, binoculars). Needs the custom bodycam binding.
+--   2. get_target_pos(ETraceTarget.Weapon) -- the standard engine weapon trace. Barrel-
+--      accurate for FIREARMS and works on a stock exe, but for a knife/binoculars it's the
+--      cosmetic HUD-model transform, not the aim -- hence source 1 for those.
+local FREEAIM_PROJECT_DIST = 100 -- metres along the aim ray to project for the reticle screen point
+
+-- The gameplay aim ray (actor first-eye camera) via the custom bodycam.get_fire_ray() binding.
+-- Returns origin + unit dir, or nil on an engine without the binding.
+local function freeaim_ray()
+	local bc = rawget(_G, "bodycam")
+	if not (bc and bc.get_fire_ray) then
+		return nil
+	end
+	local ok, r = pcall(bc.get_fire_ray)
+	if not ok or type(r) ~= "table" or r.valid == false or not r.dir_x then
+		return nil
+	end
+	return r.pos_x, r.pos_y, r.pos_z, r.dir_x, r.dir_y, r.dir_z
+end
+
 local function weapon_aim_ui()
+	-- Source 1: the first-eye aim ray (works for any held item). Project a far point + world2ui.
+	local px, py, pz, dx, dy, dz = freeaim_ray()
+	if px then
+		return project_world(
+			_v.aim_pos:set(
+				px + dx * FREEAIM_PROJECT_DIST,
+				py + dy * FREEAIM_PROJECT_DIST,
+				pz + dz * FREEAIM_PROJECT_DIST
+			)
+		)
+	end
+	-- Source 2: the standard weapon trace (firearms; stock exe). ETraceTarget is a GLOBAL enum.
 	local ET = rawget(_G, "ETraceTarget")
 	if level and level.get_target_pos and ET then
 		local wpos = safe_call(level.get_target_pos, ET.Weapon)
@@ -1827,19 +1856,18 @@ local function binoc_engine_magnification()
 	return nil
 end
 
--- "Are we aiming at the model" direct pick, via the STANDARD engine weapon trace
--- get_target_obj(ETraceTarget.Weapon) -- GLOBAL enum, barrel-accurate (reflects free aim),
--- and it stops at solid geometry so walls block it. Replaces the old fire-ray mesh raycast.
--- The FOV assist uses it as a fallback when its screen radius doesn't cover the target (too
--- close, or aiming just off the projected silhouette). The barrel pick is range-unbounded, so
--- we gate on max_dist here. Assigns the forward-declared upvalue so find_nearest_in_fov can
--- call it. nil on a stock engine (no ETraceTarget) -- the screen-radius path still works.
-function aim_model_target(max_dist)
-	local ET = rawget(_G, "ETraceTarget")
-	if not (ET and level and level.get_target_obj) then
-		return nil
-	end
-	local obj = safe_call(level.get_target_obj, ET.Weapon)
+-- Reusable ray_pick object for the free-aim mesh raycast below (has_los uses its own).
+local _aim_ray = nil
+
+-- "Are we aiming at the model" direct pick. Two sources, matching weapon_aim_ui:
+--   1. A mesh raycast along the first-eye aim ray (bodycam.get_fire_ray) -- works for EVERY
+--      held item (gun/knife/binoculars); rqtBoth so walls block; ignores the actor's capsule.
+--   2. The standard engine weapon trace get_target_obj(ETraceTarget.Weapon) -- barrel-accurate
+--      for firearms, works on a stock exe, range-gated by max_dist here.
+-- The FOV assist uses this as a fallback when its screen radius doesn't cover the target (too
+-- close, or aiming just off the silhouette). Assigns the forward-declared upvalue so
+-- find_nearest_in_fov can call it. nil when neither source resolves an NPC.
+local function accept_npc(obj)
 	if not obj then
 		return nil
 	end
@@ -1847,6 +1875,43 @@ function aim_model_target(max_dist)
 		return nil
 	end
 	if not (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) then
+		return nil
+	end
+	return obj
+end
+
+function aim_model_target(max_dist)
+	-- Source 1: first-eye aim-ray mesh raycast (any held item).
+	local px, py, pz, dx, dy, dz = freeaim_ray()
+	if px and py and pz and dx and dy and dz and rawget(_G, "ray_pick") then
+		local ok, obj = pcall(function()
+			if not _aim_ray then
+				_aim_ray = ray_pick()
+			end
+			_aim_ray:set_flags(RQT_BOTH)
+			if db.actor then
+				_aim_ray:set_ignore_object(db.actor)
+			end
+			_aim_ray:set_position(_v.aim_pos:set(px, py, pz))
+			_aim_ray:set_direction(_v.aim_dir:set(dx, dy, dz))
+			_aim_ray:set_range(max_dist or 1000)
+			if _aim_ray:query() then
+				return _aim_ray:get_object()
+			end
+			return nil
+		end)
+		local hit = ok and accept_npc(obj) or nil
+		if hit then
+			return hit
+		end
+	end
+	-- Source 2: standard weapon trace (firearms; stock exe). Range-gate the barrel pick.
+	local ET = rawget(_G, "ETraceTarget")
+	if not (ET and level and level.get_target_obj) then
+		return nil
+	end
+	local obj = accept_npc(safe_call(level.get_target_obj, ET.Weapon))
+	if not obj then
 		return nil
 	end
 	if max_dist and db.actor then
