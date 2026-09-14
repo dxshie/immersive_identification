@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Removed the custom `bodycam.get_fire_ray()` engine binding.** Free-aim identification now
+  runs entirely on the standard engine weapon trace (`get_target_obj/pos(ETraceTarget.Weapon)`)
+  — which is barrel-accurate and reflects free aim — so the custom Lua binding we'd added to
+  the bodycam exe (and the `freeaim_ray`/`freeaim_target`/`aim_ray_world` plumbing and the
+  temporary "Use bodycam fire-ray binding" toggle) are all gone. The engine fork no longer
+  needs the `get_fire_ray` export. No behaviour change on a build where the weapon trace works;
+  free-aim assist now also works on plain xray-monolith builds (any exe with `ETraceTarget`).
+
 - **Fixed the `ETraceTarget` weapon-trace lookup.** It's a *global* enum (the engine
   registers it in `module(L)`, not under `level`), so our `level.ETraceTarget` guard was
   always nil and the whole `get_target_obj/pos(Weapon)` path was dead. Now read from the

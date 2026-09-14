@@ -111,9 +111,7 @@
 	<string id="ui_mcm_ii_fov_assist_desc"><text>When you don't land a direct hit, identify the nearest target within the on-screen assist circle. Turn off to require aiming directly at the target.</text></string>
 
 	<string id="ui_mcm_ii_freeaim_assist"><text>Free-aim target assist</text></string>
-	<string id="ui_mcm_ii_freeaim_assist_desc"><text>For bodycam / free-aim engines: center the assist circle on where the weapon actually points instead of the screen center. Leave off on a normal engine.</text></string>
-	<string id="ui_mcm_ii_freeaim_fire_ray"><text>Use bodycam fire-ray binding</text></string>
-	<string id="ui_mcm_ii_freeaim_fire_ray_desc"><text>Use the custom bodycam engine's fire-ray binding (get_fire_ray) as a free-aim source. Turn OFF to disable it and rely only on the standard engine weapon trace (get_target_*(ETraceTarget.Weapon)) — useful for A/B testing the two, or running without the custom exe. No effect on a stock engine (the binding isn't there anyway). Default ON.</text></string>
+	<string id="ui_mcm_ii_freeaim_assist_desc"><text>For free-aim setups (e.g. bodycam): center the assist on where the weapon is actually pointing instead of the screen center, using the engine's weapon trace. Harmless if your weapon already points at the screen center — it just falls back to center there.</text></string>
 
 	<string id="ui_mcm_ii_fov_radius"><text>Target-assist radius (px)</text></string>
 	<string id="ui_mcm_ii_fov_radius_desc"><text>Aim tolerance for picking a target without a direct hit. Measured as an angle from where you aim, so it works the same whether hip-firing or scoped at any magnification (0 = direct hit only).</text></string>

@@ -165,10 +165,9 @@ so ADS combat micro-adjustment can't re-scan an already-identified target (the
 
 `get_target_obj(max_dist, allow_fov)` (1465) — a cascade:
 
-0. Free-aim direct hit (only when `freeaim_assist` is on): `freeaim_target` raycasts
-   along the true aim ray, tried **first** so a real aim-ray hit wins over the swayed
-   render-camera trace below. Independent of `allow_fov`.
-1. Weapon-aligned trace: `level.get_target_obj(level.ETraceTarget.Weapon)`
+1. Weapon-aligned trace: `get_target_obj(ETraceTarget.Weapon)` — the barrel-accurate
+   pick (global enum; reflects free aim), tried **first** so it wins over the swayed
+   render-camera trace below.
 2. Camera trace fallback: `level.get_target_obj()`
 3. FOV fallback: `find_nearest_in_fov(max_dist)` — **only if `allow_fov`**.
    `try_identify` passes `allow_fov`, which is `fov_assist_binoc` while looking
@@ -219,11 +218,12 @@ cone):
   1024×768 virtual px).
 
 When nothing falls inside the radius, `find_nearest_in_fov` falls back to
-`aim_model_target(max_dist)` — a mesh raycast along the true aim ray (`aim_ray_world()`
-+ `ray_pick`, walls block) — so aiming directly at a target's model still identifies it
-even if it's too close, or the crosshair sits just off the projected silhouette. This is
-the same direct-aim pick used when FOV assist is off. (The earlier angular-cone approach
-was removed; the screen radius is simpler and fits this mod's use better.)
+`aim_model_target(max_dist)` — the standard engine weapon trace
+`get_target_obj(ETraceTarget.Weapon)` (barrel-accurate, walls block), range-gated by
+`max_dist` — so aiming directly at a target's model still identifies it even if it's too
+close, or the crosshair sits just off the projected silhouette. This is the same
+direct-aim pick used when FOV assist is off. (The earlier angular-cone approach was
+removed; the screen radius is simpler and fits this mod's use better.)
 
 ### 3.4 Scan-time computation
 
@@ -392,7 +392,7 @@ bodycam box edges → Simple 2 circle/triangle/bar), plus the debug dot/text poo
 `anchor_pos` (610) • `project_world` (623) • `screen_box` (691) • `has_los` (1230) •
 `find_nearest_in_fov` (1291) • `get_target_obj` (1465) • `is_binoc_active` (1571) •
 `is_ads_active` (1590) • `scope_magnification` (1647) • `screen_dist_to_body` •
-`aim_ray_world` • `aim_model_target` • `distance_scan_mult` (1788) •
+`aim_model_target` • `distance_scan_mult` (1788) •
 `rank_scan_mult` (1838) • `darkness_factor` (1881) • `perception_scan_mult` (1932) •
 `perception_hint_stats` (1968, exposed as a global for the Skill System tooltip) •
 `update_loot_xp` (2064) • `identify_target` (2097) • `boost_params` (2204) •
@@ -787,61 +787,29 @@ The `freeaim_assist` setting makes the FOV target-assist circle follow where the
 weapon actually points on a free-aim / bodycam engine
 (`asuparabekon/xray-monolith-bodycam`) instead of the fixed screen center.
 
-**The hard constraint: the free-aim direction must come from the engine.** In-game
-diagnosis (via the `debug_log` MCM option) established that on the tested bodycam
-build **neither** ordinary Lua source works:
+**The aim point comes from the STANDARD engine weapon trace** —
+`level.get_target_pos(ETraceTarget.Weapon)` — no custom binding required. The engine's
+`g_get_target_pos(TT_WEAPON)` builds the point off the weapon's `barrel_matrix`
+(hud→world), so it reflects free aim. The one catch that hid this for a long time:
+`ETraceTarget` is a **global** enum (the engine registers it in `module(L)`,
+level_script.cpp:2595), **not** `level.ETraceTarget` — only the `get_target_*` functions
+live under `level`. We had guarded on `level.ETraceTarget`, which is always nil, so the
+whole weapon-trace path looked "absent" and we built a custom `bodycam.get_fire_ray()`
+binding to work around it. Once the enum was read from the right place
+(`rawget(_G,"ETraceTarget")`), the standard trace worked and the custom binding was
+**removed** — from both the mod and the engine fork (`src/xrGame/bodycam_script.cpp`).
 
-- `level.get_target_pos(Weapon)` — the weapon trace **was reachable all along**; the
-  earlier "absent" reading was a namespace bug on our side: `ETraceTarget` is a **global**
-  enum (engine registers it in `module(L)`, level_script.cpp:2595), not `level.ETraceTarget`,
-  so the guard was always nil. The engine's `g_get_target_pos(TT_WEAPON)` builds the point
-  from the weapon's `barrel_matrix` (hud→world), so it *should* reflect free aim — pending an
-  in-game check now that we read the enum from the right place. `bodycam.get_fire_ray()`
-  remains the guaranteed source.
-- `bodycam.get_state()` — exposes only the **camera's** orientation
-  (`camera_yaw ≈ atan2(cam_dir.x, cam_dir.z)`, `camera_pitch ≈ asin(cam_dir.y)`)
-  and a ~zero `vm_rot`. None of it encodes the weapon's offset from center.
+- `weapon_aim_ui()` calls `get_target_pos(ETraceTarget.Weapon)`, projects the world point
+  to screen (`project_world`), and hands it to `aim_center()` as the aim point the
+  screen-radius target-assist measures from.
+- `aim_model_target()` (§3.3) calls `get_target_obj(ETraceTarget.Weapon)` — the same
+  barrel-accurate pick — as the direct-aim "are you on the model" fallback.
 
-So the aim direction is **C++-internal only**. The key insight (from in-game
-diagnosis): under bodycam the **render camera** — what `world2ui` and the
-screen-center pick use, and what `device().cam_dir` returns — is a *swayed
-override* of the actor's true gameplay camera. The weapon barrel pick
-(`PP.defs.dir`) is the cosmetic swaying weapon-model direction, ~40° off view and
-useless as an aim source (confirmed: it projects off-screen while aiming at an
-on-screen target). The real aim is the actor's **first-eye camera**
-(`CActor::cam_FirstEye()`), which the render camera is derived from —
-`HudItem::Ray()` itself remaps the pick through `cam_FirstEye()` for this reason.
+Both are guarded by `rawget(_G,"ETraceTarget")` and fall back to the render camera /
+screen centre when the enum is absent (stock exe), so it's safe on every engine.
 
-`ii_identify.script` gets it through an optional engine binding it probes at
-runtime:
-
-```
-bodycam.get_fire_ray() -> {
-  valid=bool,
-  pos_x/y/z, dir_x/y/z,          -- PRIMARY: first-eye (gameplay aim) ray, unit dir
-  bar_pos_x/y/z, bar_dir_x/y/z   -- diagnostic: cosmetic weapon-barrel ray
-}
-```
-
-`freeaim_ray(source)` reads the ray — the weapon **barrel** ray (`bar_*`) under ADS,
-the first-eye ray otherwise. `aim_ray_world()` normalises it; it feeds
-`aim_model_target()` (the direct-aim mesh raycast — §3.3). `weapon_aim_ui()` projects
-`pos + dir * FREEAIM_PROJECT_DIST` (100 m) through `world2ui` to a reticle screen point,
-which `aim_center()` uses as the aim point the screen-radius target-assist measures from.
-The whole path is guarded by
-`rawget(_G,"bodycam")` and stays inert (falls back to the render camera / screen
-centre) until the binding exists — safe on every engine.
-
-**The binding does not ship with the stock bodycam engine and must be compiled
-in.** Implemented in `src/xrGame/bodycam_script.cpp` (added to the `bodycam`
-luabind module) as a pure, side-effect-free read of `actor->cam_FirstEye()`'s
-`vPosition`/`vDirection` for the primary ray, plus the main-hand weapon's
-`GetPick().defs` for the diagnostic barrel ray. Both dirs unit-length;
-`valid=false` when there is no controlled actor.
-
-Verify with `debug_log` on: the `[ii] aim(eye) ... ui=(x,y)` line should show an
-on-screen coordinate that tracks the target as you free-aim, while `aim(barrel)`
-is the off-screen cosmetic one.
+Verify with `debug_log` on: the aim-debug dump should show `ETraceTarget` **found** and
+`pos weapon=... ui=(x,y)` tracking the target as you free-aim.
 
 ## 11. Face redaction (engine post-process)
 

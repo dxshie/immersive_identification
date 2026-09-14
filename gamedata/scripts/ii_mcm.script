@@ -141,7 +141,6 @@ function on_mcm_load()
 				opt_title("ui_mcm_ii_targeting_title"),
 				opt_check("fov_assist"),
 				opt_check("freeaim_assist"),
-				opt_check("freeaim_fire_ray"),
 				opt_track("fov_radius", 0, 90, 5),
 				opt_check("require_los"),
 				opt_check("auto_identify"),
