@@ -21,6 +21,7 @@
 	<string id="ui_mcm_prst_ii_minimal"><text>Minimal Dot</text></string>
 	<string id="ui_mcm_prst_ii_bodycam"><text>Tactical Bodycam</text></string>
 	<string id="ui_mcm_prst_ii_immersive"><text>Immersive (Hardcore)</text></string>
+	<string id="ui_mcm_prst_ii_crooks"><text>Crooks (Instant, all modes)</text></string>
 
 	<string id="ui_mcm_ii_general_title"><text>General</text></string>
 	<string id="ui_mcm_ii_uistyle_title"><text>UI Style</text></string>
@@ -87,6 +88,9 @@
 	<string id="ui_mcm_ii_show_faction"><text>Show faction</text></string>
 	<string id="ui_mcm_ii_show_faction_desc"><text>Show the target's faction line. Applies to every style that draws text (Card and Bodycam).</text></string>
 
+	<string id="ui_mcm_ii_show_rank"><text>Show rank</text></string>
+	<string id="ui_mcm_ii_show_rank_desc"><text>Show the target's rank line (Card and Bodycam, and below the name in the Crooks readout).</text></string>
+
 	<string id="ui_mcm_ii_show_weapon"><text>Show weapon / caliber</text></string>
 	<string id="ui_mcm_ii_show_weapon_desc"><text>Show the target's currently-wielded weapon and its caliber. Applies to every style that draws text (Card and Bodycam).</text></string>
 
@@ -118,6 +122,8 @@
 
 	<string id="ui_mcm_ii_require_los"><text>Require line of sight</text></string>
 	<string id="ui_mcm_ii_require_los_desc"><text>Only pick targets you can actually see.</text></string>
+	<string id="ui_mcm_ii_hide_off_aim"><text>Only show overlay while aimed</text></string>
+	<string id="ui_mcm_ii_hide_off_aim_desc"><text>Show a target's identification overlay only while you're aiming at or near it (within the FOV radius of your aim point); it disappears when you look away and reappears when you aim back. Identification itself still completes. Default off.</text></string>
 
 	<string id="ui_mcm_ii_hide_unseen"><text>Drop tag when out of sight</text></string>
 	<string id="ui_mcm_ii_hide_unseen_desc"><text>Remove an active tag as soon as its target goes out of sight (behind cover or off-screen), instead of waiting out the visibility duration. A brief occlusion is tolerated; re-identify (or auto-identify) brings it back.</text></string>
@@ -249,6 +255,16 @@
 	<string id="ii_uistyle_ui_style_lst_bodycam"><text>Bodycam</text></string>
 	<string id="ii_uistyle_ui_style_lst_simple2"><text>Simple 2</text></string>
 	<string id="ii_uistyle_ui_style_lst_simple"><text>Simple</text></string>
+	<string id="ii_uistyle_ui_style_lst_crooks"><text>Crooks</text></string>
+	<string id="ii_uistyle_crooks_pos_lst_bottom_left"><text>Bottom left</text></string>
+	<string id="ii_uistyle_crooks_pos_lst_bottom_middle"><text>Bottom middle</text></string>
+	<string id="ii_uistyle_crooks_pos_lst_bottom_right"><text>Bottom right</text></string>
+	<string id="ui_mcm_ii_crooks_pos"><text>Crooks: screen position</text></string>
+	<string id="ui_mcm_ii_crooks_pos_desc"><text>Which screen corner the Crooks readout (FACTION | NAME of the last identified stalker) anchors to. Fine-tune with the X/Y offsets below.</text></string>
+	<string id="ui_mcm_ii_crooks_x"><text>Crooks: X offset</text></string>
+	<string id="ui_mcm_ii_crooks_x_desc"><text>Horizontal nudge of the Crooks readout from its corner anchor (+ = right).</text></string>
+	<string id="ui_mcm_ii_crooks_y"><text>Crooks: Y offset</text></string>
+	<string id="ui_mcm_ii_crooks_y_desc"><text>Vertical nudge of the Crooks readout from its bottom anchor (+ = up).</text></string>
 
 	<!-- Faction display names shown on the floating tag itself. -->
 	<string id="st_ii_faction_stalker"><text>Loner</text></string>

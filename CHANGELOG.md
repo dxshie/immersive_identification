@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+- **Fixed: the Crooks readout wouldn't re-show the first target when looking back and forth.**
+  The last-identified snapshot was captured once per target (on scan completion), so re-aiming
+  an already-identified stalker never re-pointed it — and Crooks (which draws only that
+  snapshot, no per-entity tag) stayed stuck on the last *new* scan. The Crooks readout now
+  follows your gaze: re-aiming an identified target re-points to it. (Other styles were fine —
+  they redraw each target's own tag.)
+- **Crooks** can now show the stalker **rank** below the name (gated by the new **Show rank**
+  toggle).
+- New **Show rank** toggle (UI Style page, default on) — gates the rank line on Card / Bodycam
+  and the Crooks readout, matching Show name / faction / weapon.
+- **Fade duration can now be set to 0** (instant reveal + instant fade-out; the fade math is
+  divide-by-zero-safe at 0).
+- **Fixed: re-aiming a faded-out tag popped in instantly instead of fading.** Going back and
+  forth between targets, a tag still lingering in its fade-out now restarts its fade-*in*
+  (respecting fade duration) rather than snapping to full; a tag still in hold just refreshes
+  (no flicker while continuously viewed).
+
+- **Fixed: aiming directly at a stalker sometimes wouldn't identify** (and would only work
+  after looking at others and back). The FOV assist selects the target whose nearest *bone*
+  falls within `fov_radius`, so with a tight radius — or aiming at the model *between* the
+  sampled bones — a merely-nearby other target could win selection instead of the one you're
+  pointed at. Target selection now prioritises a **direct model raycast** ("what the crosshair
+  is actually on") above the nearby-in-cone pick, so aiming straight at someone always
+  identifies them. The **"Only show overlay while aimed"** gate honours the same direct-model
+  hit, and the **Crooks** readout with it.
+
+- New **"Crooks" MCM preset**: instant identify in **all** modes (hipfire / ADS / binoculars,
+  hold times = 0) with the **Crooks** UI, FOV assist + free aim on, and a ~25% FOV radius.
+  (`steady_time` can now reach 0 for instant binocular identify.)
+- New **"Only show overlay while aimed"** toggle (Targeting page, default off): a target's
+  identification overlay shows only while you're aiming at/near it (within the FOV radius),
+  and reappears when you aim back. Identification itself still completes.
+- The **Crooks** readout now shows the **faction logo** (not the faction name) and drops the
+  `|` separator, and **respects the identification linger** — it stays only while the target's
+  reveal window is active, then hides (rather than lingering forever).
+- New **Crooks** UI style: instead of world-anchored tags, a single **static on-screen
+  readout** of the **last identified** stalker — `FACTION | NAME`, faction-coloured. Anchors
+  to a screen corner (**bottom-left / middle / right**, MCM "Crooks: screen position") with
+  **X/Y offset** sliders to nudge it anywhere. No on-entity UI in this mode.
+
 - **Free-aim identification now works for every held item** (firearm, knife, binoculars).
   Firearms use the standard engine weapon trace (`get_target_obj/pos(ETraceTarget.Weapon)`),
   which is barrel-accurate and works on any exe — including plain xray-monolith (the enum is a

@@ -28,7 +28,10 @@ DEFAULTS = {
 	enabled = true,
 	key_dik = 0, -- captured DIK code; 0/nil means "unset, use DEFAULT_KEY_NAME"
 	modifier_index = 1, -- index into MODIFIER_LIST (1 = none)
-	ui_style = 1, -- index into UI_STYLE_LIST (1 = card, 2 = minimal, 3 = bodycam)
+	ui_style = 1, -- index into UI_STYLE_LIST (1 = card, 2 = minimal, 3 = bodycam, 6 = crooks)
+	crooks_pos = 1, -- Crooks style: screen-corner preset, index into CROOKS_POS_LIST (1=BL, 2=BM, 3=BR)
+	crooks_x = 0, -- Crooks style: X offset from the preset anchor (virtual px, + = right)
+	crooks_y = 0, -- Crooks style: Y offset from the preset anchor (virtual px, + = up)
 	box_area = 1, -- bodycam style: index into REDACT_AREA_LIST (1 = head/face box,
 	-- 2 = full-body box) for the outline rectangle
 	box_color_source = 1, -- bodycam box colour: index into BOX_COLOR_SOURCE_LIST
@@ -55,6 +58,7 @@ DEFAULTS = {
 	color_by_relation = true, -- tint the tag by relation to the actor instead of a flat colour
 	show_name = true, -- show the target's name line (all text styles: card + bodycam)
 	show_faction = true, -- show the target's faction line (all text styles: card + bodycam)
+	show_rank = true, -- show the target's rank line (card + bodycam, and the Crooks readout)
 	instant_identify = false, -- skip the scan wait/spinner entirely: the tag reveals immediately on
 	-- identify (bypasses scan_time and all the scan-time multipliers)
 	scan_time = 0.35, -- seconds: "scanning" pulse before the tag reveals
@@ -74,6 +78,9 @@ DEFAULTS = {
 	-- A straight screen-pixel ring around the aim point (screen_dist_to_body); a target whose
 	-- nearest body point projects within this many px of the crosshair is a candidate.
 	require_los = true, -- target-assist fallback only picks targets with clear line of sight
+	hide_off_aim = false, -- only show a target's overlay while you're aiming at / near it (its
+	-- nearest body point within fov_radius of the aim point); it reappears when you aim back.
+	-- Display gate only -- identification still completes. Off by default.
 	hide_unseen = true, -- hide an active tag/card/box while its target is out of sight (occluded
 	-- or off-screen), instead of leaving it floating until its timer expires;
 	-- it reappears if the target comes back into view within the reveal window
@@ -243,6 +250,15 @@ UI_STYLE_LIST = {
 	{ label = "bodycam" },
 	{ label = "simple2" },
 	{ label = "simple" },
+	{ label = "crooks" },
+}
+
+-- Screen-corner presets for the Crooks style's static HUD element (crooks_pos). Referenced
+-- as ii_identify.CROOKS_POS_LIST from ii_mcm.script, same cross-file pattern as UI_STYLE_LIST.
+CROOKS_POS_LIST = {
+	{ label = "bottom_left" },
+	{ label = "bottom_middle" },
+	{ label = "bottom_right" },
 }
 
 -- Which distortion the redaction draws. Index order IS the engine mode passed to
@@ -1654,13 +1670,20 @@ local function get_target_obj(max_dist, allow_fov)
 		direct = accept(safe_call(level.get_target_obj))
 	end
 
-	-- A direct hit that's already mid-identification shouldn't just restart
-	-- itself -- try the FOV fallback first, which prefers any other eligible
-	-- target in the ballpark over one already tracked (see
-	-- find_nearest_in_fov above), and only fall back to the busy direct hit
-	-- if nothing else is actually available.
+	-- A fresh (not-yet-tracked) engine hit wins immediately.
 	if direct and not tracked[direct:id()] then
 		return direct
+	end
+
+	-- The target whose MODEL the crosshair is actually on -- a mesh raycast along the TRUE aim
+	-- ray, so it hits between the sampled bones and works with a tight fov_radius. This is
+	-- "identify what I'm aiming AT", so it takes priority over a merely-nearby non-tracked
+	-- FOV-cone pick (which would otherwise keep stealing selection while you point straight at
+	-- someone), and it returns the target even if already tracked -- a re-aim then refreshes it
+	-- rather than leaving it faded and un-re-identifiable until it clears. LOS via accept.
+	local model = accept(aim_model_target(max_dist))
+	if model then
+		return model
 	end
 
 	-- FOV target-assist (fov_assist / fov_assist_binoc, decided per-context by
@@ -2318,18 +2341,22 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 
 	if tracked[id] then
 		local e = tracked[id]
-		-- Already being identified: NEVER restart the reveal. A re-trigger (manual key
-		-- press OR the auto/steady sweep) on a target that's already tracked must not
-		-- re-scan it -- a still-scanning tag is left completely alone to finish its scan
-		-- (spamming the key can't pin it in the spinner), and an already-revealed one
-		-- only gets its hold window refreshed (t0 parked at the start of hold, so it
-		-- stays fully shown while the target remains visible) without ever re-scanning.
-		-- Once the target leaves view/range it fades out normally; a genuine re-identify
-		-- (with the familiarity discount, etc.) happens only after the tag fully clears
-		-- and a fresh entry is created below.
-		local revealed = (e.scan_ms or 0) + (e.fade_ms or FADE_MS)
-		if (tg - e.t0) >= revealed then
-			e.t0 = tg - revealed -- revealed: refresh hold, keep it shown, no re-scan
+		-- Already being identified: never RE-SCAN (no spinner restart). What happens depends on
+		-- the reveal phase, so re-aiming a still-shown tag doesn't flicker but a faded-out one
+		-- re-appears with its fade-IN rather than popping instantly:
+		--   * still scanning / fading in -> leave it alone (let it finish).
+		--   * in HOLD (fully shown)       -> park t0 at hold start = refresh the hold window.
+		--   * past hold (fading OUT)      -> restart from the fade-in start so it fades back in
+		--     (respects fade_time; the old code parked at hold start here, which is the "pops up
+		--     instantly" seen going back and forth between targets).
+		local scan_ms = e.scan_ms or 0
+		local revealed = scan_ms + (e.fade_ms or FADE_MS) -- end of fade-in / start of hold
+		local hold_end = revealed + (e.hold_ms or HOLD_MS) -- start of fade-out
+		local el = tg - e.t0
+		if el >= hold_end then
+			e.t0 = tg - scan_ms -- fading out: restart the fade-in (skip the scan phase)
+		elseif el >= revealed then
+			e.t0 = tg - revealed -- in hold: refresh, keep it shown, no re-fade
 		end
 		return
 	end
@@ -2358,7 +2385,7 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 	local ft = (_tier and _tier.active) and _tier.feat or nil
 	local show_faction = ft and (ft.faction == true) or (not ft and C.show_faction)
 	local show_name = ft and true or C.show_name
-	local show_rank = ft and (ft.rank == true) or (not ft and true)
+	local show_rank = ft and (ft.rank == true) or (not ft and C.show_rank)
 	local show_weapon = ft and (ft.weapon == true) or (not ft and C.show_weapon)
 	local show_rel = ft and (ft.relationship == true) or not ft
 	local show_dist = ft and (ft.distance == true) or false
@@ -2818,6 +2845,12 @@ end
 -- --------------------------------------------------------------------------
 local CARD_OFF_X, CARD_OFF_Y = 60, 34 -- px (before scale) from the anchor to the card
 
+-- Crooks style (ui_style 6): a static on-screen "[faction logo]  NAME" readout of the LAST
+-- identified stalker, anchored to a screen corner. All in the 1024x768 virtual UI space.
+-- style = the UI_STYLE_LIST index; margins = inset from the screen edges; gap = px between
+-- the logo and the name; icon = logo size (square). Bundled into one table (local budget).
+local CROOKS = { style = 6, margin_x = 34, margin_y = 40, gap = 10, icon = 26, rank_dy = 20 }
+
 -- The `---@class` annotation has to attach to an actual declaration, and
 -- `class "IiTags" (CUIScriptWnd)` below is a bare function-call statement
 -- (`class("IiTags")(CUIScriptWnd)`), not an assignment -- so this shadow
@@ -2933,6 +2966,24 @@ function IiTags:InitControls()
 	self.dbg.status:Show(false)
 	self.dbg.aim = self.xml:InitStatic("dbg_dot", self)
 	self.dbg.aim:Show(false)
+
+	-- Crooks style (ui_style 6): one static "[faction logo]  NAME" readout of the LAST
+	-- identified stalker -- the faction EMBLEM (reusing the tag_icon static) + the name (bright,
+	-- with a 1px shadow, reusing the tag_name text template). Created LAST so it draws on top of
+	-- everything. `last` caches the content so the width/texture are refreshed only on change.
+	self.crooks = {
+		icon = self.xml:InitStatic("tag_icon", self),
+		name_sh = self.xml:InitTextWnd("tag_name_sh:text", self),
+		name = self.xml:InitTextWnd("tag_name:text", self),
+		rank_sh = self.xml:InitTextWnd("tag_rank_sh:text", self),
+		rank = self.xml:InitTextWnd("tag_rank:text", self),
+		last = nil,
+	}
+	self.crooks.icon:Show(false)
+	self.crooks.name:Show(false)
+	self.crooks.name_sh:Show(false)
+	self.crooks.rank:Show(false)
+	self.crooks.rank_sh:Show(false)
 end
 
 -- The plate/accent/icon/text widgets, shared by hide_slot and draw_slot's
@@ -3446,6 +3497,16 @@ function IiTags:draw_slot(
 	s.hidden = false
 	hide_box_widgets(s) -- box only ever re-shown by the bodycam branch below
 	hide_s2_widgets(s) -- Simple 2 shapes only ever re-shown by the simple2 branch below
+
+	-- Crooks style draws NO per-entity UI -- just the one static screen readout (draw_crooks,
+	-- from render()). Hide everything on this slot and bail before the scanning/style branches.
+	if C.ui_style == CROOKS.style then
+		hide_card_widgets(s)
+		s.glow:Show(false)
+		s.node:Show(false)
+		s.spinner:Show(false)
+		return
+	end
 
 	local r, g, b = col[1], col[2], col[3]
 	scale = scale or 1
@@ -4308,6 +4369,100 @@ local function feed_redaction(suppress_main)
 	end
 end
 
+-- Crooks style (ui_style 6): the single static "FACTION | NAME" readout of the LAST
+-- identified stalker, anchored to a screen corner (crooks_pos) and nudged by crooks_x/
+-- crooks_y. Called every frame from render(); self-gates on the style + a valid _last_id.
+-- Pure screen-space (no world anchor). Widths are re-measured only when the content changes.
+function IiTags:draw_crooks()
+	local ck = self.crooks
+	if not ck then
+		return
+	end
+	local name, icon, rank = _last_id.name, _last_id.icon, _last_id.rank
+	-- Respect the identification linger: the Crooks readout shows only while its target's
+	-- reveal is still active (tracked[id] exists -- i.e. within scan+fade+hold+fade-out, the
+	-- same "how long it stays after you look away" window as the on-entity tags), then hides.
+	if C.ui_style ~= CROOKS.style or not _last_id.id or not tracked[_last_id.id] or not (name and name ~= "") then
+		self:hide_crooks()
+		return
+	end
+	-- ...but with hide_off_aim on, the linger is intentionally dropped: the readout tracks the
+	-- overlay exactly, showing only WHILE the target is under the aim (on_aim, set in render()).
+	if C.hide_off_aim and not _last_id.on_aim then
+		self:hide_crooks()
+		return
+	end
+	local has_rank = rank ~= nil and rank ~= "" -- already gated by C.show_rank at identify time
+
+	-- Re-measure the name + (re)bind the faction emblem only when the content changes.
+	local key = tostring(_last_id.id) .. "\0" .. tostring(icon) .. "\0" .. name .. "\0" .. tostring(rank)
+	if ck.last ~= key then
+		ck.last = key
+		ck.name:SetText(name)
+		ck.name_sh:SetText(name)
+		ck.name:AdjustWidthToText()
+		ck.name_sh:AdjustWidthToText()
+		ck.nw = ck.name:GetWidth()
+		if has_rank then
+			ck.rank:SetText(rank)
+			ck.rank_sh:SetText(rank)
+			ck.rank:AdjustWidthToText()
+			ck.rank_sh:AdjustWidthToText()
+		end
+		ck.has_icon = icon ~= nil and icon ~= ""
+		if ck.has_icon then
+			pcall(ck.icon.InitTexture, ck.icon, icon)
+		end
+	end
+
+	local icon_span = ck.has_icon and (CROOKS.icon + CROOKS.gap) or 0
+	local total = icon_span + ck.nw
+	local pos = C.crooks_pos or 1
+	local start_x
+	if pos == 2 then -- bottom middle
+		start_x = UI_CX - total / 2
+	elseif pos == 3 then -- bottom right
+		start_x = 1024 - CROOKS.margin_x - total
+	else -- bottom left
+		start_x = CROOKS.margin_x
+	end
+	start_x = start_x + (C.crooks_x or 0)
+	-- Anchor y is the NAME line's top; the rank line (if any) sits below, so lift the whole
+	-- block up by the rank line's height to keep it inside the bottom margin.
+	local y = 768 - CROOKS.margin_y - (C.crooks_y or 0) - (has_rank and CROOKS.rank_dy or 0)
+	local text_x = math.floor(start_x + icon_span)
+
+	if ck.has_icon then
+		-- Vertically centre the (square) emblem on the ~18px name line.
+		ck.icon:SetWndPos(P(math.floor(start_x), math.floor(y - (CROOKS.icon - 18) / 2)))
+		ck.icon:SetWndSize(S(CROOKS.icon, CROOKS.icon))
+		ck.icon:SetTextureColor(GetARGB(255, 255, 255, 255))
+		ck.icon:Show(true)
+	else
+		ck.icon:Show(false)
+	end
+	draw_shadowed_text(ck.name, ck.name_sh, text_x, math.floor(y), 255, 235, 230, 220, 180)
+	if has_rank then
+		draw_shadowed_text(ck.rank, ck.rank_sh, text_x, math.floor(y + CROOKS.rank_dy), 255, 190, 180, 150, 170)
+	else
+		ck.rank:Show(false)
+		ck.rank_sh:Show(false)
+	end
+end
+
+function IiTags:hide_crooks()
+	local ck = self.crooks
+	if not ck then
+		return
+	end
+	ck.last = nil
+	ck.icon:Show(false)
+	ck.name:Show(false)
+	ck.name_sh:Show(false)
+	ck.rank:Show(false)
+	ck.rank_sh:Show(false)
+end
+
 local function render(tg)
 	if not TAGS then
 		return
@@ -4376,6 +4531,19 @@ local function render(tg)
 
 	_last_id.scan_frac = nil -- recomputed below: progress of any in-progress scan this frame
 
+	-- Per-frame "what am I looking at" state, needed by hide_off_aim (display gate) and the
+	-- Crooks readout (which target's info to show). aim_model_id = the target whose MODEL the
+	-- crosshair is directly on (mesh raycast) -- counts as aimed-at even when no BONE falls in
+	-- fov_radius (tight radius / aiming between bones), matching how identification resolves it.
+	local crooks_style = C.ui_style == CROOKS.style
+	local need_aim = C.hide_off_aim or crooks_style
+	local aim_cx, aim_cy, aim_model_id
+	if need_aim then
+		aim_cx, aim_cy = aim_center()
+		local m = aim_model_target(1e6) -- any range; the tag's own max_dist gates identification
+		aim_model_id = m and m:id() or nil
+	end
+
 	for id, e in pairs(tracked) do
 		-- Per-instance range/speed, captured at identify time in try_identify()
 		-- (see the binocular-boost comment there) rather than read live from
@@ -4429,31 +4597,47 @@ local function render(tg)
 				if not _last_id.scan_frac or f > _last_id.scan_frac then
 					_last_id.scan_frac = f
 				end
-			elseif elapsed < scan_ms + fade_ms then
+			elseif fade_ms > 0 and elapsed < scan_ms + fade_ms then
 				phase_alpha = (elapsed - scan_ms) / fade_ms
 			elseif elapsed < scan_ms + fade_ms + hold_ms then
 				phase_alpha = 1
-			else
+			elseif fade_ms > 0 then
 				phase_alpha = 1 - (elapsed - (scan_ms + fade_ms + hold_ms)) / fade_ms
 				if phase_alpha < 0 then
 					phase_alpha = 0
 				end
+			else
+				phase_alpha = 0 -- fade_ms 0: instant reveal + instant fade-out (no divide)
 			end
 
 			local pos = anchor_pos(obj)
 
-			-- Promin OSD readout: snapshot this target for the ident page the first frame its
-			-- scan COMPLETES (osd_done gates it to once). Done here rather than at scan start
-			-- so the readout respects scan time and keeps the previously-identified target
-			-- until the new one finishes -- mirroring the moment the on-entity tag reveals.
+			-- Is this target under the aim right now? A body point inside fov_radius OR the
+			-- crosshair directly on the model (the same direct-hit case identification honours;
+			-- covers a tight fov_radius). Drives both the hide_off_aim display gate and the
+			-- Crooks gaze re-point below. Only computed when something actually needs it.
+			local under_aim = nil
+			if need_aim then
+				local ad = screen_dist_to_body(obj, aim_cx, aim_cy)
+				under_aim = (ad ~= nil and ad <= (C.fov_radius or 0)) or id == aim_model_id
+			end
+
+			-- Publish this revealed target as the "last identified" for external readouts (the
+			-- Promin OSD ident page + the Crooks HUD). Two triggers, both only once REVEALED:
+			--   1. first scan COMPLETION (osd_done, once per target) -- keeps the previously-shown
+			--      target until the new one finishes, so the readout respects scan time.
+			--   2. Crooks: when you re-AIM at an already-identified target, re-point to it so the
+			--      readout follows your gaze (Crooks draws only _last_id, no per-entity tag; the
+			--      osd_done-only gate would otherwise leave it stuck on the last NEW scan).
 			-- Fields come straight from the (already tier-gated) tracked entry.
-			if not scanning and not e.osd_done then
+			local capture = not scanning and (not e.osd_done or (crooks_style and under_aim and _last_id.id ~= id))
+			if capture then
 				e.osd_done = true
 				_last_id.id = id
 				_last_id.name, _last_id.faction = e.name, e.header
 				_last_id.rank, _last_id.weap = e.rank, e.weap
 				_last_id.rank_level = e.rank_level
-				_last_id.icon = e.icon -- faction emblem texture id (for the notification card)
+				_last_id.icon = e.icon -- faction emblem texture id (notification card + Crooks readout)
 				_last_id.portrait = e.portrait
 				_last_id.x = pos and pos.x or nil
 				_last_id.y = pos and pos.y or nil
@@ -4472,7 +4656,16 @@ local function render(tg)
 
 			-- (Out-of-sight targets are already dropped above via hide_unseen.)
 			local sx, sy = project_world(pos)
-			if sx and dist <= max_dist * 1.15 then
+			-- hide_off_aim display gate: show the overlay only while the target is under the aim
+			-- (see under_aim above); the overlay reappears the moment you aim back. Pure display
+			-- gate -- scan/reveal + last-identified capture already ran. Off -> always shown.
+			local off_aim = C.hide_off_aim and under_aim == false
+			-- Remember whether the LAST-identified target is under the aim right now, so the
+			-- Crooks readout can drop its linger under hide_off_aim (see IiTags:draw_crooks).
+			if id == _last_id.id then
+				_last_id.on_aim = not off_aim
+			end
+			if sx and dist <= max_dist * 1.15 and not off_aim then
 				-- Fill = faction colour, ring = relation colour -- same
 				-- two-signal split as the Minimal HUD style's dot+sign,
 				-- adapted to what a flat shader shape can actually convey
@@ -4642,6 +4835,10 @@ local function render(tg)
 		TAGS:hide_slot(i)
 	end
 
+	-- Crooks style: the single static "last identified" readout (self-gates / hides itself
+	-- when the style is off or there's nothing identified yet).
+	TAGS:draw_crooks()
+
 	if _overlay_bc then
 		pcall(_overlay_bc.overlay_commit) -- publish this frame's depth-overlay rects
 		if _overlay_bc.overlay_text_commit then
@@ -4659,6 +4856,7 @@ local function teardown_ui()
 			TAGS:hide_slot(i)
 		end
 		TAGS:hide_debug()
+		TAGS:hide_crooks()
 	end
 	for k in pairs(tracked) do
 		tracked[k] = nil
@@ -4731,6 +4929,7 @@ local function actor_on_update()
 			for i = 1, MAX_TAGS do
 				TAGS:hide_slot(i)
 			end
+			TAGS:hide_crooks()
 		end
 		reset_steady()
 		redaction_clear()
