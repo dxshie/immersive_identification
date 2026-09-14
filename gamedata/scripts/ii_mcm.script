@@ -102,12 +102,24 @@ function on_mcm_load()
 	end
 
 	-- The Wearable Devices page is hidden entirely unless the optional WD compat FOMOD
-	-- component is installed (its driver script registers the `ii_wd_compat` global). Without
-	-- it, tier_provider is never set and every wd_* option is inert, so showing the page would
-	-- just be confusing dead settings. MCM evaluates this precondition when rendering the tree.
+	-- component is installed. Without it, tier_provider is never set and every wd_* option is
+	-- inert, so the page would just be confusing dead settings. MCM evaluates this precondition
+	-- when rendering the tree -- INCLUDING in the main menu, where only *_mcm scripts are loaded.
+	-- So detect via the component's shipped system-ltx section ([ii_wd_antenna]): the merged
+	-- system ini is built at engine start and present both in the menu and in-game, no side
+	-- effects. (rawget(_G,"ii_wd_compat") was wrong -- it bypasses X-ray's script auto-load AND
+	-- the gameplay driver isn't loaded in the menu, so the page rendered empty there.)
 	local wd_installed = {
 		function()
-			return rawget(_G, "ii_wd_compat") ~= nil
+			if ini_sys then
+				return ini_sys:section_exist("ii_wd_antenna")
+			end
+			-- ini_sys not ready (rare): fall back to a non-raw access that auto-loads the driver.
+			local ok, mod = pcall(function()
+				---@diagnostic disable-next-line: undefined-field
+				return _G.ii_wd_compat
+			end)
+			return ok and mod ~= nil
 		end,
 	}
 

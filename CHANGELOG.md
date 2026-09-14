@@ -3,9 +3,10 @@
 ## Unreleased
 
 - The **Wearable Devices** MCM page is now **hidden unless the optional WD compat component is
-  installed** (detected via its `ii_wd_compat` driver). Without the component the tier system
-  never runs anyway, so the page was just inert settings — now it's out of the way, and the
-  mod behaves exactly as if Wearable Devices didn't exist.
+  installed** — detected via the component's shipped `[ii_wd_antenna]` system-ltx section,
+  which is available both in the main menu and in-game (the earlier `rawget` script check read
+  empty in the main menu, since gameplay scripts aren't loaded there). Without the component
+  the tier system never runs anyway, so the page was just inert settings.
 
 - **Fixed: Hipfire auto-identify silently stopped working** after Hipfire got its own MCM
   page — its options weren't in the page-path list `read_config` scans, so they always read
