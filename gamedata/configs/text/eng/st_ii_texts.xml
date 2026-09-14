@@ -62,7 +62,7 @@
 	<string id="ui_mcm_ii_hipfire_mode"><text>Hipfire dwell mode</text></string>
 	<string id="ui_mcm_ii_hipfire_mode_desc"><text>Auto-identify while hip-firing (not aiming down sight, not through binoculars) once a target has been held on your aim (or inside the FOV assist range, if that's on) for the hold time below. For players who'd rather not press the key and still identify from the hip. You can track a moving target; aiming at empty air does nothing.</text></string>
 	<string id="ui_mcm_ii_hipfire_hold_time"><text>Hipfire hold time (s)</text></string>
-	<string id="ui_mcm_ii_hipfire_hold_time_desc"><text>How long a target must stay under your hip-fire aim (or in the FOV assist range) before it auto-identifies. Default 1.0 s.</text></string>
+	<string id="ui_mcm_ii_hipfire_hold_time_desc"><text>How long a target must stay under your hip-fire aim (or in the FOV assist range) before it auto-identifies. Set to 0 to identify instantly the moment you aim at a target, with no wait. Default 1.0 s.</text></string>
 
 	<string id="ui_mcm_ii_faceredact_title"><text>Face Redaction</text></string>
 	<string id="ui_mcm_ii_redact_face"><text>Redact faces</text></string>
@@ -149,7 +149,7 @@
 	<string id="ui_mcm_ii_ads_mode"><text>ADS mode</text></string>
 	<string id="ui_mcm_ii_ads_mode_desc"><text>Auto-identify while aiming down sight once a target has been held on your aim (or inside the FOV assist range, if that's on) for the hold time below, alongside the normal key. You can track a moving target; aiming at empty air does nothing.</text></string>
 	<string id="ui_mcm_ii_ads_hold_time"><text>ADS hold time (s)</text></string>
-	<string id="ui_mcm_ii_ads_hold_time_desc"><text>How long (seconds) a target must stay on your aim (or in FOV assist range) while aiming down sight before it auto-identifies, in ADS mode.</text></string>
+	<string id="ui_mcm_ii_ads_hold_time_desc"><text>How long (seconds) a target must stay on your aim (or in FOV assist range) while aiming down sight before it auto-identifies, in ADS mode. Set to 0 to identify instantly the moment you aim at a target, with no wait.</text></string>
 	<string id="ui_mcm_ii_ads_boost"><text>ADS boosts identification</text></string>
 	<string id="ui_mcm_ii_ads_boost_desc"><text>Faster reveal and longer range while aiming down sight, any mode.</text></string>
 	<string id="ui_mcm_ii_ads_scan_mult"><text>ADS scan speed multiplier</text></string>
@@ -269,6 +269,8 @@
 	<string id="st_ii_faction_arena"><text>Arena</text></string>
 
 	<string id="ui_mcm_ii_wdcompat_title"><text>Wearable Devices (st-wearable-devices)</text></string>
+	<string id="ui_mcm_ii_wd_ignore"><text>Ignore Wearable Devices entirely</text></string>
+	<string id="ui_mcm_ii_wd_ignore_desc"><text>Master toggle: when ON, the whole Wearable Devices integration is bypassed and identification works exactly as if this compatibility component were never installed (no scanner kit, no tiers, normal on-entity identification). All the other settings on this page have no effect while this is on.</text></string>
 	<string id="ui_mcm_ii_wd_require_kit"><text>Require scanner kit to identify</text></string>
 	<string id="ui_mcm_ii_wd_require_kit_desc"><text>When the wearable-devices compatibility is installed: block ALL identification unless the full kit is worn/assembled (scanner worn + Promin antenna module + a process module). Off = identification still works normally when the kit isn't complete, and the tiers only enhance it while the kit is worn. Only affects you if st-wearable-devices and the compatibility component are installed.</text></string>
 	<string id="ui_mcm_ii_wd_proc_title"><text>- Process module: scan time per tier (s) -</text></string>

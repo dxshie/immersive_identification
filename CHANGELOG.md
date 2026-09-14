@@ -2,12 +2,19 @@
 
 ## Unreleased
 
-- **FOV target-assist now falls back to a model raycast.** The assist measures the angle
-  from the aim ray to the target's *bones*, which can miss when you're very close or aiming
-  at the mesh between the (angularly-spread) bone samples — the cone catches no bone. It now
-  falls back to a mesh raycast along the true aim ray ("are you aiming at the model?"), the
-  same pick used when assist is off. Applies to both the manual key and the ADS/hipfire dwell
-  sweep; LOS still respected.
+- **FOV target-assist reverted to a straight screen radius.** The angular-cone logic (which
+  reinterpreted `fov_radius` as an angle measured from the aim ray) has been removed — the
+  assist once again acquires the target whose nearest body point projects within `fov_radius`
+  screen pixels of your aim point, which fits this mod's use better. When nothing falls inside
+  the radius it still falls back to a **model raycast** along the true aim ray (identify what
+  you're directly pointing at — too close, or aiming just off the silhouette). LOS respected.
+- **ADS and hipfire hold time can now be set to 0** (sliders reach 0) for instant
+  identification the moment you aim at a target — no dwell wait. At 0, the dwell fires on the
+  same frame the target is acquired.
+- **New "Ignore Wearable Devices entirely" master toggle** (Wearable Devices MCM page): when
+  on, the whole WD compat integration is bypassed and identification works exactly as if the
+  compatibility component were never installed (no kit, no tiers). Overrides the rest of that
+  page.
 - Removed the **depth-aware Bodycam box** rendering: the outline box no longer submits
   world-anchored rects to the engine's depth overlay (occluded per-pixel by walls/viewmodel)
   — it now always draws as flat CUIStatic edges (always on top). Removes the custom-exe

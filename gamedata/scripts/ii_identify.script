@@ -72,9 +72,9 @@ DEFAULTS = {
 	-- aim source that reflects free aim -- either level.ETraceTarget.Weapon
 	-- (absent on the tested bodycam build) or a bodycam.get_fire_ray() engine
 	-- binding (see SPEC "Free-aim support"). Inert / harmless without either
-	fov_radius = 90, -- virtual-space px (1024-wide): target-assist size (MCM range 0-90). Calibrated at the
-	-- unzoomed FOV into an angular cone (aim_cone_rad), so the assist is magnification-
-	-- invariant -- works the same hip-firing or scoped at high zoom (see aim_angle_to_body)
+	fov_radius = 90, -- virtual-space px (1024-wide, 768-tall): target-assist radius (MCM range 0-90).
+	-- A straight screen-pixel ring around the aim point (screen_dist_to_body); a target whose
+	-- nearest body point projects within this many px of the crosshair is a candidate.
 	require_los = true, -- target-assist fallback only picks targets with clear line of sight
 	hide_unseen = true, -- hide an active tag/card/box while its target is out of sight (occluded
 	-- or off-screen), instead of leaving it floating until its timer expires;
@@ -141,6 +141,7 @@ DEFAULTS = {
 	-- st-wearable-devices compatibility (tier system). Only take effect when the optional
 	-- WD compat component is installed AND drives ii_identify.tier_provider (via
 	-- get_wd_tier_cfg below); completely inert otherwise. Retune every default tier here.
+	wd_ignore = false, -- master toggle: ignore the WD compat component entirely (identify as if WD isn't installed)
 	wd_require_kit = true, -- block identification entirely unless the full scanner kit is worn/assembled
 	wd_proc_t1 = 1.5, -- process-module tier 1/2/3 base scan time (seconds)
 	wd_proc_t2 = 1.0,
@@ -1136,9 +1137,8 @@ end
 
 -- The point the FOV target-assist circle is measured from this frame: the
 -- weapon's real aim point when free-aim assist is enabled and available,
--- otherwise the fixed screen centre. NOTE: the live assist is now angular
--- (aim_angle_to_body / aim_cone_rad) -- this and weapon_aim_ui above only feed the
--- debug visualiser (draw_debug) and the aim-debug dump now, not target selection.
+-- otherwise the fixed screen centre. Target selection (screen_dist_to_body) and the
+-- debug visualiser both measure screen distance from here.
 local function aim_center()
 	if C.freeaim_assist then
 		local sx, sy = weapon_aim_ui()
@@ -1165,6 +1165,50 @@ local BODY_BONES = {
 	"bip01_l_calf",
 	"bip01_r_calf",
 }
+-- Vertical lift samples (metres) for a non-bip01 rig (monster) with a span at its origin.
+-- Shared by screen_dist_to_body and body_box_for (moved up so both see it as an upvalue).
+local MONSTER_SPAN = { 0.3, 0.9, 1.5 }
+local _body_pt = vector() -- scratch for the monster vertical-span fallback
+
+-- Pixel distance from the aim point (cx,cy) to a world point projected to the 1024x768
+-- virtual UI space, or nil if the point is off-screen / behind the camera.
+local function screen_dist_to(pos, cx, cy)
+	local sx, sy = project_world(pos)
+	if not sx then
+		return nil
+	end
+	local dx, dy = sx - cx, sy - cy
+	return math.sqrt(dx * dx + dy * dy)
+end
+
+-- Smallest screen-pixel distance from the aim point (cx,cy) to any sampled body point (head,
+-- torso, pelvis, limbs -- so aiming anywhere on the entity counts), or nil. A monster / rig
+-- without bip01 bones falls back to a vertical span at its origin. This is the FOV assist's
+-- target-acquisition measure: fov_radius is a straight SCREEN RADIUS, no angular cone.
+local function screen_dist_to_body(obj, cx, cy)
+	local base = obj:position()
+	local best = nil
+	local found = false
+	for _, bone in ipairs(BODY_BONES) do
+		local p = safe_call(obj.bone_position, obj, bone)
+		if p and p:distance_to_sqr(base) < 16 then -- sane bone (within 4 m of origin)
+			found = true
+			local d = screen_dist_to(p, cx, cy)
+			if d and (not best or d < best) then
+				best = d
+			end
+		end
+	end
+	if not found then
+		for _, lift in ipairs(MONSTER_SPAN) do
+			local d = screen_dist_to(_body_pt:set(base.x, base.y + lift, base.z), cx, cy)
+			if d and (not best or d < best) then
+				best = d
+			end
+		end
+	end
+	return best
+end
 
 -- --------------------------------------------------------------------------
 -- Debug (MCM "Log aim debug"): on every identify attempt, dump the trace/aim
@@ -1515,21 +1559,11 @@ end
 -- target just for sitting closer to the aim point, since re-hitting it does
 -- nothing new (see try_identify()'s tracked[id] branch) -- the busy one is
 -- only ever returned when nothing else in the FOV circle qualifies at all.
--- Forward declarations, defined after _fov_baseline + the aim-ray helpers below:
---   aim_angle_to_body(obj) -> smallest ANGLE (radians) from the true aim ray to any
---     sampled body point, or nil (the angular measure the assist selects on).
---   aim_cone_rad() -> the assist tolerance as an angle (fov_radius calibrated at the
---     unzoomed FOV), so it's a CONSTANT real angle -- magnification-invariant.
--- The assist is measured angularly (from where the scope/gun actually points) rather
--- than as a main-camera screen ring: under a PiP scope the main camera is the swayed,
--- un-zoomed render camera, so a screen ring both shrinks wrongly with magnification and
--- misses by the sway offset. Angles from the aim ray have neither problem.
-local aim_angle_to_body
-local aim_cone_rad
+-- Forward declaration, defined after the aim-ray helpers below:
 -- aim_model_target(max_dist) -> the stalker/monster whose MODEL the crosshair is over
 -- (mesh raycast along the true aim ray), or nil. The "aiming at it" fallback for when the
--- assist cone can't catch a bone (too close / aiming at the mesh between the angularly
--- spread bone samples). Forward-declared; defined below after the aim-ray helpers.
+-- assist's screen radius doesn't cover the target (too close / aiming just off the
+-- silhouette). Forward-declared; defined below after the aim-ray helpers.
 local aim_model_target
 
 local function find_nearest_in_fov(max_dist)
@@ -1538,9 +1572,10 @@ local function find_nearest_in_fov(max_dist)
 	end
 	local apos = db.actor:position()
 	local actor_id = db.actor:id()
-	local cone = aim_cone_rad()
-	local best_obj, best_a = nil, cone
-	local best_busy_obj, best_busy_a = nil, cone
+	local cx, cy = aim_center() -- weapon aim point under free-aim, else screen centre
+	local radius = C.fov_radius or 90
+	local best_obj, best_d = nil, radius
+	local best_busy_obj, best_busy_d = nil, radius
 
 	pcall(level.iterate_nearest, apos, max_dist, function(obj)
 		if obj and obj:id() ~= actor_id and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) then
@@ -1548,18 +1583,17 @@ local function find_nearest_in_fov(max_dist)
 			if alive then
 				local comm = safe_call(obj.character_community, obj)
 				if comm and comm ~= "" then
-					-- Angle to the NEAREST point on the whole body (head, torso,
-					-- pelvis, limbs), not a single anchor -- so aiming anywhere on the
-					-- entity counts. Measured from the aim ray, so it's the same at any
-					-- zoom and immune to the bodycam sway.
-					local a = aim_angle_to_body(obj)
-					if a and (not C.require_los or has_los(obj)) then
+					-- Screen-pixel distance to the NEAREST point on the whole body (head,
+					-- torso, pelvis, limbs), not a single anchor -- so aiming anywhere on
+					-- the entity counts. fov_radius is a straight screen radius.
+					local d = screen_dist_to_body(obj, cx, cy)
+					if d and (not C.require_los or has_los(obj)) then
 						if tracked[obj:id()] then
-							if a < best_busy_a then
-								best_busy_a, best_busy_obj = a, obj
+							if d < best_busy_d then
+								best_busy_d, best_busy_obj = d, obj
 							end
-						elseif a < best_a then
-							best_a, best_obj = a, obj
+						elseif d < best_d then
+							best_d, best_obj = d, obj
 						end
 					end
 				end
@@ -1572,9 +1606,9 @@ local function find_nearest_in_fov(max_dist)
 	if pick then
 		return pick
 	end
-	-- Cone caught no bone (too close, or aiming at the model between the angularly-spread
-	-- bone samples). Fall back to a mesh raycast: if the crosshair is on the target's MODEL,
-	-- take it -- the same "aiming at it" pick used when FOV assist is off.
+	-- Nothing inside the screen radius (too close, or aiming just off the silhouette).
+	-- Fall back to a mesh raycast: if the crosshair is on the target's MODEL, take it --
+	-- the same "aiming at it" pick used when FOV assist is off.
 	local model = aim_model_target(max_dist)
 	if model and (not C.require_los or has_los(model)) then
 		return model
@@ -1594,15 +1628,18 @@ local function debug_dump_candidates()
 	if not (db.actor and level.iterate_nearest) then
 		return
 	end
+	local cx, cy = aim_center()
 	dbg(
 		string.format(
-			"flags enabled=%s fov_assist=%s freeaim_assist=%s require_los=%s require_binoc=%s cone=%.2fdeg max_dist=%.0f",
+			"flags enabled=%s fov_assist=%s freeaim_assist=%s require_los=%s require_binoc=%s fov_radius=%d aim=(%.0f,%.0f) max_dist=%.0f",
 			tostring(C.enabled),
 			tostring(C.fov_assist),
 			tostring(C.freeaim_assist),
 			tostring(C.require_los),
 			tostring(C.require_binoculars),
-			aim_cone_rad() * 180 / math.pi,
+			C.fov_radius or 90,
+			cx,
+			cy,
 			C.max_dist
 		)
 	)
@@ -1617,17 +1654,17 @@ local function debug_dump_candidates()
 			local alive = safe_call(obj.alive, obj)
 			local comm = safe_call(obj.character_community, obj)
 			local sx, sy = project_world(anchor_pos(obj))
-			local a = aim_angle_to_body(obj)
-			local within = (a ~= nil and a <= aim_cone_rad())
+			local d = screen_dist_to_body(obj, cx, cy)
+			local within = (d ~= nil and d <= (C.fov_radius or 90))
 			local los = has_los(obj)
 			dbg(
 				string.format(
-					"cand %s alive=%s comm=%s ui=%s ang=%s within=%s los=%s",
+					"cand %s alive=%s comm=%s ui=%s dist=%s within=%s los=%s",
 					obj_desc(obj),
 					tostring(alive),
 					tostring(comm),
 					sx and string.format("(%.0f,%.0f)", sx, sy) or "offscreen",
-					a and string.format("%.2fdeg", a * 180 / math.pi) or "n/a",
+					d and string.format("%.0fpx", d) or "n/a",
 					within and "YES" or "no",
 					tostring(los)
 				)
@@ -1950,23 +1987,9 @@ local function binoc_engine_magnification()
 	return nil
 end
 
--- Angular FOV target-assist. Instead of a main-camera screen ring, the assist is a
--- cone measured from the true AIM RAY (where the scope/gun points). This is the fix for
--- PiP scopes: the main camera (world2ui) is the swayed, UN-zoomed bodycam render camera,
--- so a screen ring both (a) shrank wrongly with magnification and (b) missed by the
--- fixed sway offset between the render camera and the real aim. An angle from the aim
--- ray has neither problem -- it's magnification-invariant (a scope zooms the view, not
--- the target's real angular size) and sway-immune. Assigns the forward-declared upvalues.
-
--- The assist tolerance as an ANGLE (radians): fov_radius converted at the UNZOOMED
--- baseline FOV, so it's a constant real angle (independent of any live zoom). 768 = the
--- virtual UI height that spans the vertical FOV, so px/768 * fov = the subtended angle.
--- At 1x this matches the old screen ring exactly, so hip-fire feel is unchanged.
-function aim_cone_rad()
-	local base = C.fov_radius or 90
-	local fov_deg = (_fov_baseline and _fov_baseline > 0) and _fov_baseline or 60
-	return (base / 768) * (fov_deg * math.pi / 180)
-end
+-- The aim ray (below) still feeds the model-raycast fallback (aim_model_target); the FOV
+-- target-assist itself selects on a straight screen-pixel radius (screen_dist_to_body vs
+-- fov_radius, above), not an angular cone.
 
 -- Aim ray in world space: the fire ray (barrel under ADS, eye otherwise) so we measure
 -- from where the SCOPE actually points, not the swayed render camera. Falls back to the
@@ -1998,8 +2021,8 @@ end
 -- Mesh raycast along the TRUE aim ray (aim_ray_world -- works on ANY engine via the camera
 -- fallback, unlike freeaim_target which needs the bodycam fire-ray binding). Returns the
 -- stalker/monster whose MODEL the crosshair is over, or nil. This is the "are we aiming at
--- the model" fallback the FOV assist uses when its bone-cone can't catch a bone (too close,
--- or aiming at the mesh surface between the angularly-spread bone samples). Reuses the
+-- the model" fallback the FOV assist uses when its screen radius doesn't cover the target
+-- (too close, or aiming just off the projected silhouette). Reuses the
 -- shared _aim_ray pick object; rqtBoth so walls block; ignores the actor's own capsule.
 -- Assigns the forward-declared upvalue so find_nearest_in_fov (above) can call it.
 function aim_model_target(max_dist)
@@ -2036,62 +2059,6 @@ function aim_model_target(max_dist)
 		return nil
 	end
 	return obj
-end
-
--- Vertical lift samples (metres) for backing up a non-bip01 rig (monster) with a span
--- at its origin, shared by aim_angle_to_body and body_box_for.
-local MONSTER_SPAN = { 0.3, 0.9, 1.5 }
-
--- Angle (radians) between a ray (origin ox,oy,oz + UNIT dir dx,dy,dz) and a world point.
--- 0 when the point is essentially on the origin (dead-centre). Module-level so the
--- per-candidate sweeps don't allocate a fresh closure each call (hot path).
-local function ray_point_angle(ox, oy, oz, dx, dy, dz, px, py, pz)
-	local bx, by, bz = px - ox, py - oy, pz - oz
-	local m = math.sqrt(bx * bx + by * by + bz * bz)
-	if m < 0.01 then
-		return 0
-	end
-	local dot = (bx * dx + by * dy + bz * dz) / m
-	if dot > 1 then
-		dot = 1
-	elseif dot < -1 then
-		dot = -1
-	end
-	return math.acos(dot)
-end
-
--- Smallest angle (radians) from the aim ray to any sampled body point (head, torso,
--- pelvis, limbs -- so aiming anywhere on the entity counts), or nil. Angular analogue of
--- the old screen-distance test; a vertical span at the origin backs up monsters without bip01.
-function aim_angle_to_body(obj)
-	local o, dir = aim_ray_world()
-	if not o or not dir then
-		return nil
-	end
-	local ox, oy, oz = o.x, o.y, o.z
-	local dx, dy, dz = dir.x, dir.y, dir.z
-	local base = obj:position()
-	local best = nil
-	local found = false
-	for _, bone in ipairs(BODY_BONES) do
-		local p = safe_call(obj.bone_position, obj, bone)
-		if p and p:distance_to_sqr(base) < 16 then -- sane bone (within 4 m of origin)
-			found = true
-			local a = ray_point_angle(ox, oy, oz, dx, dy, dz, p.x, p.y, p.z)
-			if not best or a < best then
-				best = a
-			end
-		end
-	end
-	if not found then -- monster / non-bip01 rig: sample a vertical span at the origin
-		for _, lift in ipairs(MONSTER_SPAN) do
-			local a = ray_point_angle(ox, oy, oz, dx, dy, dz, base.x, base.y + lift, base.z)
-			if not best or a < best then
-				best = a
-			end
-		end
-	end
-	return best
 end
 
 -- The further away a target is (as a fraction of the CURRENT effective max
@@ -2760,7 +2727,8 @@ local function sweep_identify_in_fov(tg)
 	if C.require_binoculars and not tier_active() and not binoc then
 		return
 	end
-	local cone = aim_cone_rad()
+	local cx, cy = aim_center()
+	local radius = C.fov_radius or 90
 	local apos = db.actor:position()
 	local actor_id = db.actor:id()
 	pcall(level.iterate_nearest, apos, eff_max_dist, function(obj)
@@ -2768,10 +2736,10 @@ local function sweep_identify_in_fov(tg)
 			if safe_call(obj.alive, obj) then
 				local comm = safe_call(obj.character_community, obj)
 				if comm and comm ~= "" then
-					-- Inside the aim-assist cone (angle from the aim ray to any of the
-					-- target's body bones <= the cone), and visible.
-					local a = aim_angle_to_body(obj)
-					if a and a <= cone and has_los(obj) then
+					-- Inside the aim-assist screen radius (nearest body point within
+					-- fov_radius px of the aim point), and visible.
+					local d = screen_dist_to_body(obj, cx, cy)
+					if d and d <= radius and has_los(obj) then
 						identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, scan_mult, true)
 					end
 				end
@@ -2781,7 +2749,7 @@ local function sweep_identify_in_fov(tg)
 	end)
 
 	-- Fallback: also identify whatever the crosshair is directly on the MODEL of, in case the
-	-- cone missed it (too close, or aiming at the mesh between the angularly-spread bones).
+	-- radius missed it (too close, or aiming just off the silhouette).
 	local model = aim_model_target(eff_max_dist)
 	if model and (not C.require_los or has_los(model)) then
 		local comm = safe_call(model.character_community, model)
@@ -2829,11 +2797,13 @@ local function update_ads_dwell(tg)
 		_dwell.ads.armed = true
 		_dwell.ads.start = tg
 		_dwell.ads.last = 0
-		return
+		-- No early return: with ads_hold_time 0 the elapsed check below is already
+		-- satisfied, so identification fires on the SAME frame the target is acquired
+		-- (instant). A positive hold time isn't satisfied yet, so it waits as before.
 	end
 	-- Held long enough: identify (throttled). fov_assist on -> sweep everyone in the FOV
 	-- assist range; off -> just the target directly under the aim.
-	if (tg - _dwell.ads.start) >= (C.ads_hold_time or 0.6) * 1000 then
+	if (tg - _dwell.ads.start) >= (C.ads_hold_time or 0) * 1000 then
 		if tg - _dwell.ads.last >= STEADY_SWEEP_MS then
 			_dwell.ads.last = tg
 			if C.fov_assist then
@@ -2877,9 +2847,10 @@ local function update_hipfire_dwell(tg)
 		_dwell.hip.armed = true
 		_dwell.hip.start = tg
 		_dwell.hip.last = 0
-		return
+		-- No early return: with hipfire_hold_time 0 identification fires on the SAME frame
+		-- the target is acquired (instant); a positive hold time waits as before.
 	end
-	if (tg - _dwell.hip.start) >= (C.hipfire_hold_time or 1.0) * 1000 then
+	if (tg - _dwell.hip.start) >= (C.hipfire_hold_time or 0) * 1000 then
 		if tg - _dwell.hip.last >= STEADY_SWEEP_MS then
 			_dwell.hip.last = tg
 			if C.fov_assist then
@@ -3188,7 +3159,7 @@ end
 --     target is OUTSIDE max range (rejected for distance),
 --   * the distance (metres) to each candidate as text on it,
 --   * the radius value as text.
--- The test matches find_nearest_in_fov exactly (aim_angle_to_body vs aim_cone_rad),
+-- The test matches find_nearest_in_fov exactly (screen_dist_to_body vs fov_radius),
 -- so what you see is precisely what the assist tests. Pure debug: gated on
 -- C.debug_draw, iterates once per frame, dot/text pools reused (no per-frame alloc).
 function IiTags:draw_debug()
@@ -3230,14 +3201,7 @@ function IiTags:draw_debug()
 	end
 
 	local cx, cy = aim_center()
-	local cone = aim_cone_rad() -- assist tolerance, radians
-	-- Draw the cone as a screen ring at the CURRENT FOV: px = cone * 768 / fov_rad, so
-	-- the drawn circle matches the angular assist visually (unzoomed -> ~fov_radius px;
-	-- a non-PiP zoom grows it). It's an approximation under a PiP scope (the main camera
-	-- is the un-zoomed swayed view), but the actual test below is angular either way.
-	local dev = device and device()
-	local fov_rad = (dev and dev.fov and dev.fov > 0) and (dev.fov * math.pi / 180) or 1.047
-	local radius = cone * 768 / fov_rad
+	local radius = C.fov_radius or 90 -- assist tolerance: a straight screen-px ring
 	-- Use the EFFECTIVE max range (base * binoc/ADS boost, incl. scope magnification)
 	-- so the green/red range colouring matches what would actually identify right now.
 	local dbg_binoc, dbg_ads, _, eff_max = boost_params()
@@ -3267,8 +3231,8 @@ function IiTags:draw_debug()
 				and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj))
 				and safe_call(obj.alive, obj)
 			then
-				local ang = aim_angle_to_body(obj)
-				if ang and ang <= cone then
+				local sd = screen_dist_to_body(obj, cx, cy)
+				if sd and sd <= radius then
 					local base = obj:position()
 					local dist = math.sqrt(apos:distance_to_sqr(base))
 					-- Green in range, red out of range.
@@ -3329,11 +3293,9 @@ function IiTags:draw_debug()
 		d.aim:Show(true)
 	end
 
-	-- Radius value + the angular cone the assist actually uses, just above the ring.
+	-- Radius value, just above the ring.
 	if d.text then
-		d.text:SetText(
-			string.format("fov_radius %d  (cone %.2fdeg)", math.floor(C.fov_radius or 110), cone * 180 / math.pi)
-		)
+		d.text:SetText(string.format("fov_radius %d", math.floor(C.fov_radius or 90)))
 		d.text:SetTextColor(GetARGB(255, 255, 220, 40))
 		d.text:SetWndPos(P(math.floor(cx + 6), math.floor(cy - radius - 18)))
 		d.text:Show(true)
@@ -4867,7 +4829,9 @@ local function actor_on_update()
 
 	-- Snapshot the optional external tier system (WD compat) once for this frame. Every
 	-- override point reads _tier; nil = the addon isn't driving us -> normal behaviour.
-	if tier_provider then
+	-- wd_ignore is a master toggle: skip the provider entirely so the mod runs exactly as
+	-- if the Wearable Devices compat component were never installed (plain identification).
+	if tier_provider and not C.wd_ignore then
 		local ok, r = pcall(tier_provider)
 		_tier = (ok and type(r) == "table") and r or nil
 	else

@@ -206,30 +206,24 @@ non-actor, `IsStalker` or `IsMonster`, alive, have a non-empty
 space. Already-tracked targets are held as a runner-up and only returned if
 nothing else qualifies.
 
-**The assist is angular, not a screen ring** (the fix for PiP scopes). Instead of
-measuring screen distance to a projected aim point, it measures the **angle from
-the true aim ray** to the target:
+**The assist is a straight screen-pixel radius** around the aim point (no angular
+cone):
 
-- `aim_ray_world()` (1701) returns the fire ray `{origin, unit dir}` — the weapon
-  **barrel** ray under ADS, the first-eye ray otherwise (both from
-  `bodycam.get_fire_ray()`), falling back to `device().cam_pos/cam_dir` on a stock
-  engine. This is where the scope/gun actually points, not the swayed render camera.
-- `aim_angle_to_body(obj)` (1748) returns the smallest angle from that ray to any
-  sampled `BODY_BONES` point (head/torso/pelvis/limbs — so aiming anywhere on the
-  entity counts), via the module-level `ray_point_angle` helper; a vertical span at
-  the origin backs up non-`bip01` rigs (monsters).
-- `aim_cone_rad()` (1690) is the tolerance as a **constant real angle**:
-  `(fov_radius / 768) × baseline_fov`. A candidate matches when
-  `aim_angle_to_body(obj) ≤ aim_cone_rad()`.
+- `aim_center()` / `weapon_aim_ui()` give the aim point on screen — the weapon's real
+  aim point when free-aim assist is on and available, otherwise the fixed screen centre.
+- `screen_dist_to_body(obj, cx, cy)` returns the smallest screen-pixel distance from the
+  aim point to any sampled `BODY_BONES` point projected via `project_world` (head/torso/
+  pelvis/limbs — so aiming anywhere on the entity counts); a vertical span at the origin
+  backs up non-`bip01` rigs (monsters).
+- A candidate matches when `screen_dist_to_body(obj) ≤ fov_radius` (fov_radius in
+  1024×768 virtual px).
 
-Because it's an angle from the aim ray, the assist is **magnification-invariant** (a
-scope zooms the view, not the target's real angular size) and **sway-immune** (it
-doesn't go through the swayed render camera). At 1× it matches the old screen ring,
-so hip-fire feel is unchanged.
-
-`aim_center()` / `weapon_aim_ui()` (903 / 874) — the old screen-space aim-point
-projection — are now used **only by the debug visualiser** (`draw_debug`) and the
-aim-debug dump, not by target selection.
+When nothing falls inside the radius, `find_nearest_in_fov` falls back to
+`aim_model_target(max_dist)` — a mesh raycast along the true aim ray (`aim_ray_world()`
++ `ray_pick`, walls block) — so aiming directly at a target's model still identifies it
+even if it's too close, or the crosshair sits just off the projected silhouette. This is
+the same direct-aim pick used when FOV assist is off. (The earlier angular-cone approach
+was removed; the screen radius is simpler and fits this mod's use better.)
 
 ### 3.4 Scan-time computation
 
@@ -397,8 +391,8 @@ bodycam box edges → Simple 2 circle/triangle/bar), plus the debug dot/text poo
 (477/482) • `held_weapon_label` (533) • `relation_color/sign` (578/596) •
 `anchor_pos` (610) • `project_world` (623) • `screen_box` (691) • `has_los` (1230) •
 `find_nearest_in_fov` (1291) • `get_target_obj` (1465) • `is_binoc_active` (1571) •
-`is_ads_active` (1590) • `scope_magnification` (1647) • `aim_cone_rad` (1690) •
-`aim_ray_world` (1701) • `aim_angle_to_body` (1748) • `distance_scan_mult` (1788) •
+`is_ads_active` (1590) • `scope_magnification` (1647) • `screen_dist_to_body` •
+`aim_ray_world` • `aim_model_target` • `distance_scan_mult` (1788) •
 `rank_scan_mult` (1838) • `darkness_factor` (1881) • `perception_scan_mult` (1932) •
 `perception_hint_stats` (1968, exposed as a global for the Skill System tooltip) •
 `update_loot_xp` (2064) • `identify_target` (2097) • `boost_params` (2204) •
@@ -531,6 +525,7 @@ Listed in MCM display order (`ii_mcm.script`); ranges are `(min, max, step, prec
 | `debug_log` | check | false | — | write aim/trace diagnostics to a dedicated log file |
 | `debug_draw` | check | false | — | on-screen target-assist visualiser |
 | **Wearable Devices** (page `wdcompat`; only bites when the WD compat add-on is installed, §7.3) | | | | |
+| `wd_ignore` | check | false | — | master toggle: bypass the WD compat entirely (identify as if WD isn't installed); disables the rest of this page |
 | `wd_require_kit` | check | true | — | block identification entirely unless the full scanner kit is worn/assembled |
 | `wd_proc_t1/t2/t3` | track | 1.5 / 1.0 / 0.5 | 0.1, 5, 0.1, 1 | process-module tier base scan time (s) |
 | `wd_scan_t1/t2/t3` | track | 10 / 20 / 30 | 5, 100, 5 | scanner tier identify range (m) |
@@ -825,12 +820,11 @@ bodycam.get_fire_ray() -> {
 ```
 
 `freeaim_ray(source)` reads the ray — the weapon **barrel** ray (`bar_*`) under ADS,
-the first-eye ray otherwise. The angular target-assist consumes it **directly**:
-`aim_ray_world()` normalises it and `aim_angle_to_body()` measures the angle from it
-to each candidate (§3.3), so there is no screen projection in the hot path any more.
-(The old `weapon_aim_ui()` — projecting `pos + dir * FREEAIM_PROJECT_DIST` (100 m)
-through `world2ui` to a reticle screen point — and `aim_center()` survive only as
-the debug visualiser's aim marker.) The whole path is guarded by
+the first-eye ray otherwise. `aim_ray_world()` normalises it; it feeds
+`aim_model_target()` (the direct-aim mesh raycast — §3.3). `weapon_aim_ui()` projects
+`pos + dir * FREEAIM_PROJECT_DIST` (100 m) through `world2ui` to a reticle screen point,
+which `aim_center()` uses as the aim point the screen-radius target-assist measures from.
+The whole path is guarded by
 `rawget(_G,"bodycam")` and stays inert (falls back to the render camera / screen
 centre) until the binding exists — safe on every engine.
 
