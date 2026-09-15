@@ -1,0 +1,378 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<string_table>
+	<string id="ui_mcm_menu_ii"><text>Иммерсивная идентификация</text></string>
+	<string id="ui_mcm_menu_general"><text>Общие</text></string>
+	<string id="ui_mcm_menu_uistyle"><text>Стиль интерфейса</text></string>
+	<string id="ui_mcm_menu_bodycam"><text>Нагрудная камера</text></string>
+	<string id="ui_mcm_menu_crooks"><text>Бандиты</text></string>
+	<string id="ui_mcm_menu_targeting"><text>Наведение</text></string>
+	<string id="ui_mcm_menu_hipfire"><text>Стрельба от бедра</text></string>
+	<string id="ui_mcm_menu_binoc"><text>Бинокль</text></string>
+	<string id="ui_mcm_menu_ads"><text>Прицеливание</text></string>
+	<string id="ui_mcm_menu_pip"><text>Область прицела</text></string>
+	<string id="ui_mcm_menu_faceredact"><text>Скрытие лиц</text></string>
+	<string id="ui_mcm_menu_scantime"><text>Время сканирования</text></string>
+	<string id="ui_mcm_menu_debug"><text>Отладка</text></string>
+	<string id="ui_mcm_menu_wdcompat"><text>Носимые устройства</text></string>
+	<string id="ui_mcm_menu_colors"><text>Цвета</text></string>
+	<string id="ui_mcm_menu_main"><text>Основное</text></string>
+
+	<string id="ui_mcm_ii_title"><text>Иммерсивная идентификация</text></string>
+
+	<!-- Названия пресетов MCM (ui_mcm_prst_<id>), соответствующие разделам presets_ii.ltx. -->
+	<string id="ui_mcm_prst_ii_card"><text>Классическая карточка</text></string>
+	<string id="ui_mcm_prst_ii_minimal"><text>Минимальная точка</text></string>
+	<string id="ui_mcm_prst_ii_bodycam"><text>Тактическая нагрудная камера</text></string>
+	<string id="ui_mcm_prst_ii_immersive"><text>Иммерсивный режим (хардкор)</text></string>
+	<string id="ui_mcm_prst_ii_crooks"><text>Бандиты (мгновенно, все режимы)</text></string>
+
+	<string id="ui_mcm_ii_general_title"><text>Общие</text></string>
+	<string id="ui_mcm_ii_uistyle_title"><text>Стиль интерфейса</text></string>
+	<string id="ui_mcm_ii_bodycam_title"><text>Нагрудная камера</text></string>
+	<string id="ui_mcm_ii_crooks_title"><text>Бандиты</text></string>
+	<string id="ui_mcm_ii_targeting_title"><text>Наведение</text></string>
+	<string id="ui_mcm_ii_hipfire_title"><text>Стрельба от бедра</text></string>
+	<string id="ui_mcm_ii_instant_exclude_hipfire"><text>Исключить стрельбу от бедра из мгновенной идентификации</text></string>
+	<string id="ui_mcm_ii_instant_exclude_hipfire_desc"><text>При включённой мгновенной идентификации сохраняет обычное время сканирования при стрельбе от бедра (мгновенными остаются только прицеливание и бинокль). Не действует без мгновенной идентификации.</text></string>
+	<string id="ui_mcm_ii_instant_exclude_ads"><text>Исключить прицеливание из мгновенной идентификации</text></string>
+	<string id="ui_mcm_ii_instant_exclude_ads_desc"><text>При включённой мгновенной идентификации сохраняет обычное время сканирования при прицеливании. Не действует без мгновенной идентификации.</text></string>
+	<string id="ui_mcm_ii_instant_exclude_binoc"><text>Исключить бинокль из мгновенной идентификации</text></string>
+	<string id="ui_mcm_ii_instant_exclude_binoc_desc"><text>При включённой мгновенной идентификации сохраняет обычное время сканирования при наблюдении через бинокль. Не действует без мгновенной идентификации.</text></string>
+
+	<string id="ui_mcm_ii_enabled"><text>Включить идентификацию</text></string>
+	<string id="ui_mcm_ii_enabled_desc"><text>Главный переключатель включения и отключения.</text></string>
+
+	<string id="ui_mcm_ii_key"><text>Клавиша идентификации</text></string>
+	<string id="ui_mcm_ii_key_desc"><text>Нажмите, затем нажмите клавишу для назначения.</text></string>
+
+	<string id="ui_mcm_ii_modifier_index"><text>Модификатор</text></string>
+	<string id="ui_mcm_ii_modifier_index_desc"><text>Необязательная клавиша-модификатор, удерживаемая вместе с клавишей идентификации.</text></string>
+
+	<string id="ui_mcm_ii_ui_style"><text>Стиль интерфейса</text></string>
+	<string id="ui_mcm_ii_ui_style_desc"><text>Карточка (подробная информация), минимальный (точка цвета фракции со значком отношения) или нагрудная камера (контур цвета фракции, закреплённый на голове).</text></string>
+
+	<string id="ui_mcm_ii_box_area"><text>Область рамки нагрудной камеры</text></string>
+	<string id="ui_mcm_ii_box_area_desc"><text>Стиль нагрудной камеры: рисовать прямоугольный контур только вокруг головы и лица или вокруг всего тела.</text></string>
+	<string id="ii_uistyle_bodycam_box_area_lst_head"><text>Голова и лицо</text></string>
+	<string id="ii_uistyle_bodycam_box_area_lst_body"><text>Всё тело</text></string>
+
+	<string id="ui_mcm_ii_box_color_source"><text>Цвет рамки нагрудной камеры</text></string>
+	<string id="ui_mcm_ii_box_color_source_desc"><text>Стиль нагрудной камеры: окрашивать контур по фракции или по отношению (красный — враг, зелёный — союзник, серый — нейтральный).</text></string>
+	<string id="ii_uistyle_bodycam_box_color_source_lst_faction"><text>Цвет фракции</text></string>
+	<string id="ii_uistyle_bodycam_box_color_source_lst_relation"><text>Отношение (красный/зелёный/серый)</text></string>
+
+	<string id="ui_mcm_ii_box_thickness"><text>Толщина контура рамки</text></string>
+	<string id="ui_mcm_ii_box_thickness_desc"><text>Стиль нагрудной камеры: толщина краёв прямоугольного контура в пикселях.</text></string>
+
+	<string id="ui_mcm_ii_box_padding"><text>Отступ рамки</text></string>
+	<string id="ui_mcm_ii_box_padding_desc"><text>Стиль нагрудной камеры: дополнительное пространство вокруг модели, чтобы контур не прилегал вплотную. Доля размера рамки (0 = вплотную, 0,20 = на 20% больше с каждой стороны), поэтому размер сохраняет пропорции на любом расстоянии.</text></string>
+
+	<string id="ui_mcm_ii_box_opacity"><text>Прозрачность рамки</text></string>
+	<string id="ui_mcm_ii_box_opacity_desc"><text>Стиль нагрудной камеры: прозрачность прямоугольного контура (1 = полностью непрозрачный, меньшее значение = более прозрачный). Текст имени, фракции и оружия не изменяется.</text></string>
+
+	<string id="ui_mcm_ii_auto_identify"><text>Автоматически идентифицировать видимые цели</text></string>
+	<string id="ui_mcm_ii_auto_identify_desc"><text>Непрерывно идентифицировать каждую видимую цель в пределах дальности без нажатия клавиши. Линия обзора всегда обязательна. Хорошо сочетается со стилем нагрудной камеры.</text></string>
+	<string id="ui_mcm_ii_hipfire_mode"><text>Режим удержания цели при стрельбе от бедра</text></string>
+	<string id="ui_mcm_ii_hipfire_mode_desc"><text>Автоматически идентифицировать цель при стрельбе от бедра (не при прицеливании и не через бинокль), если цель удерживается в прицеле или в пределах вспомогательной области поля зрения, если она включена, в течение указанного ниже времени. Для игроков, которые не хотят нажимать клавишу и предпочитают идентификацию от бедра. Можно отслеживать движущуюся цель; прицеливание в пустое пространство ничего не делает.</text></string>
+	<string id="ui_mcm_ii_hipfire_hold_time"><text>Время удержания при стрельбе от бедра (с)</text></string>
+	<string id="ui_mcm_ii_hipfire_hold_time_desc"><text>Как долго цель должна находиться под прицелом от бедра или в пределах вспомогательной области поля зрения перед автоматической идентификацией. Установите 0 для мгновенной идентификации при наведении на цель без ожидания. По умолчанию 1,0 с.</text></string>
+
+	<string id="ui_mcm_ii_faceredact_title"><text>Скрытие лиц</text></string>
+	<string id="ui_mcm_ii_redact_face"><text>Скрывать лица</text></string>
+	<string id="ui_mcm_ii_redact_face_desc"><text>Накладывать искажение только на ЛИЦО каждого гуманоидного персонажа в пределах дальности — ЖИВОГО или мёртвого. Не зависит от идентификации — не нужно целиться в персонажа или идентифицировать его. Рамка располагается перед головой, над лицом. Требуется специальная сборка игрового движка с поддержкой нагрудной камеры; без неё функция не работает.</text></string>
+	<string id="ui_mcm_ii_redact_face_style"><text>Стиль скрытия</text></string>
+	<string id="ui_mcm_ii_redact_face_style_desc"><text>Способ скрытия лица: пикселизированная мозаика или сплошная чёрная рамка.</text></string>
+	<string id="ii_faceredact_redact_face_style_lst_pixelate"><text>Пикселизация</text></string>
+	<string id="ii_faceredact_redact_face_style_lst_black"><text>Чёрная рамка</text></string>
+	<string id="ui_mcm_ii_redact_face_padding"><text>Отступ скрытия лица</text></string>
+	<string id="ui_mcm_ii_redact_face_padding_desc"><text>Дополнительное пространство вокруг рамки лица в виде доли её размера (0 = вплотную к лицу, 0,15 = на 15% больше с каждой стороны).</text></string>
+	<string id="ui_mcm_ii_redact_range"><text>Дальность скрытия (м)</text></string>
+	<string id="ui_mcm_ii_redact_range_desc"><text>Дальность действия скрытия лиц. Не зависит от максимальной дальности идентификации — скрытие пассивно и может действовать дальше, чем дальность идентификации. Удалённое лицо перестаёт отображаться, когда его размер на экране становится примерно меньше одного пикселя.</text></string>
+	<string id="ui_mcm_ii_redact_strength"><text>Сила скрытия</text></string>
+	<string id="ui_mcm_ii_redact_strength_desc"><text>Общая интенсивность эффекта скрытия.</text></string>
+
+	<string id="ui_mcm_ii_color_by_relation"><text>Цвет по отношению</text></string>
+	<string id="ui_mcm_ii_color_by_relation_desc"><text>Окрашивать метку в зависимости от отношения к цели: красный — враг, зелёный — друг, бежевый — нейтральный.</text></string>
+
+	<string id="ui_mcm_ii_show_name"><text>Показывать имя</text></string>
+	<string id="ui_mcm_ii_show_name_desc"><text>Показывать строку с именем цели. Применяется ко всем стилям, отображающим текст (карточка и нагрудная камера).</text></string>
+
+	<string id="ui_mcm_ii_show_faction"><text>Показывать фракцию</text></string>
+	<string id="ui_mcm_ii_show_faction_desc"><text>Показывать строку с фракцией цели. Применяется ко всем стилям, отображающим текст (карточка и нагрудная камера).</text></string>
+
+	<string id="ui_mcm_ii_show_rank"><text>Показывать ранг</text></string>
+	<string id="ui_mcm_ii_show_rank_desc"><text>Показывать строку с рангом цели (карточка и нагрудная камера, а также под именем в отображении бандитов).</text></string>
+
+	<string id="ui_mcm_ii_show_weapon"><text>Показывать оружие и калибр</text></string>
+	<string id="ui_mcm_ii_show_weapon_desc"><text>Показывать текущее оружие цели и его калибр. Применяется ко всем стилям, отображающим текст (карточка и нагрудная камера).</text></string>
+
+	<string id="ui_mcm_ii_instant_identify"><text>Мгновенная идентификация</text></string>
+	<string id="ui_mcm_ii_instant_identify_desc"><text>Полностью пропускать ожидание сканирования и индикатор — метка появляется сразу после идентификации. Переопределяет задержку сканирования и все её модификаторы дальности, ранга и темноты.</text></string>
+	<string id="ui_mcm_ii_scan_time"><text>Задержка сканирования (с)</text></string>
+	<string id="ui_mcm_ii_scan_time_desc"><text>Как долго продолжается сканирование перед появлением метки.</text></string>
+
+	<string id="ui_mcm_ii_fade_time"><text>Длительность появления и исчезновения (с)</text></string>
+	<string id="ui_mcm_ii_fade_time_desc"><text>Продолжительность плавного появления и исчезновения метки.</text></string>
+
+	<string id="ui_mcm_ii_hold_time"><text>Время отображения идентификации (с)</text></string>
+	<string id="ui_mcm_ii_hold_time_desc"><text>Как долго метка остаётся полностью видимой после идентификации, пока цель остаётся в поле зрения; цели вне поля зрения исчезают раньше, см. «Убирать метку вне поля зрения».</text></string>
+
+	<string id="ui_mcm_ii_max_dist"><text>Максимальная дальность (м)</text></string>
+	<string id="ui_mcm_ii_max_dist_desc"><text>Максимальная дальность, на которой работает идентификация.</text></string>
+
+	<string id="ui_mcm_ii_fade_dist"><text>Дальность затухания (м)</text></string>
+	<string id="ui_mcm_ii_fade_dist_desc"><text>Расстояние, начиная с которого метка постепенно исчезает.</text></string>
+
+	<string id="ui_mcm_ii_fov_assist"><text>Помощь при выборе цели в поле зрения</text></string>
+	<string id="ui_mcm_ii_fov_assist_desc"><text>Если прямое попадание прицелом не достигнуто, идентифицировать ближайшую цель внутри вспомогательного круга на экране. Отключите, чтобы требовать прямого наведения на цель.</text></string>
+
+	<string id="ui_mcm_ii_freeaim_assist"><text>Помощь при свободном прицеливании</text></string>
+	<string id="ui_mcm_ii_freeaim_assist_desc"><text>Для режимов со свободным прицеливанием, например нагрудной камеры: центрировать помощь там, куда фактически направлен прицел, вместо центра экрана. Огнестрельное оружие работает на любом движке через трассировку оружия; ножу или поднятому биноклю требуется специальная привязка прицела движка нагрудной камеры. В остальных случаях функция безопасна — используется центр экрана.</text></string>
+
+	<string id="ui_mcm_ii_fov_radius"><text>Радиус помощи при выборе цели (пикс.)</text></string>
+	<string id="ui_mcm_ii_fov_radius_desc"><text>Допустимое отклонение при выборе цели без прямого попадания прицелом. Измеряется как угол от направления прицеливания, поэтому одинаково работает при стрельбе от бедра и через прицел с любым увеличением (0 = только прямое попадание).</text></string>
+
+	<string id="ui_mcm_ii_require_los"><text>Требовать линию обзора</text></string>
+	<string id="ui_mcm_ii_require_los_desc"><text>Выбирать только цели, которые действительно видны.</text></string>
+	<string id="ui_mcm_ii_hide_off_aim"><text>Показывать интерфейс только при наведении</text></string>
+	<string id="ui_mcm_ii_hide_off_aim_desc"><text>Показывать интерфейс идентификации цели только во время наведения на неё или рядом с ней в пределах радиуса поля зрения от точки прицеливания; при отведении взгляда интерфейс исчезает и появляется снова при наведении. Сама идентификация при этом завершается. По умолчанию выключено.</text></string>
+
+	<string id="ui_mcm_ii_hide_unseen"><text>Убирать метку вне поля зрения</text></string>
+	<string id="ui_mcm_ii_hide_unseen_desc"><text>Удалять активную метку сразу после того, как цель исчезает из поля зрения (за укрытием или за пределами экрана), вместо ожидания окончания времени отображения. Кратковременное перекрытие допускается; повторная идентификация или автоматическая идентификация возвращает метку.</text></string>
+
+	<string id="ui_mcm_ii_binocular_mode"><text>Режим бинокля</text></string>
+	<string id="ui_mcm_ii_binocular_mode_desc"><text>Также автоматически идентифицировать цель при устойчивом наведении через поднятый бинокль наряду с обычной клавишей.</text></string>
+
+	<string id="ui_mcm_ii_require_binoculars"><text>Требовать бинокль</text></string>
+	<string id="ui_mcm_ii_require_binoculars_desc"><text>Идентификация работает только при активном наблюдении через поднятый бинокль.</text></string>
+
+	<string id="ui_mcm_ii_steady_time"><text>Время устойчивого прицеливания (с)</text></string>
+	<string id="ui_mcm_ii_steady_time_desc"><text>Как долго необходимо удерживать прицел неподвижно перед автоматической идентификацией.</text></string>
+
+	<string id="ui_mcm_ii_fov_assist_binoc"><text>Помощь при выборе цели с биноклем</text></string>
+	<string id="ui_mcm_ii_fov_assist_binoc_desc"><text>Применяется ли помощь при выборе цели в поле зрения при наблюдении через поднятый бинокль. Отключите, чтобы при использовании бинокля требовалось прямое попадание прицелом.</text></string>
+
+	<string id="ui_mcm_ii_binoc_boost"><text>Усиление идентификации биноклем</text></string>
+	<string id="ui_mcm_ii_binoc_boost_desc"><text>Более быстрое обнаружение и увеличенная дальность при поднятом бинокле в любом режиме.</text></string>
+
+	<string id="ui_mcm_ii_binoc_scan_mult"><text>Множитель скорости сканирования биноклем</text></string>
+	<string id="ui_mcm_ii_binoc_scan_mult_desc"><text>Множитель скорости сканирования при поднятом бинокле.</text></string>
+
+	<string id="ui_mcm_ii_binoc_range_mult"><text>Множитель максимальной дальности бинокля</text></string>
+	<string id="ui_mcm_ii_binoc_range_mult_desc"><text>Множитель максимальной дальности и дальности затухания при поднятом бинокле. По умолчанию используется постоянный множитель или базовый множитель 1 при включённом параметре «Масштабировать дальность по увеличению» ниже.</text></string>
+	<string id="ui_mcm_ii_binoc_zoom_scaling"><text>Масштабировать дальность по увеличению</text></string>
+	<string id="ui_mcm_ii_binoc_zoom_scaling_desc"><text>Умножать дальность бинокля на его увеличение, чтобы дальность зависела от оптического увеличения, а не от постоянного множителя. Выкл. = постоянный «Множитель максимальной дальности бинокля». Вкл.: установите этот множитель на 1,0 для дальности = базовая дальность ? увеличение.</text></string>
+
+	<string id="ui_mcm_ii_ads_title"><text>Прицеливание</text></string>
+	<string id="ui_mcm_ii_ads_mode"><text>Режим прицеливания</text></string>
+	<string id="ui_mcm_ii_ads_mode_desc"><text>Автоматически идентифицировать цель при прицеливании, если она удерживается в прицеле или в пределах вспомогательной области поля зрения, если она включена, в течение указанного ниже времени, наряду с обычной клавишей. Можно отслеживать движущуюся цель; прицеливание в пустое пространство ничего не делает.</text></string>
+	<string id="ui_mcm_ii_ads_hold_time"><text>Время удержания прицела (с)</text></string>
+	<string id="ui_mcm_ii_ads_hold_time_desc"><text>Как долго в секундах цель должна находиться под прицелом или в пределах вспомогательной области поля зрения при прицеливании перед автоматической идентификацией. Установите 0 для мгновенной идентификации при наведении на цель без ожидания.</text></string>
+	<string id="ui_mcm_ii_ads_boost"><text>Усиление идентификации при прицеливании</text></string>
+	<string id="ui_mcm_ii_ads_boost_desc"><text>Более быстрое обнаружение и увеличенная дальность при прицеливании в любом режиме.</text></string>
+	<string id="ui_mcm_ii_ads_scan_mult"><text>Множитель скорости сканирования при прицеливании</text></string>
+	<string id="ui_mcm_ii_ads_scan_mult_desc"><text>Множитель скорости сканирования при прицеливании (меньше = быстрее).</text></string>
+	<string id="ui_mcm_ii_ads_range_mult"><text>Множитель максимальной дальности при прицеливании (база ?1)</text></string>
+	<string id="ui_mcm_ii_ads_range_mult_desc"><text>Множитель максимальной дальности и дальности затухания при прицеливании. Это база для прицела с увеличением ?1; прицелы с большим увеличением увеличивают дальность, если масштабирование по увеличению включено.</text></string>
+	<string id="ui_mcm_ii_ads_zoom_scaling"><text>Масштабировать дальность по увеличению прицела</text></string>
+	<string id="ui_mcm_ii_ads_zoom_scaling_desc"><text>Умножать дальность при прицеливании на увеличение прицела (?2, ?4 и т. д.), чтобы оптика с большим увеличением позволяла идентифицировать цели дальше. Работает с прицелами с отдельным изображением и, на движках без отдельного изображения прицела, использует поле зрения прицеливания. Открытые прицелы остаются близко к базовой дальности ?1.</text></string>
+	<string id="ui_mcm_ii_ads_hide_main"><text>Скрывать основной интерфейс при прицеливании</text></string>
+	<string id="ui_mcm_ii_ads_hide_main_desc"><text>При прицеливании подавлять все элементы основного изображения (метки идентификации и скрытие лиц), чтобы не загромождать обзор через прицел. Маркеры и скрытие внутри прицела, если они доступны, продолжают отображаться.</text></string>
+
+	<string id="ui_mcm_ii_pip_title"><text>Прицел с отдельным изображением</text></string>
+	<string id="ui_mcm_ii_pip_markers"><text>Маркеры идентификации в прицеле</text></string>
+	<string id="ui_mcm_ii_pip_markers_desc"><text>Отображать маркеры идентификации внутри линзы прицела с отдельным изображением. Требуется движок с поддержкой отдельного изображения; при отключении мод ведёт себя так, будто такой поддержки нет (обычный интерфейс, без маркеров внутри прицела).</text></string>
+	<string id="ui_mcm_ii_pip_redact"><text>Скрытие лиц в прицеле</text></string>
+	<string id="ui_mcm_ii_pip_redact_desc"><text>Также отображать эффект скрытия лиц мёртвых тел внутри линзы прицела с отдельным изображением. Не зависит от переключателя маркеров; скрытие в основном изображении не изменяется.</text></string>
+	<string id="ui_mcm_ii_pip_hide_main"><text>Скрывать основной интерфейс при поднятом прицеле</text></string>
+	<string id="ui_mcm_ii_pip_hide_main_desc"><text>При отображении прицела с отдельным изображением подавлять все элементы основного изображения (метки идентификации и скрытие лиц), оставляя только интерфейс внутри прицела.</text></string>
+
+	<string id="ui_mcm_ii_distance_scaling_title"><text>Размер карточки</text></string>
+
+	<string id="ui_mcm_ii_card_scale"><text>Масштаб карточки</text></string>
+	<string id="ui_mcm_ii_card_scale_desc"><text>Постоянный множитель размера всей карточки. Не зависит от расстояния.</text></string>
+
+	<string id="ui_mcm_ii_mini_scale_cutoff"><text>Порог минимального режима</text></string>
+	<string id="ui_mcm_ii_mini_scale_cutoff_desc"><text>Ниже этого масштаба показывать только точку отношения вместо полной карточки.</text></string>
+	<string id="ui_mcm_ii_mini_dist_scale"><text>Минимальный режим: масштабировать точку по расстоянию</text></string>
+	<string id="ui_mcm_ii_mini_dist_scale_desc"><text>В минимальном режиме (точка) изменять размер точки в зависимости от расстояния, чтобы точка дальней цели не была слишком большой (близко = больше, далеко = меньше). Выкл. = постоянный размер, как у других стилей.</text></string>
+	<string id="ui_mcm_ii_ui_offset_x"><text>Смещение интерфейса по горизонтали (пикс.)</text></string>
+	<string id="ui_mcm_ii_ui_offset_x_desc"><text>Горизонтальное смещение экранных элементов интерфейса (карточка, точка, рамка) в виртуальных пикселях. Отрицательное значение = влево.</text></string>
+	<string id="ui_mcm_ii_ui_offset_y"><text>Смещение интерфейса по вертикали (пикс.)</text></string>
+	<string id="ui_mcm_ii_ui_offset_y_desc"><text>Вертикальное смещение экранных элементов интерфейса (карточка, точка, рамка) в виртуальных пикселях. Отрицательное значение = вверх.</text></string>
+
+	<string id="ui_mcm_ii_binoc_title"><text>Бинокль</text></string>
+	<string id="ui_mcm_ii_dist_penalty_title"><text>Штраф за расстояние</text></string>
+
+	<string id="ui_mcm_ii_dist_penalty"><text>Расстояние замедляет идентификацию</text></string>
+	<string id="ui_mcm_ii_dist_penalty_desc"><text>Дальние цели требуют больше времени для сканирования.</text></string>
+
+	<string id="ui_mcm_ii_dist_penalty_max"><text>Максимальное замедление от расстояния</text></string>
+	<string id="ui_mcm_ii_dist_penalty_max_desc"><text>Множитель времени сканирования на максимальной дальности. Бинокль компенсирует это автоматически, увеличивая саму максимальную дальность.</text></string>
+
+	<string id="ui_mcm_ii_rank_penalty_title"><text>Штраф за ранг</text></string>
+
+	<string id="ui_mcm_ii_rank_penalty"><text>Ранг замедляет идентификацию</text></string>
+	<string id="ui_mcm_ii_rank_penalty_desc"><text>Опытных сталкеров требуется идентифицировать дольше, чем новичков.</text></string>
+
+	<string id="ui_mcm_ii_rank_penalty_max"><text>Максимальное замедление от ранга</text></string>
+	<string id="ui_mcm_ii_rank_penalty_max_desc"><text>Множитель времени сканирования для самого высокого ранга (легенда) по сравнению с новичком.</text></string>
+
+	<string id="ui_mcm_ii_night_penalty_title"><text>Штраф за ночь</text></string>
+
+	<string id="ui_mcm_ii_night_penalty"><text>Темнота замедляет идентификацию</text></string>
+	<string id="ui_mcm_ii_night_penalty_desc"><text>Цели сложнее различить в темноте; замедление постепенно увеличивается в сумерках и достигает максимума глубокой ночью (примерно в 0:00).</text></string>
+
+	<string id="ui_mcm_ii_night_penalty_max"><text>Максимальное замедление от темноты</text></string>
+	<string id="ui_mcm_ii_night_penalty_max_desc"><text>Множитель времени сканирования в самой тёмной точке ночи по сравнению с ярким дневным светом.</text></string>
+
+	<string id="ui_mcm_ii_familiarity_title"><text>Знакомство</text></string>
+
+	<string id="ui_mcm_ii_familiarity_boost"><text>Запоминать идентифицированных сталкеров</text></string>
+	<string id="ui_mcm_ii_familiarity_boost_desc"><text>Повторная идентификация уже знакомого человека выполняется быстрее.</text></string>
+
+	<string id="ui_mcm_ii_familiarity_scan_mult"><text>Множитель скорости для знакомой цели</text></string>
+	<string id="ui_mcm_ii_familiarity_scan_mult_desc"><text>Множитель времени сканирования для ранее идентифицированной цели.</text></string>
+
+	<string id="ui_mcm_ii_perception_title"><text>Система навыков (восприятие)</text></string>
+
+	<string id="ui_mcm_ii_perception_compat"><text>Интеграция навыка восприятия</text></string>
+	<string id="ui_mcm_ii_perception_compat_desc"><text>Идентификация становится быстрее при повышении уровня восприятия в системе навыков (требуется дополнительный компонент установщика).</text></string>
+
+	<string id="ui_mcm_ii_perception_scan_mult"><text>Бонус скорости за уровень</text></string>
+	<string id="ui_mcm_ii_perception_scan_mult_desc"><text>Сокращение времени сканирования за каждый уровень восприятия.</text></string>
+
+	<string id="ui_mcm_ii_perception_xp"><text>Опыт восприятия за идентификацию</text></string>
+	<string id="ui_mcm_ii_perception_xp_desc"><text>Опыт восприятия, получаемый при успешной идентификации.</text></string>
+
+	<string id="ui_mcm_ii_perception_loot_xp"><text>Опыт восприятия за добычу</text></string>
+	<string id="ui_mcm_ii_perception_loot_xp_desc"><text>Дополнительный опыт восприятия, получаемый при первом обыске тела, которое ранее было идентифицировано.</text></string>
+
+	<string id="ui_mcm_ii_debug_title"><text>Отладка</text></string>
+	<string id="ui_mcm_ii_debug_log"><text>Записывать отладку прицеливания</text></string>
+	<string id="ui_mcm_ii_debug_log_desc"><text>Записывать диагностику прицеливания и трассировки в журнал игры при каждой попытке идентификации. Используется для поиска проблем с выбором цели при свободном прицеливании. Обычно оставлять выключенным.</text></string>
+	<string id="ui_mcm_ii_debug_draw"><text>Отладочная отрисовка</text></string>
+	<string id="ui_mcm_ii_debug_draw_desc"><text>Экранный визуализатор помощи при выборе цели: КРАСНАЯ точка показывает текущую точку прицеливания, ЖЁЛТОЕ кольцо показывает радиус помощи (радиус поля зрения с его значением в виде текста), а точки на костях каждой сущности, тело которой находится внутри кольца, окрашиваются в ЗЕЛЁНЫЙ цвет при нахождении в пределах дальности идентификации или в КРАСНЫЙ, если цель находится дальше максимальной дальности. Рядом также отображается расстояние до цели в метрах. Дополнительно показываются текущее увеличение прицела и эффективная максимальная дальность (базовая дальность, увеличенная усилением бинокля или прицеливания). Используется для настройки радиуса поля зрения, максимальной дальности и диагностики выбора цели. Обычно оставлять выключенным.</text></string>
+	<string id="ui_mcm_ii_debug_sim_stock"><text>Имитировать стандартный движок (игнорировать специальные привязки)</text></string>
+	<string id="ui_mcm_ii_debug_sim_stock_desc"><text>ТЕСТИРОВАНИЕ: заставляет мод работать так, будто специальные привязки движка (свободное прицеливание нагрудной камеры, скрытие лиц, маркеры внутри прицела и увеличение отдельного изображения) не были скомпилированы, поэтому используются стандартные резервные функции. Позволяет тестировать мод на стандартном исполняемом файле без копирования специального. Не влияет на стандартные привязки (трассировка оружия, лучевая проверка). Для обычной игры оставлять выключенным.</text></string>
+
+	<!-- Идентификаторы содержимого списков: MCM определяет каждый элемент выпадающего списка modifier_index как
+	     "<page>_<option>_lst_" + исходная метка из ii_identify.MODIFIER_LIST,
+	     например "ii_general_modifier_index_lst_none" для элемента "none". -->
+	<string id="ii_general_modifier_index_lst_none"><text>Нет</text></string>
+	<string id="ii_general_modifier_index_lst_ctrl"><text>Контрол</text></string>
+	<string id="ii_general_modifier_index_lst_shift"><text>Шифт</text></string>
+	<string id="ii_general_modifier_index_lst_alt"><text>Альт</text></string>
+
+	<string id="ii_uistyle_general_ui_style_lst_card"><text>Карточка</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_minimal"><text>Минимальный</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_bodycam"><text>Нагрудная камера</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_simple2"><text>Простой 2</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_simple"><text>Простой</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_crooks"><text>Бандиты</text></string>
+	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_left"><text>Снизу слева</text></string>
+	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_middle"><text>Снизу по центру</text></string>
+	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_right"><text>Снизу справа</text></string>
+	<string id="ui_mcm_ii_crooks_pos"><text>Бандиты: положение на экране</text></string>
+	<string id="ui_mcm_ii_crooks_pos_desc"><text>В каком углу экрана закрепляется отображение бандитов (ФРАКЦИЯ | ИМЯ последнего идентифицированного сталкера). Точная настройка выполняется с помощью смещений по горизонтали и вертикали ниже.</text></string>
+	<string id="ui_mcm_ii_crooks_x"><text>Бандиты: смещение по горизонтали</text></string>
+	<string id="ui_mcm_ii_crooks_x_desc"><text>Горизонтальное смещение отображения бандитов относительно точки привязки (+ = вправо).</text></string>
+	<string id="ui_mcm_ii_crooks_y"><text>Бандиты: смещение по вертикали</text></string>
+	<string id="ui_mcm_ii_crooks_y_desc"><text>Вертикальное смещение отображения бандитов относительно нижней точки привязки (+ = вверх).</text></string>
+
+	<!-- Названия фракций, отображаемые непосредственно на плавающей метке. -->
+	<string id="st_ii_faction_stalker"><text>Одиночки</text></string>
+	<string id="st_ii_faction_bandit"><text>Бандиты</text></string>
+	<string id="st_ii_faction_dolg"><text>Долг</text></string>
+	<string id="st_ii_faction_freedom"><text>Свобода</text></string>
+	<string id="st_ii_faction_csky"><text>Чистое Небо</text></string>
+	<string id="st_ii_faction_ecolog"><text>Учёные</text></string>
+	<string id="st_ii_faction_killer"><text>Наёмники</text></string>
+	<string id="st_ii_faction_military"><text>Военные</text></string>
+	<string id="st_ii_faction_monolith"><text>Монолит</text></string>
+	<string id="st_ii_faction_renegade"><text>Отступники</text></string>
+	<string id="st_ii_faction_zombied"><text>Зомбированные</text></string>
+	<string id="st_ii_faction_greh"><text>Грех</text></string>
+	<string id="st_ii_faction_trader"><text>Торговец</text></string>
+	<string id="st_ii_faction_monster"><text>Мутант</text></string>
+	<string id="st_ii_faction_isg"><text>Объединённая группа</text></string>
+	<string id="st_ii_faction_arena"><text>Арена</text></string>
+
+	<string id="ui_mcm_ii_wdcompat_title"><text>Носимые устройства</text></string>
+	<string id="ui_mcm_ii_wd_ignore"><text>Полностью игнорировать носимые устройства</text></string>
+	<string id="ui_mcm_ii_wd_ignore_desc"><text>Главный переключатель: при включении вся интеграция носимых устройств обходится, а идентификация работает так, будто этот компонент совместимости никогда не устанавливался (без комплекта сканера, без уровней, обычная идентификация сущностей). Все остальные параметры этой страницы не действуют, пока функция включена.</text></string>
+	<string id="ui_mcm_ii_wd_require_kit"><text>Требовать комплект сканера для идентификации</text></string>
+	<string id="ui_mcm_ii_wd_require_kit_desc"><text>При установленной совместимости с носимыми устройствами блокировать ВСЮ идентификацию, если полный комплект не надет и не собран (сканер надет + антенный модуль «Промин» + технологический модуль). Выкл. = идентификация продолжает работать обычно, когда комплект неполный, а уровни только улучшают её при надетом комплекте. Действует только при установленном модуле носимых устройств и компоненте совместимости.</text></string>
+	<string id="ui_mcm_ii_wd_proc_title"><text>- Технологический модуль: время сканирования по уровню (с) -</text></string>
+	<string id="ui_mcm_ii_wd_proc_t1"><text>Время сканирования уровня 1 (с)</text></string>
+	<string id="ui_mcm_ii_wd_proc_t1_desc"><text>Базовое время сканирования с технологическим модулем уровня 1. По умолчанию 1,5 с.</text></string>
+	<string id="ui_mcm_ii_wd_proc_t2"><text>Время сканирования уровня 2 (с)</text></string>
+	<string id="ui_mcm_ii_wd_proc_t2_desc"><text>Базовое время сканирования с технологическим модулем уровня 2. По умолчанию 1,0 с.</text></string>
+	<string id="ui_mcm_ii_wd_proc_t3"><text>Время сканирования уровня 3 (с)</text></string>
+	<string id="ui_mcm_ii_wd_proc_t3_desc"><text>Базовое время сканирования с технологическим модулем уровня 3. По умолчанию 0,5 с.</text></string>
+	<string id="ui_mcm_ii_wd_scan_title"><text>- Сканер: дальность идентификации по уровню (м) -</text></string>
+	<string id="ui_mcm_ii_wd_scan_t1"><text>Дальность уровня 1 (м)</text></string>
+	<string id="ui_mcm_ii_wd_scan_t1_desc"><text>Дальность идентификации со сканером уровня 1. По умолчанию 10 м.</text></string>
+	<string id="ui_mcm_ii_wd_scan_t2"><text>Дальность уровня 2 (м)</text></string>
+	<string id="ui_mcm_ii_wd_scan_t2_desc"><text>Дальность идентификации со сканером уровня 2. По умолчанию 20 м.</text></string>
+	<string id="ui_mcm_ii_wd_scan_t3"><text>Дальность уровня 3 (м)</text></string>
+	<string id="ui_mcm_ii_wd_scan_t3_desc"><text>Дальность идентификации со сканером уровня 3. По умолчанию 30 м.</text></string>
+	<string id="ui_mcm_ii_wd_feat_title"><text>- Уровень технологического модуля, открывающий каждую функцию данных -</text></string>
+	<string id="ui_mcm_ii_wd_feat_faction"><text>Уровень открытия фракции</text></string>
+	<string id="ui_mcm_ii_wd_feat_faction_desc"><text>Какой уровень технологического модуля показывает фракцию цели. По умолчанию уровень 1.</text></string>
+	<string id="ui_mcm_ii_wd_feat_distance"><text>Уровень открытия расстояния</text></string>
+	<string id="ui_mcm_ii_wd_feat_distance_desc"><text>Какой уровень технологического модуля показывает расстояние до цели. По умолчанию уровень 1.</text></string>
+	<string id="ui_mcm_ii_wd_feat_relationship"><text>Уровень открытия отношения</text></string>
+	<string id="ui_mcm_ii_wd_feat_relationship_desc"><text>Какой уровень технологического модуля показывает отношение (друг, враг, нейтральный). По умолчанию уровень 2.</text></string>
+	<string id="ui_mcm_ii_wd_feat_rank"><text>Уровень открытия ранга</text></string>
+	<string id="ui_mcm_ii_wd_feat_rank_desc"><text>Какой уровень технологического модуля показывает ранг цели. По умолчанию уровень 2.</text></string>
+	<string id="ui_mcm_ii_wd_feat_weapon"><text>Уровень открытия оружия</text></string>
+	<string id="ui_mcm_ii_wd_feat_weapon_desc"><text>Какой уровень технологического модуля показывает оружие и калибр цели. По умолчанию уровень 3.</text></string>
+	<string id="ui_mcm_ii_wd_scanner_title"><text>- Уровень сканера, открывающий каждую функцию -</text></string>
+	<string id="ui_mcm_ii_wd_scanner_binoc"><text>Уровень поддержки бинокля</text></string>
+	<string id="ui_mcm_ii_wd_scanner_binoc_desc"><text>Какой уровень сканера позволяет идентифицировать цели через поднятый бинокль (увеличивает дальность идентификации согласно множителю дальности бинокля). Применяется как к каналу автоматического распознавания, так и к каналу отображения на экране. По умолчанию уровень 1.</text></string>
+	<string id="ui_mcm_ii_wd_scanner_ads"><text>Уровень поддержки прицела</text></string>
+	<string id="ui_mcm_ii_wd_scanner_ads_desc"><text>Какой уровень сканера позволяет идентифицировать цели при прицеливании и через прицел. По умолчанию уровень 2.</text></string>
+	<string id="ui_mcm_ii_wd_scanner_mag"><text>Уровень усиления увеличения</text></string>
+	<string id="ui_mcm_ii_wd_scanner_mag_desc"><text>Какой уровень сканера включает увеличение дальности по увеличению прицела. При большем увеличении дальность становится больше. По умолчанию уровень 2.</text></string>
+	<string id="ui_mcm_ii_wd_scanner_nonight"><text>Уровень отмены штрафа за ночь</text></string>
+	<string id="ui_mcm_ii_wd_scanner_nonight_desc"><text>Какой уровень сканера полностью убирает штраф времени сканирования из-за темноты. По умолчанию уровень 3.</text></string>
+
+	<string id="ui_mcm_ii_colors_title"><text>Цвета</text></string>
+	<string id="ui_mcm_ii_custom_colors"><text>Использовать пользовательские цвета</text></string>
+	<string id="ui_mcm_ii_custom_colors_desc"><text>Заменить встроенные цвета фракций, рангов и отношений собственными значениями красного, зелёного и синего каналов ниже. Выкл. = использовать стандартные цвета мода (ползунки игнорируются). Применяется без перезапуска.</text></string>
+	<string id="ui_mcm_ii_col_ch_r"><text>Красный</text></string>
+	<string id="ui_mcm_ii_col_ch_g"><text>Зелёный</text></string>
+	<string id="ui_mcm_ii_col_ch_b"><text>Синий</text></string>
+	<string id="ui_mcm_ii_colgrp_rel"><text>- Цвета отношений -</text></string>
+	<string id="ui_mcm_ii_colgrp_fac"><text>- Цвета фракций -</text></string>
+	<string id="ui_mcm_ii_colgrp_rank"><text>- Цвета рангов -</text></string>
+	<string id="ui_mcm_ii_col_rel_enemy"><text>Враг</text></string>
+	<string id="ui_mcm_ii_col_rel_friend"><text>Дружелюбный</text></string>
+	<string id="ui_mcm_ii_col_rel_neutral"><text>Нейтральный</text></string>
+	<string id="ui_mcm_ii_col_fac_stalker"><text>Одиночка</text></string>
+	<string id="ui_mcm_ii_col_fac_bandit"><text>Бандит</text></string>
+	<string id="ui_mcm_ii_col_fac_dolg"><text>Долг</text></string>
+	<string id="ui_mcm_ii_col_fac_freedom"><text>Свобода</text></string>
+	<string id="ui_mcm_ii_col_fac_csky"><text>Чистое Небо</text></string>
+	<string id="ui_mcm_ii_col_fac_ecolog"><text>Учёные</text></string>
+	<string id="ui_mcm_ii_col_fac_killer"><text>Наёмники</text></string>
+	<string id="ui_mcm_ii_col_fac_military"><text>Военные</text></string>
+	<string id="ui_mcm_ii_col_fac_monolith"><text>Монолит</text></string>
+	<string id="ui_mcm_ii_col_fac_renegade"><text>Отступники</text></string>
+	<string id="ui_mcm_ii_col_fac_zombied"><text>Зомбированные</text></string>
+	<string id="ui_mcm_ii_col_fac_greh"><text>Грех</text></string>
+	<string id="ui_mcm_ii_col_fac_trader"><text>Торговец</text></string>
+	<string id="ui_mcm_ii_col_fac_monster"><text>Мутант</text></string>
+	<string id="ui_mcm_ii_col_fac_isg"><text>Объединённая группа</text></string>
+	<string id="ui_mcm_ii_col_fac_arena"><text>Арена</text></string>
+	<string id="ui_mcm_ii_col_rank_novice"><text>Новичок</text></string>
+	<string id="ui_mcm_ii_col_rank_trainee"><text>Стажёр</text></string>
+	<string id="ui_mcm_ii_col_rank_experienced"><text>Опытный</text></string>
+	<string id="ui_mcm_ii_col_rank_professional"><text>Профессионал</text></string>
+	<string id="ui_mcm_ii_col_rank_veteran"><text>Ветеран</text></string>
+	<string id="ui_mcm_ii_col_rank_expert"><text>Эксперт</text></string>
+	<string id="ui_mcm_ii_col_rank_master"><text>Мастер</text></string>
+	<string id="ui_mcm_ii_col_rank_legend"><text>Легенда</text></string>
+
+</string_table>

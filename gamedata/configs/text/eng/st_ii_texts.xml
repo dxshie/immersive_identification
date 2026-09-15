@@ -226,6 +226,14 @@
 	<string id="ui_mcm_ii_night_penalty_max"><text>Max darkness slowdown</text></string>
 	<string id="ui_mcm_ii_night_penalty_max_desc"><text>Scan time multiplier at the darkest point of the night, vs. broad daylight.</text></string>
 
+	<string id="ui_mcm_ii_weight_penalty_title"><text>Weight Penalty</text></string>
+	<string id="ui_mcm_ii_weight_penalty"><text>Held-item weight penalty</text></string>
+	<string id="ui_mcm_ii_weight_penalty_desc"><text>The heavier the item you're currently holding, the longer identification takes -- a heavy weapon is harder to hold steady enough to read a target. Uses the item's inventory weight. Off by default.</text></string>
+	<string id="ui_mcm_ii_weight_penalty_max"><text>Max weight slowdown</text></string>
+	<string id="ui_mcm_ii_weight_penalty_max_desc"><text>Scan time multiplier when holding an item at (or above) the reference weight, vs. a weightless item.</text></string>
+	<string id="ui_mcm_ii_weight_penalty_ref"><text>Reference weight (kg)</text></string>
+	<string id="ui_mcm_ii_weight_penalty_ref_desc"><text>Held-item weight (kg) at which the penalty reaches its maximum; lighter items scale down linearly toward no penalty at 0. E.g. 6 kg maxes the slowdown for a heavy weapon while a pistol stays light.</text></string>
+
 	<string id="ui_mcm_ii_familiarity_title"><text>Familiarity</text></string>
 
 	<string id="ui_mcm_ii_familiarity_boost"><text>Remember identified stalkers</text></string>

@@ -142,6 +142,9 @@ DEFAULTS = {
 	familiarity_scan_mult = 0.6, -- scan time multiplier for a previously-identified target
 	night_penalty = true, -- identification is slower in the dark, ramping up over dusk and peaking across midnight (0:00)
 	night_penalty_max = 2.0, -- scan time multiplier at the darkest point of the night
+	weight_penalty = false, -- the heavier the item you're HOLDING, the longer identification takes (a heavy weapon is harder to hold steady enough to read a target). Off by default.
+	weight_penalty_max = 2.0, -- scan time multiplier at (or above) the reference weight
+	weight_penalty_ref = 6.0, -- kg: held-item weight at which the penalty is maxed; lighter items ramp linearly down to 1x at 0
 	show_weapon = true, -- show the target's currently-wielded weapon + caliber line (card + bodycam)
 	debug_log = false, -- write aim/trace diagnostics to the game log on each identify attempt
 	debug_draw = false, -- on-screen target-assist visualiser: aim dot, FOV ring, in-ring bone dots
@@ -2134,6 +2137,40 @@ local function night_scan_mult()
 end
 
 -- --------------------------------------------------------------------------
+-- Weight penalty: the heavier the item you're HOLDING, the harder it is to keep the aim steady
+-- enough to read a target, so the scan takes longer. Actor-side (your gear), unlike the
+-- distance/rank penalties which are target-side. Linear ramp: 1x at 0 kg up to
+-- weight_penalty_max at (>=) weight_penalty_ref kg. Reads the held item's configured inv_weight
+-- from ini_sys (deterministic and menu-independent; the game_object weight binding varies across
+-- exes, and inv_weight is a universal item field). No held item / no weight field -> no penalty.
+-- --------------------------------------------------------------------------
+local function weight_scan_mult()
+	if not C.weight_penalty or not db.actor or not ini_sys then
+		return 1
+	end
+	local item = safe_call(db.actor.active_item, db.actor)
+	if not item then
+		return 1
+	end
+	local sec = safe_call(item.section, item)
+	if not sec or sec == "" then
+		return 1
+	end
+	local w = safe_call(ini_sys.r_float, ini_sys, sec, "inv_weight")
+	if not w or w <= 0 then
+		return 1
+	end
+	local ref = math.max(0.1, C.weight_penalty_ref or 6.0)
+	local t = w / ref
+	if t > 1 then
+		t = 1
+	elseif t < 0 then
+		t = 0
+	end
+	return 1 + (C.weight_penalty_max - 1) * t
+end
+
+-- --------------------------------------------------------------------------
 -- Skill System (haru_skills) compatibility: identification gets faster the
 -- higher the actor's "perception" skill level is. Soft dependency throughout
 -- -- the Skill System mod may not be installed at all, and even when it is,
@@ -2355,11 +2392,11 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 	-- stalker is), then the ambient darkness, then actor-side mitigation on
 	-- top: distance penalty scales against eff_max_dist (already widened when
 	-- boosted, mitigating the penalty for free), rank penalty scales with the
-	-- target's own rank, the night penalty scales with how dark it currently
-	-- is, the flat binoc_scan_mult speed boost applies next, then the actor's
-	-- perception skill level (if the Skill System integration is present)
-	-- shaves a further fraction off, and finally familiarity (below) discounts
-	-- a target you've identified before.
+	-- target's own rank, the weight penalty scales with the item YOU'RE holding,
+	-- the night penalty scales with how dark it currently is, the flat
+	-- binoc_scan_mult speed boost applies next, then the actor's perception skill
+	-- level (if the Skill System integration is present) shaves a further fraction
+	-- off, and finally familiarity (below) discounts a target you've identified before.
 	local eff_scan_ms
 	if tier_active() then
 		-- Tier system (WD compat): the process-module tier sets a FIXED base scan time;
@@ -2372,6 +2409,7 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 	else
 		eff_scan_ms = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max_dist))
 		eff_scan_ms = math.floor(eff_scan_ms * rank_scan_mult(obj))
+		eff_scan_ms = math.floor(eff_scan_ms * weight_scan_mult())
 		eff_scan_ms = math.floor(eff_scan_ms * night_scan_mult())
 		if boosted then
 			eff_scan_ms = math.floor(eff_scan_ms * (scan_mult or 1.0))

@@ -395,6 +395,13 @@ ini_sys = {}
 ---@return string
 function ini_sys:r_string(section, field) end
 
+--- Reads a float field from a section (e.g. inv_weight). Throws (SAFE-guard at
+--- call sites) if the section/field is missing. script_ini_file_script.cpp.
+---@param section string
+---@param field string
+---@return number
+function ini_sys:r_float(section, field) end
+
 --- True if the given section exists. script_ini_file_script.cpp:189.
 ---@param section string
 ---@return boolean

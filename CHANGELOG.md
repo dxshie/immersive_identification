@@ -1,203 +1,109 @@
 # Changelog
 
-## Unreleased
+## 3.1.0 — everything since 2.53.0
 
-- The **Wearable Devices** MCM page is now **hidden unless the optional WD compat component is
-  installed** — detected via the component's shipped `[ii_wd_antenna]` system-ltx section,
-  which is available both in the main menu and in-game (the earlier `rawget` script check read
-  empty in the main menu, since gameplay scripts aren't loaded there). Without the component
-  the tier system never runs anyway, so the page was just inert settings.
+Summarizes changes from **v2.53.0** to **v3.1.0**, grouped by area (final behaviour, not
+per-edit). Features marked **(custom exe)** need the companion `xray-monolith-bodycam` engine
+build; everything else works on stock Anomaly / GAMMA and stays inert when a binding is absent.
+The big-ticket items are two new UI styles, free-aim identification for *every* held item, a
+restructured MCM, and a full **Wearable Devices** compatibility add-on (its own section below).
 
-- **Fixed: Hipfire auto-identify silently stopped working** after Hipfire got its own MCM
-  page — its options weren't in the page-path list `read_config` scans, so they always read
-  their (off) defaults. Restored.
-- **Fixed: UI-style dropdown values (and Bodycam/Crooks list options) showed raw string ids**
-  after the UI Style page became nested — the list-entry string ids are path-derived and moved
-  with the options. Renamed to the new nested paths.
+### New UI styles
+- **Crooks** — instead of world-anchored tags, a single **static on-screen readout** of the
+  **last identified** stalker: faction **logo** + name, with the **rank** optionally below it.
+  Anchors to a screen corner (bottom-left / middle / right) with X/Y offset sliders. It follows
+  your gaze (re-aiming a known target re-points to it) and respects the identification linger.
+- **Simple** — a compact horizontal strip above the head: relation-coloured dot + glow, then
+  the faction logo, then the name.
 
-- **UI Style is now an expandable MCM section** with **General / Bodycam / Crooks** sub-pages
-  (shown in MCM's third column) — the box-outline settings live under **Bodycam**, the
-  screen-position/offset settings under **Crooks**, and the rest under **General**.
+### Free-aim identification (now works for every held item)
+- Aiming with a **firearm** uses the standard engine weapon trace (`ETraceTarget.Weapon`),
+  which is barrel-accurate and now works on **any** exe — including stock xray-monolith. (This
+  had been silently dead: `ETraceTarget` is a global enum we were reading under `level`.)
+- **Knife / raised binoculars** have no real weapon barrel, so they fall back to the actor's
+  first-eye aim camera via `bodycam.get_fire_ray()`. **(custom exe** for knife/binoc only;
+  firearms work everywhere.)
 
-- **Fixed: binocular "scale by magnification" read the wrong zoom.** It now uses the
-  binocular's **real magnification** (e.g. 1.7–4.4×): the SVP/PiP engine value read directly
-  (bypassing the `is_svp_active` scope-gate, which flickered false for binoculars and dropped
-  it onto the wrong source), else the camera-FOV ratio as-is — so the applied range multiplier
-  matches the magnification shown on the debug line. With the option **off**, it uses the flat
-  max-distance multiplier (`binoc_range_mult`) as before.
-- New **per-mode "exclude from instant identify"** toggles (Hipfire / ADS / Binoculars pages):
-  when Instant identify is on, keep the normal scanning wait for the excluded mode(s) — e.g.
-  instant hip-fire but a scan delay through binoculars.
-- **Hipfire** options moved to their own MCM page (were on the Targeting page).
-- New debug toggle **"Simulate stock engine (ignore custom bindings)"** (Debug page): makes the
-  mod behave as if the custom bodycam/SVP engine bindings aren't present, so you can test the
-  stock-engine fallbacks without copying the custom exe.
+### Target assist
+- **Reverted to a straight screen-radius assist** (the 2.53 angular cone is gone): a target is
+  acquired when its nearest body point projects within `fov_radius` px of the aim point.
+- **Aiming directly at a stalker always identifies them now** — a direct **model raycast**
+  ("what the crosshair is on") takes priority over a merely-nearby target, fixing the case
+  where a tight radius or aiming between bones let another target steal the pick.
+- New **"Only show overlay while aimed"** toggle (default off): overlays show only while you're
+  aiming at/near the target and reappear when you aim back; identification still completes.
 
-- **Fixed: the Crooks readout wouldn't re-show the first target when looking back and forth.**
-  The last-identified snapshot was captured once per target (on scan completion), so re-aiming
-  an already-identified stalker never re-pointed it — and Crooks (which draws only that
-  snapshot, no per-entity tag) stayed stuck on the last *new* scan. The Crooks readout now
-  follows your gaze: re-aiming an identified target re-points to it. (Other styles were fine —
-  they redraw each target's own tag.)
-- **Crooks** can now show the stalker **rank** below the name (gated by the new **Show rank**
-  toggle).
-- New **Show rank** toggle (UI Style page, default on) — gates the rank line on Card / Bodycam
-  and the Crooks readout, matching Show name / faction / weapon.
-- **Fade duration can now be set to 0** (instant reveal + instant fade-out; the fade math is
-  divide-by-zero-safe at 0).
-- **Fixed: re-aiming a faded-out tag popped in instantly instead of fading.** Going back and
-  forth between targets, a tag still lingering in its fade-out now restarts its fade-*in*
-  (respecting fade duration) rather than snapping to full; a tag still in hold just refreshes
-  (no flicker while continuously viewed).
+### New identify modes & timing
+- **Hipfire dwell mode** (its own MCM page): auto-identify a target held under your hip-fire
+  aim for a configurable hold time — no keypress.
+- **Per-mode "exclude from instant identify"** toggles (Hipfire / ADS / Binoculars): with
+  Instant identify on, keep the normal scan wait for a chosen mode (e.g. instant hip-fire but a
+  delay through binoculars).
+- **Hold times and fade duration can now be 0** — ADS / hipfire / binocular dwell can identify
+  the instant you aim; fade duration 0 gives an instant reveal.
+- Re-aiming a **faded-out** tag now restarts its **fade-in** (respecting fade duration) instead
+  of popping in at full alpha.
 
-- **Fixed: aiming directly at a stalker sometimes wouldn't identify** (and would only work
-  after looking at others and back). The FOV assist selects the target whose nearest *bone*
-  falls within `fov_radius`, so with a tight radius — or aiming at the model *between* the
-  sampled bones — a merely-nearby other target could win selection instead of the one you're
-  pointed at. Target selection now prioritises a **direct model raycast** ("what the crosshair
-  is actually on") above the nearby-in-cone pick, so aiming straight at someone always
-  identifies them. The **"Only show overlay while aimed"** gate honours the same direct-model
-  hit, and the **Crooks** readout with it.
+### Binoculars
+- Fixed the identify-range boost blowing far past the intended distance. With **scale by
+  magnification** on, the range now tracks the binocular's **real current magnification**
+  (~1.7–4.4×, from the SVP/PiP engine value, read directly so it isn't dropped by a flickering
+  scope gate); **off**, it uses the flat max-distance multiplier as before.
 
-- New **"Crooks" MCM preset**: instant identify in **all** modes (hipfire / ADS / binoculars,
-  hold times = 0) with the **Crooks** UI, FOV assist + free aim on, and a ~25% FOV radius.
-  (`steady_time` can now reach 0 for instant binocular identify.)
-- New **"Only show overlay while aimed"** toggle (Targeting page, default off): a target's
-  identification overlay shows only while you're aiming at/near it (within the FOV radius),
-  and reappears when you aim back. Identification itself still completes.
-- The **Crooks** readout now shows the **faction logo** (not the faction name) and drops the
-  `|` separator, and **respects the identification linger** — it stays only while the target's
-  reveal window is active, then hides (rather than lingering forever).
-- New **Crooks** UI style: instead of world-anchored tags, a single **static on-screen
-  readout** of the **last identified** stalker — `FACTION | NAME`, faction-coloured. Anchors
-  to a screen corner (**bottom-left / middle / right**, MCM "Crooks: screen position") with
-  **X/Y offset** sliders to nudge it anywhere. No on-entity UI in this mode.
+### MCM
+- **UI Style is now an expandable section** with **General / Bodycam / Crooks** sub-pages.
+- New **Crooks** preset (instant identify in all modes + the Crooks UI); presets are now
+  Card / Minimal / Bodycam / Immersive / Crooks.
+- **Show rank** toggle (gates the rank line on Card / Bodycam / Crooks).
+- **Max distance** slider steps in 5s.
+- The **Wearable Devices** page is hidden unless the WD compat component is installed.
+- Debug: **"Simulate stock engine"** toggle — run the stock-engine fallbacks without the custom
+  exe, for testing.
 
-- **Free-aim identification now works for every held item** (firearm, knife, binoculars).
-  Firearms use the standard engine weapon trace (`get_target_obj/pos(ETraceTarget.Weapon)`),
-  which is barrel-accurate and works on any exe — including plain xray-monolith (the enum is a
-  global `ETraceTarget`, a namespace trap we'd been reading wrong). Knife / raised binoculars
-  have no meaningful weapon barrel (their weapon trace is the cosmetic HUD model), so those
-  fall back to the actor's first-eye aim camera via the custom `bodycam.get_fire_ray()` binding
-  — the only source that reflects free aim for non-firearms. The binding is guarded, so
-  firearms still work without the custom exe; only knife/binoc free-aim needs it.
-
-- **Fixed the `ETraceTarget` weapon-trace lookup.** It's a *global* enum (the engine
-  registers it in `module(L)`, not under `level`), so our `level.ETraceTarget` guard was
-  always nil and the whole `get_target_obj/pos(Weapon)` path was dead. Now read from the
-  global — the standard engine weapon trace (which builds off the barrel matrix, so it should
-  reflect free-aim) is live again.
-- **New "Use bodycam fire-ray binding" toggle** (Targeting MCM page, default on): turn off to
-  disable our custom `bodycam.get_fire_ray()` engine binding entirely and rely only on the
-  standard `ETraceTarget.Weapon` trace — for A/B testing the two free-aim sources, or running
-  without the custom exe.
-
-- **FOV target-assist reverted to a straight screen radius.** The angular-cone logic (which
-  reinterpreted `fov_radius` as an angle measured from the aim ray) has been removed — the
-  assist once again acquires the target whose nearest body point projects within `fov_radius`
-  screen pixels of your aim point, which fits this mod's use better. When nothing falls inside
-  the radius it still falls back to a **model raycast** along the true aim ray (identify what
-  you're directly pointing at — too close, or aiming just off the silhouette). LOS respected.
-- **ADS and hipfire hold time can now be set to 0** (sliders reach 0) for instant
-  identification the moment you aim at a target — no dwell wait. At 0, the dwell fires on the
-  same frame the target is acquired.
-- **New "Ignore Wearable Devices entirely" master toggle** (Wearable Devices MCM page): when
-  on, the whole WD compat integration is bypassed and identification works exactly as if the
-  compatibility component were never installed (no kit, no tiers). Overrides the rest of that
-  page.
-- Removed the **depth-aware Bodycam box** rendering: the outline box no longer submits
-  world-anchored rects to the engine's depth overlay (occluded per-pixel by walls/viewmodel)
-  — it now always draws as flat CUIStatic edges (always on top). Removes the custom-exe
-  dependency for the box. (The depth-aware *text* name-lines are a separate path, unchanged.)
-- New **Simple** UI style: a compact horizontal strip above the head — the Card style's
-  relation-coloured dot + glow, then the faction logo, then the name.
-- New **Hipfire dwell mode** (Targeting MCM page): auto-identify a target held under your
-  hip-fire aim (not ADS, not binoculars) for a configurable hold time — for players who'd
-  rather not press the identify key and still identify from the hip.
+### Fixes & housekeeping
+- **Removed the depth-aware Bodycam box** rendering — the outline box now always draws as flat
+  edges (always on top), dropping the custom-exe dependency for the box itself.
+- Fixed the **haru Skill System crash on level-up** when the Perception integration was
+  uninstalled from a save that had used it (an orphaned skill): the mod no longer feeds XP to a
+  perception skill that isn't currently configured.
+- Fixed the **"Require Scanner kit to identify"** toggle reading a disabled checkbox as enabled
+  (MCM marshals `0`, which is truthy in Lua) — all boolean options are now coerced safely.
+- Removed the custom bodycam free-aim binding, then restored it as the knife/binocular fallback
+  once the standard weapon trace was found to cover firearms.
 
 ### st-wearable-devices compatibility (new optional FOMOD component)
-- Gates identification behind wearable scanner gear from the **st-wearable-devices** mod
-  via a module/scanner **tier system**. New items (placeholder art): a Promin **Antenna**
-  module, a 3-tier Promin **Process** module (scan speed + progressive data unlocks:
-  faction/distance → relationship/rank → weapon), and a 3-tier worn **Identification
-  Scanner** (range 10/20/30 m; scope-ADS + magnification boost at T2; no night penalty
-  at T3). With the full kit assembled, the tiers drive identification and override the
-  matching MCM settings; `wd_require_kit` (default on) blocks identification without it.
-- New **Wearable Devices** MCM page overrides every default tier value (process scan
-  times, scanner ranges, and which tier unlocks each feature).
-- Core: an optional `ii_identify.tier_provider` seam (snapshotted per frame) + a new
-  **distance-to-target** readout on the name line; both fully inert without the add-on.
-- Modules install into the Promin through WD's own system and **show in the bracer
-  customize screen** (with their icons) — done by repurposing WD's two functionally-empty
-  Promin bays (`conn`→antenna, `side`→process), so no new bays and no customize-UI crash.
-  Process tiers are mutually exclusive (installing one swaps out the other). The scanner is
-  a worn bracer device but **invisible** (no worn model).
-- Custom generated inventory icons for the antenna (broadcast antenna), process module
-  (IC chip), and scanner (radar display).
-- **Promin IDENTIFICATION tab**: installing the antenna adds a third Promin screen page
-  (cycled with the others) showing the last-identified target — name, faction, rank,
-  position, distance, weapon+caliber (locked fields show `---`). Since the Promin CRT
-  screen has no font, this ships a monospace glyph-texture atlas + a text compositor (the
-  same per-character-texture technique WD uses for its clock) and a VFS override of WD's
-  `d_promin_ui.script` to register the page.
-- `ii_identify.get_last_identified()` exposes the last-identified target for external
-  readouts (main mod; inert without a reader).
-- Crafting recipes for every item (antenna, process T1-3, AR + OSD scanner T1-3), mirroring
-  WD's own recipe format; higher tiers consume the previous tier + Promin tech.
-- **Identification notification pop-ups on the Promin.** When a target is identified while
-  you're on the **BIOMONITOR** or **NAVIGATION** page (not the IDENTIFICATION page, where it's
-  already shown), a card pops up bottom-right and stacks upward as more come in: faction
-  emblem (left), name + distance (middle), and rank shown as a level ("Rank 1"…"Rank 8",
-  mapped from the rank name) on the right. Cards expire after a few seconds. Author-provided
-  card art (`ii_wd_notif_card.dds`).
-- Added a **4th Promin module bay** so the antenna, OSD scanner, process module, and WD's
-  map module can all be installed at once (previously the antenna and OSD scanner shared one
-  bay). The OSD scanner now lives in its own bay, so the **AR and OSD channels are
-  independent** — run entity overlays and the Promin readout simultaneously if you have both.
-  Requires a shipped override of WD's `ui_wd_customize.xml` (adds a 4th module cell — WD's
-  screen only ships three and a 4th bay otherwise crashes it).
-- **Binocular support under the tier system** (both AR and OSD): a scanner tier now unlocks
-  identifying through raised binoculars, extending the identify range by the binocular range
-  multiplier. Unlocked at Tier 1 by default; configurable on the Wearable Devices MCM page.
-- Two scanner channels: **AR Scanner** (a worn bracer device, the old scanner renamed) —
-  identification shown ON entities as usual, needs the antenna; and **OSD Scanner Module**
-  (a Promin module) — identification shown only on the Promin IDENTIFICATION page, no
-  on-entity UI, and needs **only the OSD module + a process module** (no antenna). The OSD
-  module shares the Promin `conn` bay with the antenna (mutually exclusive = the AR/OSD
-  switch). Both come in the same 3 tiers. Face redaction is unaffected. New AR Scanner icon
-  (viewfinder brackets over a target); the OSD module reuses the radar icon.
-- Fixed the missing line break after "FEATURES:" in item descriptions (a `\n` right after a
-  `%c` colour tag was dropped by the engine's text parser; moved it inside the coloured run).
-- The IDENTIFICATION tab is now a **real baked tab** in the Promin's top strip, shown on
-  **every** page (IDENTIFICATION / BIOMONITOR / NAVIGATION), with the active one highlighted
-  and the font matching WD's. Uses author-provided background art (DXT5, matching WD's
-  format): the identification page has its own `tablet_ui_main_ident.dds`, and the biomonitor
-  and navigation page backgrounds (`tablet_ui_main.dds`, `tablet_ui_main_map.dds`) are
-  overridden so the three-tab strip appears consistently across all pages.
-- The Promin IDENTIFICATION page now shows an animated **scanning spinner** (over the
-  portrait area) while a scan is in progress; the text fields keep the last result until the
-  new scan completes. Driven by a new `ii_identify.get_scan_progress()`.
-- Fixed the **OSD scanner's Promin readout ignoring scan time**: the target now appears on
-  the Promin IDENTIFICATION page only when the scan actually **completes** (a slower process
-  module = a longer wait), and the previously-identified target stays shown until the new
-  scan finishes — mirroring when an on-entity tag reveals. It previously populated instantly
-  at scan start.
-- Fixed the **binocular identify-range boost** blowing far past the intended distance. With
-  `binoc_zoom_scaling` on it multiplied the range by the camera-FOV ratio (the raw angular
-  zoom, e.g. ~19.6x) instead of the configured magnification, e.g. a 50 m base became ~977 m
-  instead of `50 × 4.4 = 220 m`. Binoculars now use `binoc_range_mult` directly as the
-  magnification; `binoc_zoom_scaling` reserves a seam for a real engine-reported magnification
-  (custom exe) and is inert (flat multiplier) without it — never FOV-derived.
-- Fixed the **Wearable Devices → "Require Scanner kit to identify"** toggle: disabling it
-  still blocked identification. MCM marshalled the checkbox as the number `0`, which is
-  truthy under Lua `if`, so a disabled box read as enabled. `read_config` now coerces every
-  boolean-default option to a real boolean, hardening all checkboxes against the same trap.
-- The Promin IDENTIFICATION page now shows the target's **portrait** (its character_icon)
-  alongside the text fields, and lays out like the NAVIGATION page — biomonitor kept on
-  the left, identification info in the right panel where the map is, with an
-  "IDENTIFICATION" tab label in the empty tab slot next to BIOMONITOR / NAVIGATION.
-- **Not verified in-game** — the WD device/slot integration follows WD's patterns but
-  needs in-game iteration. See `WD Compatibility/README.md`.
+Gates identification behind wearable scanner gear from the **st-wearable-devices** mod via a
+module/scanner **tier system**. Entirely optional and self-contained — the base mod is inert
+without it (an `ii_identify.tier_provider` seam, snapshotted per frame). See
+`WD Compatibility/README.md`.
+
+- **Two identification channels, independently installable:**
+  - **AR Scanner** — a worn bracer device (3 tiers, range 10/20/30 m; scope-ADS + magnification
+    boost at T2, no night penalty at T3). Shows identification **on entities** as usual. Needs
+    the antenna + a process module in the Promin.
+  - **OSD Scanner Module** — a Promin module (3 tiers). Shows identification **only on the
+    Promin IDENTIFICATION page**, no on-entity UI. Needs only the OSD module + a process module.
+  - With both installed you get entity overlays **and** the Promin readout at once.
+- **Promin modules** — antenna, process (T1–3), OSD scanner (T1–3) — install through WD's own
+  system and show in the bracer customize screen with their icons. The mod adds a **4th Promin
+  bay** so antenna + process + OSD scanner + WD's map can all be installed together (ships an
+  override of WD's customize screen for the 4th cell). One module per bay (installing a new tier
+  swaps the old). The AR scanner is a worn bracer device but invisible (no model).
+- **Process tier** sets scan speed + progressively unlocks the data shown (faction/distance →
+  relationship/rank → weapon). **Binoculars** work under the tiers (unlock at T1 by default).
+- **Promin IDENTIFICATION page** (added by an OSD scanner): the last-identified target with a
+  **portrait**, name, faction, rank, position, distance, weapon+caliber (locked fields show
+  `---`), an animated **scanning spinner** while scanning, and a **baked 3-tab strip**
+  (IDENTIFICATION / BIOMONITOR / NAVIGATION) shown on every page. Since the Promin CRT has no
+  font, this ships a monospace glyph-texture atlas + text compositor and overrides WD's
+  `d_promin_ui.script` to register the page. Readout respects scan time (appears on completion).
+- **Identification notification pop-ups** on the BIOMONITOR / NAVIGATION pages: a card
+  (faction emblem, name + distance, rank as a level) pops up bottom-right and stacks up.
+- **Wearable Devices MCM page** to tune every tier value, plus a master **ignore Wearable
+  Devices** toggle and **require-kit** toggle. The page is hidden unless the component is
+  installed.
+- Crafting recipes for every item (tool-tier gated; higher tiers consume the previous tier +
+  Promin tech) and generated inventory icons.
 
 ## 2.53.0 — everything since 2.0.1
 
