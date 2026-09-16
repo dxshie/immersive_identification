@@ -49,10 +49,18 @@ on it; the `types/` stubs are cited against that source but engine forks drift.
 - `nix run .#format` — StyLua-format every `.script` (config in `stylua.toml`).
   StyLua globs `.lua`, so the app passes the `.script` files explicitly.
 - `nix run .#check-format` — verify formatting without writing (CI-friendly).
+- `nix run .#check-i18n` — verify eng/rus string-table **parity + windows-1251 encoding**. Run
+  after any string-table edit. See the **`translation-sync`** skill for the string-id rules.
 - `nix run .#package` — build the FOMOD zip (version read from `fomod/info.xml`).
 
 `.luarc.json` maps `*.script` → Lua so the LSP treats Anomaly scripts as Lua 5.1.
 `stylua.toml` uses tabs + a wide column to match the hand-written style.
+
+**Keep docs/translations in sync (project skills in `.claude/skills/`):** the
+**`translation-sync`** skill fires when you touch any string table (eng ⇄ rus parity, cp1251,
+path-derived MCM ids); the **`spec-sync`** skill fires when you change behaviour/config that
+`SPEC.md` documents (esp. the §4 setting inventory, which must match DEFAULTS + MCM + presets +
+`MCM_PAGES`).
 
 ## Lua 5.1 gotcha: the 200-local-per-chunk limit
 

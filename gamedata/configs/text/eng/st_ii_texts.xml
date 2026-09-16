@@ -135,6 +135,10 @@
 
 	<string id="ui_mcm_ii_require_los"><text>Require line of sight</text></string>
 	<string id="ui_mcm_ii_require_los_desc"><text>Only pick targets you can actually see.</text></string>
+	<string id="ui_mcm_ii_los_block_seethrough"><text>Block ID through transparent surfaces</text></string>
+	<string id="ui_mcm_ii_los_block_seethrough_desc"><text>Treat see-through surfaces -- chain-link fences, glass, foliage, and invisible clip meshes -- as solid for line of sight, so you cannot identify a target through them. Off (default): identification sees through them (only opaque walls block). Applies wherever line of sight is checked (always for auto-identify; for manual identify when Require line of sight is on).</text></string>
+	<string id="ui_mcm_ii_los_block_foliage"><text>Block ID through foliage</text></string>
+	<string id="ui_mcm_ii_los_block_foliage_desc"><text>Block identification through foliage specifically (bushes, trees, grass) while still seeing through fences and glass. A lighter version of "Block ID through transparent surfaces." Best-effort by material name -- if some plants aren't caught, use the full transparent-surfaces block instead.</text></string>
 	<string id="ui_mcm_ii_hide_off_aim"><text>Only show overlay while aimed</text></string>
 	<string id="ui_mcm_ii_hide_off_aim_desc"><text>Only ever track the target you're aiming at or near (within the FOV radius of your aim point). Aiming away DROPS it -- so aiming back re-runs the whole scan from scratch rather than instantly reappearing. Scopes identification to the aimed target (auto-identify won't fill the screen). Default off.</text></string>
 
@@ -238,6 +242,11 @@
 	<string id="ui_mcm_ii_weight_penalty_max_desc"><text>Scan time multiplier when holding an item at (or above) the reference weight, vs. a weightless item.</text></string>
 	<string id="ui_mcm_ii_weight_penalty_ref"><text>Reference weight (kg)</text></string>
 	<string id="ui_mcm_ii_weight_penalty_ref_desc"><text>Held-item weight (kg) at which the penalty reaches its maximum; lighter items scale down linearly toward no penalty at 0. E.g. 6 kg maxes the slowdown for a heavy weapon while a pistol stays light.</text></string>
+	<string id="ui_mcm_ii_foliage_penalty_title"><text>Foliage Penalty</text></string>
+	<string id="ui_mcm_ii_foliage_penalty"><text>Through-foliage penalty</text></string>
+	<string id="ui_mcm_ii_foliage_penalty_desc"><text>Identifying a target through foliage (bushes, trees, grass on the line of sight) takes longer -- the plants partly obscure them. A soft alternative to "Block ID through foliage": you can still read a target through a bush, it just takes more time. Off by default.</text></string>
+	<string id="ui_mcm_ii_foliage_penalty_max"><text>Foliage slowdown</text></string>
+	<string id="ui_mcm_ii_foliage_penalty_max_desc"><text>Scan time multiplier when the sightline to the target crosses a foliage material. Applied as a flat multiplier (e.g. 2.5 = two-and-a-half times as long).</text></string>
 
 	<string id="ui_mcm_ii_familiarity_title"><text>Familiarity</text></string>
 

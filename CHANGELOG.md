@@ -1,5 +1,36 @@
 # Changelog
 
+## 3.3.0 — everything since 3.2.0
+
+Foliage/cover control for line of sight, built on 3.2.0's LOS overhaul. Russian translation kept
+in full parity.
+
+### See-through geometry: block or penalise
+The 3.2.0 LOS rewrite made identification see *through* transparent surfaces (fences, glass, and
+the wide invisible clip meshes that were false-blocking). 3.3.0 adds opt-in control over that,
+using the ray-hit material's transparency factor + name (all off by default):
+
+- **"Block ID through transparent surfaces"** (Targeting) — treat every see-through surface
+  (chain-link fences, glass, foliage, invisible **clip brushes/meshes**) as solid, so you cannot
+  identify a target through them. Uses the exact material transparency, not guesswork.
+- **"Block ID through foliage"** (Targeting) — the lighter variant: only **foliage** blocks
+  (bushes / trees / grass, matched by material name — verified against GAMMA's `bush`, `bush_sux`,
+  `grass`, `tree_trunk`), while fences and glass stay see-through.
+- **"Foliage Penalty"** (Scan Time) — the *soft* alternative: instead of blocking, identifying a
+  target **through foliage takes longer** (flat `foliage_penalty_max` multiplier, default 2.5×),
+  slotted into the scan-time chain next to the distance/rank/weight/night penalties.
+
+When a block is on, the direct-mesh-hit LOS shortcut is bypassed so the block is actually enforced
+(the mesh pick sees through those surfaces). Foliage recognition is shared across all three
+features, so they classify plants identically.
+
+### Debug
+- Debug draw's info panel now shows the **`front:` material name + transparency** of the first
+  surface between the camera and the aimed target — for tuning the foliage material list.
+
+### Tuning
+- **"Base identification distance"** slider max lowered **500 → 250 m** (default 50 unchanged).
+
 ## 3.2.0 — everything since 3.1.0
 
 Focused on **line-of-sight reliability**, **snappier auto-identification**, and tidying up the

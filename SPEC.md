@@ -49,11 +49,15 @@ Five visual styles:
   (0.09 m) to the face (the bone sits at the skull base, so an unlifted box rides
   low over the neck). Distance scaling falls out of the projection (no `UI_KX`
   squeeze). Pairs naturally with **Auto-identify** below.
+- **Crooks** (`ui_style = 6`): not a per-entity tag at all — a single **static** screen-space
+  readout of the **last-identified** stalker (faction **logo** + name, + rank if `show_rank`),
+  anchored to a screen corner (`crooks_pos`) with X/Y offsets (`draw_crooks`).
 
 Optionally, **Auto-identify** (`auto_identify`, default off) continuously reveals
-every visible target in range without a keypress: a throttled
-`level.iterate_nearest` sweep (`update_auto_identify`) hands each alive,
-community-tagged, LOS-visible target to the shared `identify_target` commit path.
+every visible target in range without a keypress. The target directly under the crosshair
+identifies **immediately** (a cheap per-frame direct-hit pick), while the rest of the visible
+scene is swept on a ~250 ms throttle (`level.iterate_nearest` → `identify_target`); both require
+LOS. When `hide_off_aim` is on, the sweep is aim-scoped (only targets inside `fov_radius`).
 Line of sight is always required for it. Works with any style.
 
 Identification difficulty is expressed **entirely as reveal delay** (scan time),
@@ -131,10 +135,11 @@ neither edits a host mod's files.
 
 ### 3.2 State machine
 
-Central table `tracked`: `[obj_id] = { t0, col, fcol, sign, header, name, icon,
-rank, rank_col, weap, scan_ms, max_dist, fade_dist, fade_ms, hold_ms }`, capped at
-`MAX_TAGS = 12` (raised from 5). When full, the oldest entry (lowest `t0`) is
-evicted before insert (in `identify_target`, 2097).
+Central table `tracked`: `[obj_id] = { t0, last_seen_tg, col, fcol, sign, header, name,
+icon, rank, rank_col, weap, scan_ms, max_dist, fade_ms, hold_ms }`, capped at
+`MAX_TAGS = 12`. When full, the oldest entry (lowest `t0`) is evicted before insert (in
+`identify_target`). (There is no distance-based fade — the `fade_dist` property was removed; tags
+stay full-opacity to the range cutoff.)
 
 Each entry runs a **time-based state machine** keyed on
 `elapsed = time_global() - t0`, evaluated every frame in `render()` (3969).
@@ -153,51 +158,64 @@ entry at identify time (`identify_target`, 2097) and read from the entry during
 render, so live MCM edits or lowering binoculars mid-reveal never retroactively
 distort an in-progress card.
 
-**Re-identify while tracked** (`identify_target`): a **manual** keypress restarts
-the reveal by resetting `t0` and refreshing every snapshot, so the familiarity
-discount (2nd+ identify) takes effect immediately. An **auto** re-touch
-(`auto_mode = true`, from the steady/dwell triggers) does **not** restart a
-target that is already scanning/revealed — it only refreshes the hold window —
-so ADS combat micro-adjustment can't re-scan an already-identified target (the
-"double identification" flicker, §3.5b).
+**Re-identify while tracked** (`identify_target`): keyed on the gap since the target was last
+identified (`last_seen_tg`). A **look-away-and-back** (gap ≥ `REIDENTIFY_GAP_MS`, longer than the
+~250 ms continuous auto/dwell cadence) drops the entry and re-scans from scratch; a **continuous**
+re-touch (auto/dwell holding a target) stays under the gap and just refreshes — so the spinner
+doesn't strobe while a target is held, but a genuine re-look re-runs the scan. A revealed tag past
+its hold restarts its **fade-in** rather than popping to full.
+
+**`hide_off_aim` ("Only show overlay while aimed")** turns this into a strict list-membership gate:
+while on, a target not under the aim (outside `fov_radius` and not the direct mesh hit) is **removed
+from `tracked`** each frame, and auto-identify is aim-scoped — so aiming away drops the target and
+aiming back re-runs the whole scan.
 
 ### 3.3 Target selection
 
-`get_target_obj(max_dist, allow_fov)` (1465) — a cascade:
+`get_target_obj(max_dist, allow_fov)` — a cascade:
 
 1. Weapon-aligned trace: `get_target_obj(ETraceTarget.Weapon)` — the barrel-accurate
    pick (global enum; reflects free aim for firearms), tried **first** so it wins over the
-   swayed render-camera trace below. (For knife/binoculars, whose weapon trace is the
-   cosmetic model, the fire-ray path in `aim_model_target` / the FOV fallback covers it — §10.)
-2. Camera trace fallback: `level.get_target_obj()`
-3. FOV fallback: `find_nearest_in_fov(max_dist)` — **only if `allow_fov`**.
-   `try_identify` passes `allow_fov`, which is `fov_assist_binoc` while looking
-   through raised binoculars and `fov_assist` otherwise. With it off, identification
-   is direct-hit only (tiers 0–2).
+   swayed render-camera trace below. A **fresh** (not-yet-tracked) hit here wins immediately.
+2. Direct **model raycast**: `aim_model_target(max_dist)` — the stalker/monster whose MODEL
+   the crosshair is directly on (mesh raycast along the true aim ray; works for knife/binoculars
+   too via the fire ray — §10). "Identify what I'm aiming AT", so it takes **priority over a
+   merely-nearby FOV-cone pick** and is returned even if already tracked (a re-aim refreshes it).
+3. Camera trace fallback: `level.get_target_obj()`.
+4. FOV fallback: `find_nearest_in_fov(max_dist)` — **only if `allow_fov`**.
+   `try_identify` passes `allow_fov` = `fov_assist_binoc` through raised binoculars, `fov_assist`
+   otherwise. With it off, identification is direct-hit only.
 
-A direct hit that is **already mid-identification** doesn't just restart itself: the
-FOV fallback is tried first (it prefers any *other* eligible target over one already
-tracked), and the busy direct hit is only returned if nothing else qualifies.
+Candidates are **LOS-gated** via `accept()` → `has_los()` because the engine's crosshair pick
+sees *through* semi-transparent geometry and can return an occluded object.
 
-Both raycasts are **LOS-gated** via `accept()` → `has_los()` because the engine's
-crosshair pick sees *through* semi-transparent geometry (fences/glass/foliage)
-and can return an occluded object (comment 481-490). `has_los` is a **two-layer
-check, both must pass**:
+**`has_los` — geometry is the authority** (the `db.actor:see()` AI-vision gate was **removed**):
+`see()` is a visual-memory lookup limited by AI vision *range*, an *FOV cone*, and target
+*luminosity* (driven by the AI head, not the render camera), so it false-negated on exactly this
+mod's cases — a distant scoped/glassed target, a peripheral one, or one in shadow, all clearly on
+the player's screen. So `has_los` is now:
 
-1. `db.actor:see(target)` — the engine's camera-driven perception check
-   (darkness/stealth aware). It is smoothed/cached with a short grace window, so
-   on its own it lets a target that just stepped behind a wall (or one the AI
-   still "remembers") read as visible for a beat.
-2. `has_clear_ray(target)` — a fresh geometric `ray_pick` raycast against
-   **static** world geometry (`rqtStatic`) from the target's anchor point toward
-   the camera. This is the hard backstop that closes see()'s grace-window leak
-   through solid geometry. `query()` returns true when occluded, so a clear line
-   is `not query()`. Trade-off: solid-collision fences/foliage block even when
-   see-through; acceptable for the common "behind a building" case.
+1. **Direct mesh hit** (the target the crosshair is on this frame, `aim_model_target`, cached per
+   `time_global`) → clear. The aim ray already proved a line to the model past any opaque blocker.
+2. Otherwise **`has_clear_ray(target)`** — a **transparency-aware** `ray_pick` march (rqtStatic)
+   from the target's body points toward the render camera. It **skips see-through** hits
+   (fences/foliage/glass and wide invisible **clip meshes**, via the material's
+   `fVisTransparencyFactor`) and only an **opaque** surface blocks. Samples multiple real bones —
+   **head + shoulders** first (peek detection), then spine/pelvis/calves; the real head bone (not
+   a lifted anchor that can clip a ceiling); any clear ray = visible. Monsters (non-`bip01`) fall
+   back to the lifted anchor point.
 
-Both layers **fail open** (return visible) if their engine call errors or the
-`ray_pick` binding is absent, so LOS gating degrades gracefully rather than
-blocking all identification.
+**See-through / foliage blocking** (opt-in, `los_block_seethrough` / `los_block_foliage`): the
+march normally *skips* see-through hits, but these toggles make them block. `los_block_seethrough`
+blocks **all** see-through surfaces (fences/glass/foliage/clip). `los_block_foliage` blocks only
+hits whose `material_name` matches a plant token (`_los.foliage`, best-effort substring set) — so
+plants block but fences/glass still pass. When either is on, `has_los` **skips the mesh-hit
+override** and always runs the march (the mesh pick sees through exactly these surfaces, so it
+can't be trusted to enforce the block). Debug draw's info panel shows the `front:` material name +
+transparency of the first surface to the aimed target, for tuning the foliage token list.
+
+Fails open (returns visible) on an engine error or absent `ray_pick`. `tag_visible` (the
+`hide_unseen` drop) uses the same pure-geometry check for the same reason.
 
 `find_nearest_in_fov` (1291) iterates `level.iterate_nearest`; a candidate must be
 non-actor, `IsStalker` or `IsMonster`, alive, have a non-empty
@@ -219,12 +237,12 @@ cone):
   1024×768 virtual px).
 
 When nothing falls inside the radius, `find_nearest_in_fov` falls back to
-`aim_model_target(max_dist)` — the standard engine weapon trace
-`get_target_obj(ETraceTarget.Weapon)` (barrel-accurate, walls block), range-gated by
-`max_dist` — so aiming directly at a target's model still identifies it even if it's too
-close, or the crosshair sits just off the projected silhouette. This is the same
-direct-aim pick used when FOV assist is off. (The earlier angular-cone approach was
-removed; the screen radius is simpler and fits this mod's use better.)
+`aim_model_target(max_dist)` — a mesh raycast along the **true aim ray** (the bodycam
+first-eye fire ray when available, else the standard `get_target_obj(ETraceTarget.Weapon)`
+barrel trace), range-gated by `max_dist` — so aiming directly at a target's model still
+identifies it even if it's too close, or the crosshair sits just off the projected silhouette.
+This is the same direct-aim pick used when FOV assist is off. (The earlier angular-cone approach
+was removed; the screen radius is simpler and fits this mod's use better.)
 
 ### 3.4 Scan-time computation
 
@@ -235,12 +253,18 @@ is on):
 
 | Factor | Function | Range |
 |---|---|---|
-| Distance | `distance_scan_mult` (1788) | 1× point-blank → `dist_penalty_max` at cutoff |
-| Rank | `rank_scan_mult` (1838) | 1× novice → `rank_penalty_max` legend |
-| Night | `night_scan_mult` (1901) | 1× day → `night_penalty_max`, scaled by `darkness_factor` (1881), peaks around midnight |
-| Binoculars / ADS | `scan_mult` from `boost_params` (2204) | flat multiplier while raised/aiming (if the matching `*_boost`) |
-| Perception | `perception_scan_mult` (1932) | `1 − perception_scan_mult × level`, floored |
+| Distance | `distance_scan_mult` | 1× point-blank → `dist_penalty_max` at cutoff (vs `eff_max_dist`) |
+| Rank | `rank_scan_mult` | 1× novice → `rank_penalty_max` legend |
+| Weight | `weight_scan_mult` | 1× at 0 kg → `weight_penalty_max` at `weight_penalty_ref` kg (held item's `inv_weight`); **off by default** |
+| Foliage | inline (`_los.saw_foliage`) | flat `foliage_penalty_max` if the sightline to the target crosses a foliage material; one LOS march at commit; **off by default** |
+| Night | `night_scan_mult` | 1× day → `night_penalty_max`, scaled by `darkness_factor`, peaks around midnight |
+| Binoculars / ADS | `scan_mult` from `boost_params` | flat multiplier while raised/aiming (if the matching `*_boost`) |
+| Perception | `perception_scan_mult` | `1 − perception_scan_mult × level`, floored |
 | Familiarity | `familiarity_scan_mult` | applied if `remembered[id]` |
+
+`instant_identify` zeroes the wait, but the **per-mode excludes** (`instant_exclude_hipfire/ads/binoc`)
+keep the normal scan wait for a chosen aim mode. Under the WD tier system only the night penalty
+applies (the process tier sets a fixed base time; §7.3).
 
 Gating (`try_identify`): `enabled` + actor exists; if `require_binoculars`,
 `is_binoc_active()` must be true; target exists, is not the actor, is alive, has a
@@ -254,10 +278,11 @@ community, and is within `eff_max_dist`.
   below `FOV_ZOOM_RATIO (0.7) × _fov_baseline`; the baseline self-calibrates each
   frame from the widest FOV seen while binoculars aren't held
   (`update_fov_baseline`, 1560).
-- `binoc_boost` widens `eff_max_dist` / `eff_fade_dist` by `binoc_range_mult`
-  (default **4.4**) and speeds the scan (`boost_params`, 2204). With
-  `binoc_zoom_scaling` on, the range multiplier is further scaled by the
-  binocular's magnification (like `ads_zoom_scaling`).
+- `binoc_boost` widens `eff_max_dist` by `binoc_range_mult` (default **4.4**) and speeds the scan
+  (`boost_params`). With `binoc_zoom_scaling` **on**, the range multiplier is instead the
+  binocular's **real current magnification** (`binoc_magnification`: the SVP/PiP engine value read
+  directly, else the camera-FOV ratio); **off** uses the flat `binoc_range_mult`. The effective
+  range is then clamped by `binoc_max_dist` (0 = no cap).
 - **Steady auto-identify** (`update_binocular_scan`, 2445): when `binocular_mode` is
   active, tracks a "steady" camera direction against an anchor
   (`STEADY_MAX_D2 = 0.002`, ~2.6°); held steady for `steady_time` it fires a
@@ -282,12 +307,15 @@ aiming down sight on **any exe**, in priority order:
 4. FOV-zoom heuristic: `device().fov < _fov_baseline × ADS_ZOOM_RATIO (0.85)`.
 
 Binoculars are excluded (`is_binoc_held` checked first) so ADS and binocular boosts
-never stack. `boost_params()` (2204) returns
-`(binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult)` — binoc takes
+never stack. `boost_params()` returns
+`(binoc, ads, boosted, eff_max_dist, scan_mult)` — binoc takes
 priority, then ADS, each carrying its own `*_scan_mult` / `*_range_mult` from its
-MCM section; `identify_target` applies the returned `scan_mult`. Its own MCM
-section: `ads_mode`, `ads_hold_time`, `ads_boost`, `ads_scan_mult`,
-`ads_range_mult`, `ads_zoom_scaling`, `ads_hide_main`.
+MCM section; `identify_target` applies the returned `scan_mult`. The effective range is then
+clamped by the **active mode's hard cutoff** (`apply_mode_cap`: `hipfire_max_dist` /
+`ads_max_dist` / `binoc_max_dist`; 0 = no cap) so runaway magnification can't over-extend it. Its
+own MCM section: `ads_mode`, `ads_hold_time`, `ads_boost`, `ads_scan_mult`, `ads_range_mult`
+(x1 base, **default 1.0**), `ads_zoom_scaling`, `ads_hide_main`, `ads_max_dist`,
+`instant_exclude_ads`.
 
 **ADS auto-identify is dwell-on-target** (`update_ads_dwell`, 2394), distinct from
 the binocular *steadiness* trigger: it requires a valid target to be **continuously
@@ -349,14 +377,20 @@ bodycam box edges → Simple 2 circle/triangle/bar), plus the debug dot/text poo
   (`bip01_head`, `bip01_spine2/1`, `bip01_spine`) within 3m and lifts by
   `ANCHOR_LIFT = 0.12`; monsters fall back to `position().y + 1.3`. `project_world`
   (623) calls `game/level.world2ui`, rejecting `x < -9000` (off-screen/behind).
-- **`draw_slot`** (3147) branches: scanning spinner only → **bodycam** (head-outline
-  box, `ui_style==3`) → **Simple 2** (circle+triangle+rank bar, `ui_style==4`) →
-  minimal (node+glow+glyph, `ui_style==2`) → mini fallback below `mini_scale_cutoff`
-  (node+glow) → full card (measured text, plate, accent, icon, shadowed text lines,
-  node/glow, and a leader line rotated via `atan2`/`SetHeading` from node to the
-  card's nearest bottom corner). The bodycam box's centre/extents (`box_cx/cy/hw/hh`)
-  are precomputed per target in `render` (via `area_box_for`) since `draw_slot` has
-  no world access.
+- **UI styles** (`ui_style`): 1 Card, 2 Minimal, 3 Bodycam, 4 Simple 2, 5 Simple, 6 Crooks.
+- **`draw_slot`** branches: for **Crooks** (`ui_style==6`) it hides the per-entity slot and bails
+  (Crooks is a single static readout — see below); otherwise scanning spinner only → **bodycam**
+  (head-outline box, `ui_style==3`) → **Simple 2** (circle+triangle+rank bar, `ui_style==4`) →
+  **Simple** (dot+glow, faction logo, name strip, `ui_style==5`) → minimal (node+glow+glyph,
+  `ui_style==2`) → mini fallback below `mini_scale_cutoff` (node+glow) → full card (measured text,
+  plate, accent, icon, shadowed text lines, node/glow, leader line). The bodycam box's
+  centre/extents (`box_cx/cy/hw/hh`) are precomputed per target in `render` (via `area_box_for`)
+  since `draw_slot` has no world access.
+- **Crooks** (`draw_crooks`, called once per frame from `render`): a single **static** screen-space
+  readout of the **last-identified** target — faction **logo** + name (+ rank if `show_rank`),
+  anchored to a screen corner (`crooks_pos`) with `crooks_x`/`crooks_y` offsets. Shows only while
+  its target is still in `tracked` (the reveal-window linger, or — under `hide_off_aim` — only
+  while aimed), following your gaze via the per-frame direct-hit id.
 - **Distance scaling / offsets:** the Minimal dot (`mini_dist_scale_factor`, 3025,
   when `mini_dist_scale` on) and the Simple 2 cluster scale with distance and are
   pulled toward the head as the target recedes; `ui_offset_x` / `ui_offset_y` nudge
@@ -447,6 +481,11 @@ opt_list` helpers set `hint = "ii_" .. id` mechanically.
 
 Listed in MCM display order (`ii_mcm.script`); ranges are `(min, max, step, prec)`.
 
+Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `uistyle/bodycam`,
+`uistyle/crooks`), `targeting`, `hipfire`, `binoc`, `ads`, `pip`, `faceredact`, `scantime`,
+`debug`, `wdcompat`, `colors`. These path prefixes must stay in sync with `MCM_PAGES` in
+`ii_identify.script` and with `presets_ii.ltx`.
+
 | id | type | default | range | controls |
 |---|---|---|---|---|
 | **General** | | | | |
@@ -455,50 +494,67 @@ Listed in MCM display order (`ii_mcm.script`); ranges are `(min, max, step, prec
 | `modifier_index` | list | None | None/Ctrl/Shift/Alt | required held modifier |
 | `instant_identify` | check | false | — | skip the scan wait — reveal immediately |
 | `scan_time` | track | 0.35 | 0, 2, 0.05, 2 | base scan pulse (s) |
-| `fade_time` | track | 0.45 | 0.1, 2, 0.05, 2 | fade in/out (s) |
+| `fade_time` | track | 0.45 | 0, 2, 0.05, 2 | fade in/out (s) |
 | `hold_time` | track | 4.0 | 1, 15, 0.5, 1 | full-visible hold (s) |
 | `hide_unseen` | check | true | — | hide a tag while its target is out of sight |
-| `max_dist` | track | 50 | 10, 500, 10 | max identify range (m) |
-| `fade_dist` | track | 40 | 5, 500, 10 | distance where card fades (m) |
-| **UI Style** | | | | |
-| `ui_style` | list | Card | Card/Minimal/Bodycam/Simple 2 | which visual style |
-| `box_area` | list | Head | Head/Body | bodycam outline rectangle region |
-| `box_color_source` | list | faction | faction/relation | bodycam box colour source |
-| `box_thickness` | track | 2 | 1, 6, 0.5, 1 | bodycam outline edge thickness (px) |
-| `box_padding` | track | 0.2 | 0, 1, 0.05, 2 | bodycam outline margin (fraction) |
-| `box_opacity` | track | 1.0 | 0.1, 1, 0.05, 2 | bodycam outline opacity |
-| `show_name` | check | true | — | show name line (card + bodycam) |
-| `show_faction` | check | true | — | show faction line (card + bodycam) |
-| `show_weapon` | check | true | — | show weapon+caliber line (card + bodycam) |
+| `max_dist` | track | 50 | 10, 250, 5 | **Base identification distance** (m) — the base, before scaling up/down |
+| **UI Style → General** (`uistyle/general`) | | | | |
+| `ui_style` | list | Card | Card/Minimal/Bodycam/Simple 2/Simple/Crooks | which visual style |
+| `show_name` | check | true | — | show name line |
+| `show_faction` | check | true | — | show faction line |
+| `show_rank` | check | true | — | show rank line (Card/Bodycam/Crooks) |
+| `show_weapon` | check | true | — | show weapon+caliber line |
 | `color_by_relation` | check | true | — | tint by relation vs flat neutral |
 | `card_scale` | track | 1.0 | 0.5, 2, 0.05, 2 | flat card size multiplier |
 | `mini_scale_cutoff` | track | 0.4 | 0.1, 1, 0.05, 2 | below this scale → dot only |
 | `mini_dist_scale` | check | true | — | Minimal dot: scale with distance |
 | `ui_offset_x` | track | 0 | -200, 200, 5 | horizontal nudge for on-screen UI (px) |
 | `ui_offset_y` | track | 0 | -200, 200, 5 | vertical nudge for on-screen UI (px) |
+| **UI Style → Bodycam** (`uistyle/bodycam`) | | | | |
+| `box_area` | list | Head | Head/Body | bodycam outline rectangle region |
+| `box_color_source` | list | faction | faction/relation | bodycam box colour source |
+| `box_thickness` | track | 2 | 1, 6, 0.5, 1 | bodycam outline edge thickness (px) |
+| `box_padding` | track | 0.2 | 0, 1, 0.05, 2 | bodycam outline margin (fraction) |
+| `box_opacity` | track | 1.0 | 0.1, 1, 0.05, 2 | bodycam outline opacity |
+| **UI Style → Crooks** (`uistyle/crooks`) | | | | |
+| `crooks_pos` | list | bottom_left | BL/BM/BR | Crooks readout screen corner |
+| `crooks_x` | track | 0 | -500, 500, 5 | Crooks X offset (px) |
+| `crooks_y` | track | 0 | -100, 700, 5 | Crooks Y offset (px, + = up) |
 | **Targeting** | | | | |
 | `fov_assist` | check | true | — | master FOV target-assist; off = direct-hit aim only |
-| `freeaim_assist` | check | false | — | bodycam/free-aim: aim from the weapon barrel ray |
-| `fov_radius` | track | 90 | 0, 90, 5 | target-assist cone size (calibrated px; 0 = off) |
+| `freeaim_assist` | check | false | — | bodycam/free-aim: aim from the weapon barrel/first-eye ray |
+| `fov_radius` | track | **35** | 0, 90, 5 | target-assist **screen radius** (virtual px; 0 = off) |
 | `require_los` | check | true | — | require line of sight |
-| `auto_identify` | check | false | — | continuously identify all visible in-range targets, no keypress (LOS always required) |
+| `los_block_seethrough` | check | false | — | LOS: treat see-through surfaces (fences/glass/foliage/clip) as opaque — no ID through them |
+| `los_block_foliage` | check | false | — | LOS: block ID through foliage only (best-effort by material name) |
+| `hide_off_aim` | check | false | — | only track the aimed target (membership gate: drop on aim-away, re-scan on aim-back) |
+| `auto_identify` | check | false | — | continuously identify visible in-range targets, no keypress (LOS always required) |
+| **Hipfire** | | | | |
+| `hipfire_mode` | check | false | — | **Auto Identification** — dwell auto-identify while hip-firing |
+| `hipfire_hold_time` | track | 1.0 | 0, 3, 0.1, 1 | dwell time before auto-ID (s; 0 = instant) |
+| `instant_exclude_hipfire` | check | false | — | keep the scan wait for hipfire under Instant identify |
+| `hipfire_max_dist` | track | 0 | 0, 1000, 5 | hard cap on effective range (m; 0 = none) |
 | **Binoculars** | | | | |
-| `binocular_mode` | check | false | — | steady-aim auto-identify via binocs |
+| `binocular_mode` | check | false | — | **Auto Identification** — steady-aim auto-identify via binocs |
 | `require_binoculars` | check | false | — | restrict identify to raised binocs |
-| `steady_time` | track | 0.6 | 0.2, 3, 0.1, 1 | steady-aim hold time (s) |
+| `steady_time` | track | 0.6 | 0, 3, 0.1, 1 | steady-aim hold time (s; 0 = instant) |
 | `fov_assist_binoc` | check | true | — | FOV assist while looking through raised binoculars |
 | `binoc_boost` | check | true | — | binocs speed up + extend range |
 | `binoc_scan_mult` | track | 0.4 | 0.1, 1, 0.05, 2 | scan-speed mult w/ binocs |
-| `binoc_range_mult` | track | 4.4 | 1, 5, 0.1, 1 | max/fade distance mult w/ binocs |
-| `binoc_zoom_scaling` | check | false | — | scale binoc range by binocular magnification |
+| `binoc_range_mult` | track | 4.4 | 1, 5, 0.1, 1 | range mult w/ binocs (when zoom-scaling off) |
+| `binoc_zoom_scaling` | check | false | — | scale range by the binocular's real magnification |
+| `instant_exclude_binoc` | check | false | — | keep the scan wait for binocs under Instant identify |
+| `binoc_max_dist` | track | 0 | 0, 1000, 5 | hard cap on effective range (m; 0 = none) |
 | **Aim Down Sight (ADS)** | | | | |
-| `ads_mode` | check | false | — | dwell-on-target auto-identify while ADS |
-| `ads_hold_time` | track | 0.6 | 0.2, 3, 0.1, 1 | dwell time on target before auto-ID (s) |
+| `ads_mode` | check | false | — | **Auto Identification** — dwell-on-target auto-identify while ADS |
+| `ads_hold_time` | track | 0.6 | 0, 3, 0.1, 1 | dwell time before auto-ID (s; 0 = instant) |
 | `ads_boost` | check | true | — | ADS speeds up + extends range |
 | `ads_scan_mult` | track | 0.6 | 0.1, 1, 0.05, 2 | scan-speed mult while ADS |
-| `ads_range_mult` | track | 1.6 | 1, 5, 0.1, 1 | max/fade distance mult while ADS (x1 base) |
+| `ads_range_mult` | track | **1.0** | 1, 5, 0.1, 1 | range mult while ADS (x1 base) |
 | `ads_zoom_scaling` | check | true | — | scale ADS range by scope magnification |
 | `ads_hide_main` | check | false | — | hide all main-view drawing while aiming down sight |
+| `instant_exclude_ads` | check | false | — | keep the scan wait for ADS under Instant identify |
+| `ads_max_dist` | track | 0 | 0, 1000, 5 | hard cap on effective range (m; 0 = none) |
 | **PiP Scope** | | | | |
 | `pip_markers` | check | true | — | draw identification markers in a PiP scope |
 | `pip_redact` | check | true | — | draw redaction in a PiP scope |
@@ -509,13 +565,18 @@ Listed in MCM display order (`ii_mcm.script`); ranges are `(min, max, step, prec
 | `redact_face_padding` | track | 0.15 | 0, 1, 0.05, 2 | margin around the face box (fraction) |
 | `redact_range` | track | 100 | 10, 300, 10 | redaction reach (m) |
 | `redact_strength` | track | 1.0 | 0.1, 1, 0.05, 2 | redaction intensity |
-| **Scan-time modifiers** | | | | |
+| **Scan Time** (`scantime`) | | | | |
 | `dist_penalty` | check | true | — | distance slows scan |
 | `dist_penalty_max` | track | 5.0 | 1, 6, 0.1, 1 | scan mult at max range |
 | `rank_penalty` | check | true | — | rank slows scan |
 | `rank_penalty_max` | track | 3.0 | 1, 6, 0.1, 1 | scan mult for legend |
 | `night_penalty` | check | true | — | darkness slows scan |
 | `night_penalty_max` | track | 2.0 | 1, 6, 0.1, 1 | scan mult at darkest |
+| `weight_penalty` | check | false | — | held-item weight slows scan |
+| `weight_penalty_max` | track | 2.0 | 1, 6, 0.1, 1 | scan mult at the reference weight |
+| `weight_penalty_ref` | track | 6.0 | 1, 20, 0.5, 1 | held weight (kg) that maxes the penalty |
+| `foliage_penalty` | check | false | — | identifying through foliage slows scan |
+| `foliage_penalty_max` | track | 2.5 | 1, 6, 0.1, 1 | scan mult when the sightline crosses foliage |
 | `familiarity_boost` | check | true | — | remember identified stalkers |
 | `familiarity_scan_mult` | track | 0.6 | 0.1, 1, 0.05, 2 | scan mult for familiar target |
 | `perception_compat` | check | true | — | Skill System perception integration |
@@ -524,8 +585,9 @@ Listed in MCM display order (`ii_mcm.script`); ranges are `(min, max, step, prec
 | `perception_loot_xp` | track | 20 | 0, 100, 5 | bonus XP for first loot |
 | **Debug** | | | | |
 | `debug_log` | check | false | — | write aim/trace diagnostics to a dedicated log file |
-| `debug_draw` | check | false | — | on-screen target-assist visualiser |
-| **Wearable Devices** (page `wdcompat`; only bites when the WD compat add-on is installed, §7.3) | | | | |
+| `debug_draw` | check | false | — | on-screen target-assist visualiser (FOV ring, bone dots, bottom-right info panel) |
+| `debug_sim_stock` | check | false | — | pretend the custom engine bindings are absent (test stock fallbacks) |
+| **Wearable Devices** (page `wdcompat`; only bites when the WD compat add-on is installed, §7.3; the page is hidden otherwise) | | | | |
 | `wd_ignore` | check | false | — | master toggle: bypass the WD compat entirely (identify as if WD isn't installed); disables the rest of this page |
 | `wd_require_kit` | check | true | — | block identification entirely unless the full scanner kit is worn/assembled |
 | `wd_proc_t1/t2/t3` | track | 1.5 / 1.0 / 0.5 | 0.1, 5, 0.1, 1 | process-module tier base scan time (s) |

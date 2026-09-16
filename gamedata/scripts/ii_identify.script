@@ -87,6 +87,8 @@ DEFAULTS = {
 	-- A straight screen-pixel ring around the aim point (screen_dist_to_body); a target whose
 	-- nearest body point projects within this many px of the crosshair is a candidate.
 	require_los = true, -- target-assist fallback only picks targets with clear line of sight
+	los_block_seethrough = false, -- LOS: treat SEE-THROUGH surfaces (fences, glass, foliage, and invisible clip meshes) as OPAQUE, so identification is blocked through them (default off = see through them)
+	los_block_foliage = false, -- LOS: block identification through FOLIAGE specifically (best-effort by material name); subset of los_block_seethrough for when you only want plants to block
 	hide_off_aim = false, -- only track the target you're aiming at / near (nearest body point
 	-- within fov_radius, or the direct model hit). MEMBERSHIP gate: aiming away DROPS it, so
 	-- aiming back re-runs the whole scan (not an instant reappear). Off by default.
@@ -151,6 +153,8 @@ DEFAULTS = {
 	weight_penalty = false, -- the heavier the item you're HOLDING, the longer identification takes (a heavy weapon is harder to hold steady enough to read a target). Off by default.
 	weight_penalty_max = 2.0, -- scan time multiplier at (or above) the reference weight
 	weight_penalty_ref = 6.0, -- kg: held-item weight at which the penalty is maxed; lighter items ramp linearly down to 1x at 0
+	foliage_penalty = false, -- identifying THROUGH foliage (bushes/trees/grass on the sightline) takes longer -- a soft alternative to los_block_foliage (which refuses it outright). Off by default.
+	foliage_penalty_max = 2.5, -- scan time multiplier when the sightline to the target crosses a foliage material
 	show_weapon = true, -- show the target's currently-wielded weapon + caliber line (card + bodycam)
 	debug_log = false, -- write aim/trace diagnostics to the game log on each identify attempt
 	debug_draw = false, -- on-screen target-assist visualiser: aim dot, FOV ring, in-ring bone dots
@@ -1412,7 +1416,33 @@ local RQT_BOTH = (rq_target and rq_target.rqtBoth) or 3 -- collide::rqtStatic|rq
 --     foliage, glass, and the wider invisible CLIP meshes that were false-blocking a clearly
 --     visible target. The march skips past such hits; only an OPAQUE surface blocks LOS.
 --   march_steps: cap on see-through hits skipped before giving up (-> treat as clear).
-local _los = { ray = nil, dir = vector(), pt = vector(), march = vector(), seethrough = 0.5, march_steps = 6 }
+--   foliage: lowercased substring tokens matched against a hit's material_name to classify it as
+--     FOLIAGE (for the los_block_foliage toggle). Best-effort -- material names vary by modpack;
+--     tune this list if plants aren't recognised. "wood" is intentionally excluded (crates/planks).
+local _los = {
+	ray = nil,
+	dir = vector(),
+	pt = vector(),
+	march = vector(),
+	seethrough = 0.5,
+	march_steps = 6,
+	foliage = {
+		"flora",
+		"tree",
+		"bush",
+		"grass",
+		"leaf",
+		"leav",
+		"branch",
+		"foliage",
+		"nettle",
+		"reed",
+		"fluff",
+		"weed",
+		"plant",
+	},
+	saw_foliage = false, -- set by _los_point_clear's march when the ray crosses a foliage material (read by foliage_scan_mult for the through-foliage scan penalty)
+}
 
 -- Body bones sampled for the multi-point LOS check (below), spread head-to-toe so ANY exposed
 -- part counts as visible -- a target is only "occluded" when EVERY one is blocked by static
@@ -1466,14 +1496,40 @@ local function _los_point_clear(origin, cam_pos)
 			if not _los.ray:query() then
 				return true -- nothing more in the way -> clear
 			end
-			-- Hit something: opaque = blocked; see-through = skip past it and keep marching.
-			local transp = 0
+			-- Hit something. Opaque = blocked. See-through (fence/glass/foliage/clip) is normally
+			-- skipped, UNLESS the user opted to block it: los_block_seethrough blocks ALL see-through
+			-- surfaces; los_block_foliage blocks only ones whose material_name looks like a plant.
+			local transp, matname = 0, nil
 			if _los.ray.get_result then
 				local rr = _los.ray:get_result()
-				transp = (rr and rr.material_vis_transparency_factor) or 0
+				if rr then
+					transp = rr.material_vis_transparency_factor or 0
+					matname = rr.material_name
+				end
 			end
 			if transp < _los.seethrough then
 				return false -- opaque surface -> genuinely blocked
+			end
+			-- See-through hit. Classify foliage ONCE -- it drives both the foliage block and the
+			-- through-foliage scan penalty (saw_foliage, read by foliage_scan_mult after a march).
+			local is_fol = false
+			if matname then
+				local lm = string.lower(matname)
+				for i = 1, #_los.foliage do
+					if lm:find(_los.foliage[i], 1, true) then
+						is_fol = true
+						break
+					end
+				end
+			end
+			if is_fol then
+				_los.saw_foliage = true
+			end
+			if C.los_block_seethrough then
+				return false -- user blocks all see-through surfaces
+			end
+			if C.los_block_foliage and is_fol then
+				return false -- a plant material -> blocked
 			end
 			local hitd = (_los.ray.get_distance and _los.ray:get_distance()) or 0
 			if hitd <= 0 then
@@ -1554,15 +1610,18 @@ local function has_los(target_obj)
 	-- A direct mesh hit already proved a clear geometric line (the aim ray reached the model past
 	-- any opaque blocker), so skip the body-bone sampling. The crosshair's direct-hit id is cached
 	-- by time_global (in the _los bundle) so a crowd of has_los() calls triggers at most one mesh
-	-- raycast per frame.
-	local tg = time_global()
-	if _los.aim_tg ~= tg then
-		_los.aim_tg = tg
-		local m = aim_model_target and aim_model_target(1e6)
-		_los.aim_id = m and m:id() or nil
-	end
-	if target_obj:id() == _los.aim_id then
-		return true
+	-- raycast per frame. SKIPPED when a see-through/foliage block is on: the mesh pick sees through
+	-- exactly those surfaces, so the geometric march (which enforces the block) must run instead.
+	if not (C.los_block_seethrough or C.los_block_foliage) then
+		local tg = time_global()
+		if _los.aim_tg ~= tg then
+			_los.aim_tg = tg
+			local m = aim_model_target and aim_model_target(1e6)
+			_los.aim_id = m and m:id() or nil
+		end
+		if target_obj:id() == _los.aim_id then
+			return true
+		end
 	end
 	return has_clear_ray(target_obj)
 end
@@ -2464,6 +2523,20 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 		eff_scan_ms = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max_dist))
 		eff_scan_ms = math.floor(eff_scan_ms * rank_scan_mult(obj))
 		eff_scan_ms = math.floor(eff_scan_ms * weight_scan_mult())
+		-- Through-foliage penalty: one LOS march (camera -> target anchor) sets _los.saw_foliage if
+		-- the sightline crosses a plant material; if so, apply the flat foliage_penalty_max. Inlined
+		-- (not a *_scan_mult helper) to avoid a top-level local -- the Lua 5.1 200-local chunk cap.
+		if C.foliage_penalty and (C.foliage_penalty_max or 1) > 1 and obj then
+			local dev = device and device()
+			local org = anchor_pos(obj)
+			if dev and dev.cam_pos and org then
+				_los.saw_foliage = false
+				_los_point_clear(org, dev.cam_pos) -- side effect: sets _los.saw_foliage
+				if _los.saw_foliage then
+					eff_scan_ms = math.floor(eff_scan_ms * C.foliage_penalty_max)
+				end
+			end
+		end
 		eff_scan_ms = math.floor(eff_scan_ms * night_scan_mult())
 		if boosted then
 			eff_scan_ms = math.floor(eff_scan_ms * (scan_mult or 1.0))
@@ -3492,6 +3565,34 @@ function IiTags:draw_debug()
 			local seen = db.actor and (safe_call(db.actor.see, db.actor, aim_obj) ~= false) or false
 			local ray = has_clear_ray(aim_obj)
 			local los = has_los(aim_obj)
+			-- First surface between the camera and the aimed target's head: material + transparency,
+			-- so the foliage-block token list (_los.foliage) can be tuned against real material names.
+			if _los.ray and _los.ray.get_result then
+				local ddev = device and device()
+				local cam = ddev and ddev.cam_pos
+				local hp = anchor_pos(aim_obj)
+				if cam and hp then
+					local ok2, mtxt = pcall(function()
+						local dr = _v.aim_dir:set(cam.x - hp.x, cam.y - hp.y, cam.z - hp.z)
+						local rng = dr:magnitude() - RAY_LOS_TOL
+						dr:normalize()
+						_los.ray:set_flags(RQT_STATIC)
+						_los.ray:set_position(hp)
+						_los.ray:set_direction(dr)
+						_los.ray:set_range(rng)
+						if not _los.ray:query() then
+							return "front: (clear)"
+						end
+						local rr = _los.ray:get_result()
+						local mn = (rr and rr.material_name) or "?"
+						local tr = (rr and rr.material_vis_transparency_factor) or 0
+						return string.format("front: %s t=%.2f", mn, tr)
+					end)
+					if ok2 and mtxt then
+						lines[#lines + 1] = { "  " .. mtxt, 200, 190, 150 }
+					end
+				end
+			end
 			lines[#lines + 1] =
 				{ "  see: " .. (seen and "yes" or "NO") .. "  ray: " .. (ray and "clear" or "blocked"), 150, 200, 235 }
 			lines[#lines + 1] = {
