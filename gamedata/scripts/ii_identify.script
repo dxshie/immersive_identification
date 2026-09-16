@@ -67,8 +67,13 @@ DEFAULTS = {
 	scan_time = 0.35, -- seconds: "scanning" pulse before the tag reveals
 	fade_time = 0.45, -- seconds: fade in / fade out
 	hold_time = 4.0, -- seconds: tag stays fully visible
-	max_dist = 50, -- metres: identify only works within this range
-	fade_dist = 40, -- metres: tag starts fading with distance beyond this
+	max_dist = 50, -- metres: BASE identification distance -- the starting range, before it's scaled
+	-- up (binocular/ADS magnification, range boosts) or down (distance/penalty systems). The
+	-- per-mode caps below are the true hard cutoffs. (Internal key kept as max_dist for save/preset
+	-- compatibility; shown in MCM as "Base identification distance".)
+	hipfire_max_dist = 0, -- metres: hard cap on the effective identify distance while hip-firing (0 = no cap)
+	ads_max_dist = 0, -- metres: hard cap on the effective identify distance while aiming down sight (0 = no cap)
+	binoc_max_dist = 0, -- metres: hard cap on the effective identify distance through binoculars (0 = no cap)
 	fov_assist = true, -- master target-assist: when you don't land a direct hit, identify the
 	-- nearest eligible target within the on-screen FOV circle. Off = you must
 	-- aim directly at the target (direct raycast hit only), no circle fallback
@@ -77,13 +82,13 @@ DEFAULTS = {
 	freeaim_assist = false, -- bodycam / free-aim engines: centre the FOV target-assist on where the
 	-- weapon actually points (the global ETraceTarget.Weapon engine trace) instead of the fixed
 	-- screen centre. Inert / harmless on an engine without that weapon trace.
-	fov_radius = 90, -- virtual-space px (1024-wide, 768-tall): target-assist radius (MCM range 0-90).
+	fov_radius = 35, -- virtual-space px (1024-wide, 768-tall): target-assist radius (MCM range 0-90).
 	-- A straight screen-pixel ring around the aim point (screen_dist_to_body); a target whose
 	-- nearest body point projects within this many px of the crosshair is a candidate.
 	require_los = true, -- target-assist fallback only picks targets with clear line of sight
-	hide_off_aim = false, -- only show a target's overlay while you're aiming at / near it (its
-	-- nearest body point within fov_radius of the aim point); it reappears when you aim back.
-	-- Display gate only -- identification still completes. Off by default.
+	hide_off_aim = false, -- only track the target you're aiming at / near (nearest body point
+	-- within fov_radius, or the direct model hit). MEMBERSHIP gate: aiming away DROPS it, so
+	-- aiming back re-runs the whole scan (not an instant reappear). Off by default.
 	hide_unseen = true, -- hide an active tag/card/box while its target is out of sight (occluded
 	-- or off-screen), instead of leaving it floating until its timer expires;
 	-- it reappears if the target comes back into view within the reveal window
@@ -108,7 +113,7 @@ DEFAULTS = {
 	-- isn't oversized (near = bigger, far = smaller); off = flat card_scale like the other styles
 	binoc_boost = true, -- binoculars speed up + extend identify range, independent of binocular_mode
 	binoc_scan_mult = 0.4, -- scan_time multiplier while binoculars are raised (lower = faster reveal)
-	binoc_range_mult = 4.4, -- max_dist/fade_dist multiplier while binoculars are raised, when
+	binoc_range_mult = 4.4, -- max_dist multiplier while binoculars are raised, when
 	-- binoc_zoom_scaling is OFF (the flat "max-distance multiplier")
 	binoc_zoom_scaling = false, -- ON: scale the range by the binocular's REAL CURRENT magnification
 	-- (live, from scope_magnification -> SVP/PiP binding's true value, else the camera-FOV ratio;
@@ -124,7 +129,7 @@ DEFAULTS = {
 	-- hip-firing before auto-identifying (hipfire mode). Dwell-on-target, like ADS mode
 	ads_boost = true, -- aiming down sight speeds up + extends identify range, independent of ads_mode
 	ads_scan_mult = 0.6, -- scan_time multiplier while aiming down sight (gentler than binoculars)
-	ads_range_mult = 1.6, -- max_dist/fade_dist multiplier while aiming down sight (the x1 base)
+	ads_range_mult = 1.0, -- max_dist multiplier while aiming down sight (the x1 base)
 	ads_zoom_scaling = true, -- scale the ADS range multiplier by the scope's magnification (x2/x4/...),
 	-- so a higher-power optic reaches further. Works on PiP (engine magnification binding) and
 	-- non-PiP engines (recovered from the main-camera FOV) -- see scope_magnification()
@@ -367,6 +372,10 @@ local tracked = {} -- [obj_id] = { id, t0, col, name, icon }
 ---@type IiTags|nil
 local TAGS = nil -- the IiTags dialog instance
 local SCAN_MS, FADE_MS, HOLD_MS = 350, 450, 4000
+-- Re-identify gap: if a tracked target hasn't been identified for at least this long (i.e. you
+-- looked AWAY and back, vs. holding it under continuous auto/dwell which re-fires every ~250ms),
+-- re-scan it from scratch (spinner + fade-in) instead of instantly refreshing the old reveal.
+local REIDENTIFY_GAP_MS = 750
 
 -- Aspect-correction factor the engine applies to rotated (SetHeading) statics:
 -- the 4:3 virtual UI (1024x768) is stretched onto the real (usually wider)
@@ -1548,7 +1557,7 @@ local function find_nearest_in_fov(max_dist)
 	local apos = db.actor:position()
 	local actor_id = db.actor:id()
 	local cx, cy = aim_center() -- weapon aim point under free-aim, else screen centre
-	local radius = C.fov_radius or 90
+	local radius = C.fov_radius or 35
 	local best_obj, best_d = nil, radius
 	local best_busy_obj, best_busy_d = nil, radius
 
@@ -1612,7 +1621,7 @@ local function debug_dump_candidates()
 			tostring(C.freeaim_assist),
 			tostring(C.require_los),
 			tostring(C.require_binoculars),
-			C.fov_radius or 90,
+			C.fov_radius or 35,
 			cx,
 			cy,
 			C.max_dist
@@ -1630,7 +1639,7 @@ local function debug_dump_candidates()
 			local comm = safe_call(obj.character_community, obj)
 			local sx, sy = project_world(anchor_pos(obj))
 			local d = screen_dist_to_body(obj, cx, cy)
-			local within = (d ~= nil and d <= (C.fov_radius or 90))
+			local within = (d ~= nil and d <= (C.fov_radius or 35))
 			local los = has_los(obj)
 			dbg(
 				string.format(
@@ -2373,9 +2382,9 @@ end
 -- reveal, or restart one that's already showing). Split out of try_identify()
 -- so the keypress path and the auto-identify sweep (update_auto_identify)
 -- share one identical commit path. Caller guarantees obj is alive and comm is
--- a non-empty community id; (boosted, eff_max_dist, eff_fade_dist) come from
+-- a non-empty community id; (boosted, eff_max_dist) come from
 -- the caller's boost_params() snapshot.
-local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, scan_mult, auto_mode)
+local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto_mode)
 	-- Tier system installed but the kit isn't assembled/worn: the scanner IS the identify
 	-- device, so block all identification. Single choke point -- every path commits here.
 	if tier_blocked() then
@@ -2441,24 +2450,31 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 
 	if tracked[id] then
 		local e = tracked[id]
-		-- Already being identified: never RE-SCAN (no spinner restart). What happens depends on
-		-- the reveal phase, so re-aiming a still-shown tag doesn't flicker but a faded-out one
-		-- re-appears with its fade-IN rather than popping instantly:
-		--   * still scanning / fading in -> leave it alone (let it finish).
-		--   * in HOLD (fully shown)       -> park t0 at hold start = refresh the hold window.
-		--   * past hold (fading OUT)      -> restart from the fade-in start so it fades back in
-		--     (respects fade_time; the old code parked at hold start here, which is the "pops up
-		--     instantly" seen going back and forth between targets).
-		local scan_ms = e.scan_ms or 0
-		local revealed = scan_ms + (e.fade_ms or FADE_MS) -- end of fade-in / start of hold
-		local hold_end = revealed + (e.hold_ms or HOLD_MS) -- start of fade-out
-		local el = tg - e.t0
-		if el >= hold_end then
-			e.t0 = tg - scan_ms -- fading out: restart the fade-in (skip the scan phase)
-		elseif el >= revealed then
-			e.t0 = tg - revealed -- in hold: refresh, keep it shown, no re-fade
+		-- Looked AWAY and back? If this target hasn't been re-identified for REIDENTIFY_GAP_MS
+		-- (longer than the ~250ms continuous auto/dwell cadence), you glanced away and returned,
+		-- so re-SCAN it from scratch (spinner + fade-in): drop the entry and fall through to the
+		-- fresh-scan path below. A rapid/continuous re-trigger (holding a target under the aim,
+		-- auto-identify) stays under the gap, so it just refreshes without strobing the spinner.
+		if tg - (e.last_seen_tg or e.t0) >= REIDENTIFY_GAP_MS then
+			tracked[id] = nil
+		else
+			e.last_seen_tg = tg
+			-- Continuous re-trigger: never RE-SCAN. What happens depends on the reveal phase, so a
+			-- still-shown tag doesn't flicker but a faded-out one re-appears with its fade-IN:
+			--   * still scanning / fading in -> leave it alone (let it finish).
+			--   * in HOLD (fully shown)       -> park t0 at hold start = refresh the hold window.
+			--   * past hold (fading OUT)      -> restart from the fade-in start so it fades back in.
+			local scan_ms = e.scan_ms or 0
+			local revealed = scan_ms + (e.fade_ms or FADE_MS) -- end of fade-in / start of hold
+			local hold_end = revealed + (e.hold_ms or HOLD_MS) -- start of fade-out
+			local el = tg - e.t0
+			if el >= hold_end then
+				e.t0 = tg - scan_ms -- fading out: restart the fade-in (skip the scan phase)
+			elseif el >= revealed then
+				e.t0 = tg - revealed -- in hold: refresh, keep it shown, no re-fade
+			end
+			return
 		end
-		return
 	end
 
 	if not xp_awarded[id] and award_perception_xp(C.perception_xp) then
@@ -2497,6 +2513,7 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 
 	tracked[id] = {
 		t0 = tg,
+		last_seen_tg = tg, -- last identify tick, for the look-away-and-back re-scan gap (see above)
 		col = show_rel and relation_color(obj) or COL_NEUTRAL,
 		fcol = faction_color(comm),
 		sign = show_rel and relation_sign(obj) or "o",
@@ -2512,8 +2529,7 @@ local function identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, 
 		want_dist = show_dist,
 		scan_ms = eff_scan_ms,
 		max_dist = eff_max_dist,
-		fade_dist = eff_fade_dist,
-		-- Snapshotted like scan_ms/max_dist/fade_dist above: FADE_MS/HOLD_MS
+		-- Snapshotted like scan_ms/max_dist above: FADE_MS/HOLD_MS
 		-- can change live via MCM mid-reveal, and without this snapshot an
 		-- already-active tag's `total` (see render()) would shrink/grow
 		-- retroactively -- e.g. lowering hold_time while a tag is mid-hold
@@ -2539,6 +2555,18 @@ end
 -- (a boost is actually active), the widened effective max/fade distances, and the
 -- active scan_time multiplier. Binoculars take priority over ADS so the two never
 -- stack. Each boost carries its own scan + range multipliers from its MCM section.
+-- Per-mode HARD cutoff on the effective identify distance. After the base distance is scaled up
+-- (magnification / range boosts), clamp it to the ACTIVE aim mode's cap so a runaway
+-- magnification (or any future scaling) can't push identify range absurdly high. 0 = no cap.
+-- fade never exceeds the (capped) max. hipfire = the default aim (neither binoculars nor ADS).
+local function apply_mode_cap(binoc, ads, max_d)
+	local cap = (binoc and C.binoc_max_dist) or (ads and C.ads_max_dist) or C.hipfire_max_dist
+	if cap and cap > 0 and max_d > cap then
+		max_d = cap
+	end
+	return max_d
+end
+
 local function boost_params()
 	if tier_active() then
 		-- Tier system: range comes from the scanner tier (t.max_dist). Binoculars count when
@@ -2560,7 +2588,7 @@ local function boost_params()
 			end
 		end
 		local eff = base_max * range_mult
-		return binoc, ads, (binoc or ads), eff, eff, 1.0
+		return binoc, ads, (binoc or ads), apply_mode_cap(binoc, ads, eff), 1.0
 	end
 	local binoc = is_binoc_active()
 	local ads = (not binoc) and is_ads_active()
@@ -2595,9 +2623,8 @@ local function boost_params()
 			end
 		end
 	end
-	local eff_max_dist = C.max_dist * range_mult
-	local eff_fade_dist = C.fade_dist * range_mult
-	return binoc, ads, boosted, eff_max_dist, eff_fade_dist, scan_mult
+	local eff_max_dist = apply_mode_cap(binoc, ads, C.max_dist * range_mult)
+	return binoc, ads, boosted, eff_max_dist, scan_mult
 end
 
 -- auto_mode: called by the steady-aim auto-trigger (binocular / ADS mode) rather
@@ -2612,7 +2639,7 @@ local function try_identify(auto_mode)
 	end
 	debug_dump_aim()
 	debug_dump_candidates()
-	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	local binoc, _, boosted, eff_max_dist, scan_mult = boost_params()
 	if C.require_binoculars and not tier_active() and not binoc then
 		return
 	end
@@ -2642,7 +2669,7 @@ local function try_identify(auto_mode)
 		return
 	end
 
-	identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, scan_mult, auto_mode)
+	identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto_mode)
 end
 
 -- --------------------------------------------------------------------------
@@ -2662,27 +2689,56 @@ local function update_auto_identify(tg)
 	if not C.auto_identify then
 		return
 	end
-	if tg - auto_last_tg < AUTO_THROTTLE_MS then
-		return
-	end
-	auto_last_tg = tg
 	if not db.actor or not level.iterate_nearest then
 		return
 	end
 
-	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	local binoc, _, boosted, eff_max_dist, scan_mult = boost_params()
 	if C.require_binoculars and not tier_active() and not binoc then
 		return
 	end
 
+	-- Snappy on-aim: identify the target directly under the crosshair EVERY frame (direct-hit
+	-- only via get_target_obj(..., allow_fov=false) -- no scene scan, so it's cheap). This starts
+	-- the scan the instant you're on target instead of waiting up to AUTO_THROTTLE_MS for the
+	-- throttled full sweep below. LOS is always required for auto-identify.
+	local direct = get_target_obj(eff_max_dist, false)
+	if direct then
+		local comm = safe_call(direct.character_community, direct)
+		if comm and comm ~= "" and has_los(direct) then
+			identify_target(direct, comm, boosted, eff_max_dist, scan_mult, true)
+		end
+	end
+
+	-- Throttled full sweep of the rest of the visible scene (peripheral / FOV-assist targets).
+	if tg - auto_last_tg < AUTO_THROTTLE_MS then
+		return
+	end
+	auto_last_tg = tg
+
 	local apos = db.actor:position()
 	local actor_id = db.actor:id()
+	-- hide_off_aim scopes identification to the aimed target(s): with it on, only identify what's
+	-- inside the FOV assist radius, so auto never adds an off-aim target that render's membership
+	-- gate would immediately drop (that add/drop churn is what would strobe the scan spinner).
+	local aim_only = C.hide_off_aim
+	local acx, acy
+	if aim_only then
+		acx, acy = aim_center()
+	end
 	pcall(level.iterate_nearest, apos, eff_max_dist, function(obj)
 		if obj and obj:id() ~= actor_id and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) then
 			if safe_call(obj.alive, obj) then
 				local comm = safe_call(obj.character_community, obj)
 				if comm and comm ~= "" and has_los(obj) then
-					identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, scan_mult, true)
+					local aimed = not aim_only
+					if aim_only then
+						local d = screen_dist_to_body(obj, acx, acy)
+						aimed = d ~= nil and d <= (C.fov_radius or 0)
+					end
+					if aimed then
+						identify_target(obj, comm, boosted, eff_max_dist, scan_mult, true)
+					end
 				end
 			end
 		end
@@ -2730,12 +2786,12 @@ local function sweep_identify_in_fov(tg)
 	if not db.actor or not level.iterate_nearest then
 		return
 	end
-	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	local binoc, _, boosted, eff_max_dist, scan_mult = boost_params()
 	if C.require_binoculars and not tier_active() and not binoc then
 		return
 	end
 	local cx, cy = aim_center()
-	local radius = C.fov_radius or 90
+	local radius = C.fov_radius or 35
 	local apos = db.actor:position()
 	local actor_id = db.actor:id()
 	pcall(level.iterate_nearest, apos, eff_max_dist, function(obj)
@@ -2747,7 +2803,7 @@ local function sweep_identify_in_fov(tg)
 					-- fov_radius px of the aim point), and visible.
 					local d = screen_dist_to_body(obj, cx, cy)
 					if d and d <= radius and has_los(obj) then
-						identify_target(obj, comm, boosted, eff_max_dist, eff_fade_dist, scan_mult, true)
+						identify_target(obj, comm, boosted, eff_max_dist, scan_mult, true)
 					end
 				end
 			end
@@ -2761,7 +2817,7 @@ local function sweep_identify_in_fov(tg)
 	if model and (not C.require_los or has_los(model)) then
 		local comm = safe_call(model.character_community, model)
 		if comm and comm ~= "" then
-			identify_target(model, comm, boosted, eff_max_dist, eff_fade_dist, scan_mult, true)
+			identify_target(model, comm, boosted, eff_max_dist, scan_mult, true)
 		end
 	end
 end
@@ -2783,7 +2839,7 @@ local function update_ads_dwell(tg)
 		return
 	end
 	_dwell.ads.check = tg
-	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	local binoc, _, boosted, eff_max_dist, scan_mult = boost_params()
 	if C.require_binoculars and not tier_active() and not binoc then
 		_dwell.ads.armed = false
 		return
@@ -2835,7 +2891,7 @@ local function update_hipfire_dwell(tg)
 		return
 	end
 	_dwell.hip.check = tg
-	local binoc, _, boosted, eff_max_dist, eff_fade_dist, scan_mult = boost_params()
+	local binoc, _, boosted, eff_max_dist, scan_mult = boost_params()
 	if C.require_binoculars and not tier_active() and not binoc then
 		_dwell.hip.armed = false
 		return
@@ -3232,7 +3288,7 @@ function IiTags:draw_debug()
 	end
 
 	local cx, cy = aim_center()
-	local radius = C.fov_radius or 90 -- assist tolerance: a straight screen-px ring
+	local radius = C.fov_radius or 35 -- assist tolerance: a straight screen-px ring
 	-- Use the EFFECTIVE max range (base * binoc/ADS boost, incl. scope magnification)
 	-- so the green/red range colouring matches what would actually identify right now.
 	local dbg_binoc, dbg_ads, _, eff_max = boost_params()
@@ -3326,7 +3382,7 @@ function IiTags:draw_debug()
 
 	-- Radius value, just above the ring.
 	if d.text then
-		d.text:SetText(string.format("fov_radius %d", math.floor(C.fov_radius or 90)))
+		d.text:SetText(string.format("fov_radius %d", math.floor(C.fov_radius or 35)))
 		d.text:SetTextColor(GetARGB(255, 255, 220, 40))
 		d.text:SetWndPos(P(math.floor(cx + 6), math.floor(cy - radius - 18)))
 		d.text:Show(true)
@@ -3621,9 +3677,8 @@ function IiTags:draw_slot(
 		-- scanning only: a rotating spinner on the body, nothing revealed yet.
 		-- Always plain white -- relation isn't known/shown as a colour cue
 		-- until the tag actually reveals. Branches on the `scanning` flag
-		-- itself, not `alpha <= 1`: alpha is also driven by distance fade, so
-		-- a target near the max fade-out distance during the *revealed*
-		-- phase could hit alpha<=1 too and wrongly flip back to the spinner.
+		-- itself, not `alpha <= 1`: a revealed tag's alpha also drops during its
+		-- fade-out, which could hit alpha<=1 too and wrongly flip back to the spinner.
 		-- NOT width-squeezed by UI_KX like the static node/glow/line: those
 		-- are pre-distorted so the engine's anisotropic virtual-to-screen
 		-- stretch turns them back into circles, but that trick only holds
@@ -3888,8 +3943,11 @@ function IiTags:draw_slot(
 	local ispan = iw + 4 * scale
 
 	-- Text width: re-measured only when the strings OR which lines are shown
-	-- change (AdjustWidthToText/GetWidth per change, not per frame).
-	local text_w = s.text_w
+	-- change (AdjustWidthToText/GetWidth per change, not per frame). `or 0` guards the
+	-- degenerate first-draw case where every line is empty (e.g. a Card for a target with no
+	-- name/faction/rank/weapon): the invalidation check below is all nil~=nil = false, so the
+	-- recompute is skipped and the cache (s.text_w) is still nil -- 0 = a plate with just the icon.
+	local text_w = s.text_w or 0
 	if
 		header ~= s.last_head
 		or name ~= s.last_name
@@ -4480,16 +4538,11 @@ function IiTags:draw_crooks()
 		return
 	end
 	local name, icon, rank = _last_id.name, _last_id.icon, _last_id.rank
-	-- Respect the identification linger: the Crooks readout shows only while its target's
-	-- reveal is still active (tracked[id] exists -- i.e. within scan+fade+hold+fade-out, the
-	-- same "how long it stays after you look away" window as the on-entity tags), then hides.
+	-- Show the readout only while its target is still in the list. That single check covers both
+	-- modes: normally the entry lives out its reveal window (scan+fade+hold+fade-out) = the
+	-- linger; under hide_off_aim the entry is dropped the moment you aim away (see render's
+	-- membership gate), so the readout follows the aim with no extra on_aim bookkeeping.
 	if C.ui_style ~= CROOKS.style or not _last_id.id or not tracked[_last_id.id] or not (name and name ~= "") then
-		self:hide_crooks()
-		return
-	end
-	-- ...but with hide_off_aim on, the linger is intentionally dropped: the readout tracks the
-	-- overlay exactly, showing only WHILE the target is under the aim (on_aim, set in render()).
-	if C.hide_off_aim and not _last_id.on_aim then
 		self:hide_crooks()
 		return
 	end
@@ -4632,7 +4685,7 @@ local function render(tg)
 
 	_last_id.scan_frac = nil -- recomputed below: progress of any in-progress scan this frame
 
-	-- Per-frame "what am I looking at" state, needed by hide_off_aim (display gate) and the
+	-- Per-frame "what am I looking at" state, needed by hide_off_aim (membership gate) and the
 	-- Crooks readout (which target's info to show). aim_model_id = the target whose MODEL the
 	-- crosshair is directly on (mesh raycast) -- counts as aimed-at even when no BONE falls in
 	-- fov_radius (tight radius / aiming between bones), matching how identification resolves it.
@@ -4653,7 +4706,6 @@ local function render(tg)
 		-- binoculars partway through.
 		local scan_ms = e.scan_ms or SCAN_MS
 		local max_dist = e.max_dist or C.max_dist
-		local fade_dist = e.fade_dist or C.fade_dist
 		local fade_ms = e.fade_ms or FADE_MS
 		local hold_ms = e.hold_ms or HOLD_MS
 		local total = scan_ms + fade_ms + hold_ms + fade_ms
@@ -4686,6 +4738,23 @@ local function render(tg)
 			end
 		end
 
+		-- Is this target under the aim right now? A body point inside fov_radius OR the crosshair
+		-- directly on the model (the same direct-hit case identification honours). Drives the
+		-- hide_off_aim MEMBERSHIP gate here and the Crooks gaze re-point below. Only when needed.
+		local under_aim = nil
+		if not remove and need_aim and obj then
+			local ad = screen_dist_to_body(obj, aim_cx, aim_cy)
+			under_aim = (ad ~= nil and ad <= (C.fov_radius or 0)) or id == aim_model_id
+		end
+		-- hide_off_aim: aim AWAY = drop the target from the list (a membership gate, not a display
+		-- gate). Aiming back finds it gone, so identification re-runs the whole scan from scratch
+		-- rather than instantly reappearing. (The identify sources are aim-scoped too -- manual/
+		-- dwell aim the target, and auto-identify skips off-aim ones -- so a dropped target isn't
+		-- immediately re-added while you're still looking away.)
+		if not remove and C.hide_off_aim and under_aim == false then
+			remove = true
+		end
+
 		if remove then
 			tracked[id] = nil
 		else
@@ -4713,16 +4782,6 @@ local function render(tg)
 
 			local pos = anchor_pos(obj)
 
-			-- Is this target under the aim right now? A body point inside fov_radius OR the
-			-- crosshair directly on the model (the same direct-hit case identification honours;
-			-- covers a tight fov_radius). Drives both the hide_off_aim display gate and the
-			-- Crooks gaze re-point below. Only computed when something actually needs it.
-			local under_aim = nil
-			if need_aim then
-				local ad = screen_dist_to_body(obj, aim_cx, aim_cy)
-				under_aim = (ad ~= nil and ad <= (C.fov_radius or 0)) or id == aim_model_id
-			end
-
 			-- Publish this revealed target as the "last identified" for external readouts (the
 			-- Promin OSD ident page + the Crooks HUD). Two triggers, both only once REVEALED:
 			--   1. first scan COMPLETION (osd_done, once per target) -- keeps the previously-shown
@@ -4746,27 +4805,11 @@ local function render(tg)
 			end
 
 			local dist = apos and pos:distance_to(apos) or 0
-			local dist_fade = 1
-			if dist > fade_dist then
-				local span = math.max(1, max_dist - fade_dist)
-				dist_fade = 1 - (dist - fade_dist) / span
-				if dist_fade < 0 then
-					dist_fade = 0
-				end
-			end
 
-			-- (Out-of-sight targets are already dropped above via hide_unseen.)
+			-- (Off-aim targets under hide_off_aim, and out-of-sight ones under hide_unseen, are
+			-- already dropped above -- so everything drawn here is a live, in-view, aimed target.)
 			local sx, sy = project_world(pos)
-			-- hide_off_aim display gate: show the overlay only while the target is under the aim
-			-- (see under_aim above); the overlay reappears the moment you aim back. Pure display
-			-- gate -- scan/reveal + last-identified capture already ran. Off -> always shown.
-			local off_aim = C.hide_off_aim and under_aim == false
-			-- Remember whether the LAST-identified target is under the aim right now, so the
-			-- Crooks readout can drop its linger under hide_off_aim (see IiTags:draw_crooks).
-			if id == _last_id.id then
-				_last_id.on_aim = not off_aim
-			end
-			if sx and dist <= max_dist * 1.15 and not off_aim then
+			if sx and dist <= max_dist * 1.15 then
 				-- Fill = faction colour, ring = relation colour -- same
 				-- two-signal split as the Minimal HUD style's dot+sign,
 				-- adapted to what a flat shader shape can actually convey
@@ -4779,7 +4822,7 @@ local function render(tg)
 				-- not phase_alpha, which is still 0 for the whole scan.
 				if pip_active and not osd_only then
 					local col, fcol = e.col, e.fcol
-					local alpha = scanning and (0.9 * dist_fade) or (phase_alpha * dist_fade)
+					local alpha = scanning and 0.9 or phase_alpha
 					svp_ui_markers_add(
 						pos.x,
 						pos.y + PIP_MARKER.lift,
@@ -4810,7 +4853,7 @@ local function render(tg)
 					nm = (nm and nm ~= "") and (nm .. "  " .. m) or m
 				end
 				a.hx, a.hy, a.header, a.name = sx + off_x, sy + off_y, e.header, nm
-				a.a = math.floor(255 * phase_alpha * dist_fade + 0.5)
+				a.a = math.floor(255 * phase_alpha + 0.5)
 				a.col, a.icon, a.scanning = e.col, e.icon, scanning
 				-- Minimal (dot, style 2, opt-in) and Simple 2 (style 4, always) scale with
 				-- distance so a far target's marker isn't oversized; other styles keep the
@@ -4974,16 +5017,15 @@ end
 -- When the ADS range boost ends (you zoom out / lower the sight), the effective
 -- identify range snaps back from the extended (ads_range_mult) range to the base.
 -- Any tag identified at that extended range that now sits beyond the base range is
--- dropped immediately -- rather than lingering invisibly on its reveal timer --
--- and survivors are re-snapshotted to the base range so their distance fade-out
--- matches it. Fires only on the ADS-boost active->inactive edge.
+-- dropped immediately -- rather than lingering on its reveal timer -- and survivors are
+-- re-snapshotted to the base range (e.max_dist). Fires only on the ADS-boost active->inactive edge.
 --
 -- Deliberately NOT applied to binoculars: those keep a just-glassed distant tag
 -- readable after you lower them (see boost_params()'s snapshot comment), a
 -- dedicated-observation UX that differs from ADS's transient combat aid.
 local _was_ads_boost = false
 local function update_ads_range_cull()
-	local _, ads, _, eff_max_dist, eff_fade_dist = boost_params()
+	local _, ads, _, eff_max_dist = boost_params()
 	local ads_boost = ads and C.ads_boost
 	if _was_ads_boost and not ads_boost then
 		local apos = db.actor and safe_call(db.actor.position, db.actor)
@@ -4994,7 +5036,7 @@ local function update_ads_range_cull()
 				if pos and pos:distance_to(apos) > eff_max_dist then
 					tracked[id] = nil -- out of the (now unboosted) range: clear it
 				else
-					e.max_dist, e.fade_dist = eff_max_dist, eff_fade_dist
+					e.max_dist = eff_max_dist
 				end
 			end
 		end

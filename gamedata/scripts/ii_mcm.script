@@ -132,7 +132,7 @@ function on_mcm_load()
 			{
 				id = "general",
 				sh = true,
-				presets = { "ii_card", "ii_minimal", "ii_bodycam", "ii_immersive", "ii_crooks" },
+				presets = { "ii_default", "ii_card", "ii_minimal", "ii_bodycam", "ii_immersive", "ii_crooks" },
 				gr = {
 					opt_title("ui_mcm_ii_general_title"),
 					opt_check("enabled"),
@@ -145,7 +145,6 @@ function on_mcm_load()
 					opt_track("hold_time", 1, 15, 0.5, 1),
 					opt_check("hide_unseen"),
 					opt_track("max_dist", 10, 500, 5),
-					opt_track("fade_dist", 5, 500, 10),
 				},
 			},
 			-- UI Style is a CONTAINER (no `sh`), so MCM shows its sub-pages (General/Bodycam/Crooks)
@@ -199,6 +198,7 @@ function on_mcm_load()
 				opt_check("hipfire_mode"),
 				opt_track("hipfire_hold_time", 0, 3, 0.1, 1),
 				opt_check("instant_exclude_hipfire"),
+				opt_track("hipfire_max_dist", 0, 1000, 5),
 			}),
 			page("binoc", {
 				opt_title("ui_mcm_ii_binoc_title"),
@@ -211,6 +211,7 @@ function on_mcm_load()
 				opt_track("binoc_range_mult", 1, 5, 0.1, 1),
 				opt_check("binoc_zoom_scaling"),
 				opt_check("instant_exclude_binoc"),
+				opt_track("binoc_max_dist", 0, 1000, 5),
 			}),
 			page("ads", {
 				opt_title("ui_mcm_ii_ads_title"),
@@ -222,6 +223,7 @@ function on_mcm_load()
 				opt_check("ads_zoom_scaling"),
 				opt_check("ads_hide_main"),
 				opt_check("instant_exclude_ads"),
+				opt_track("ads_max_dist", 0, 1000, 5),
 			}),
 			page("pip", {
 				opt_title("ui_mcm_ii_pip_title"),

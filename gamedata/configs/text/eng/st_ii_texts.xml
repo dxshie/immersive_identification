@@ -20,6 +20,7 @@
 	<string id="ui_mcm_ii_title"><text>Immersive Identification</text></string>
 
 	<!-- MCM preset names (ui_mcm_prst_<id>), matching presets_ii.ltx sections. -->
+	<string id="ui_mcm_prst_ii_default"><text>Default settings</text></string>
 	<string id="ui_mcm_prst_ii_card"><text>Classic Card</text></string>
 	<string id="ui_mcm_prst_ii_minimal"><text>Minimal Dot</text></string>
 	<string id="ui_mcm_prst_ii_bodycam"><text>Tactical Bodycam</text></string>
@@ -72,10 +73,12 @@
 
 	<string id="ui_mcm_ii_auto_identify"><text>Auto-identify visible targets</text></string>
 	<string id="ui_mcm_ii_auto_identify_desc"><text>Continuously identify every visible target in range without pressing the key. Line of sight is always required. Pairs well with the Bodycam style.</text></string>
-	<string id="ui_mcm_ii_hipfire_mode"><text>Hipfire dwell mode</text></string>
+	<string id="ui_mcm_ii_hipfire_mode"><text>Auto Identification</text></string>
 	<string id="ui_mcm_ii_hipfire_mode_desc"><text>Auto-identify while hip-firing (not aiming down sight, not through binoculars) once a target has been held on your aim (or inside the FOV assist range, if that's on) for the hold time below. For players who'd rather not press the key and still identify from the hip. You can track a moving target; aiming at empty air does nothing.</text></string>
 	<string id="ui_mcm_ii_hipfire_hold_time"><text>Hipfire hold time (s)</text></string>
 	<string id="ui_mcm_ii_hipfire_hold_time_desc"><text>How long a target must stay under your hip-fire aim (or in the FOV assist range) before it auto-identifies. Set to 0 to identify instantly the moment you aim at a target, with no wait. Default 1.0 s.</text></string>
+	<string id="ui_mcm_ii_hipfire_max_dist"><text>Max identification distance (m)</text></string>
+	<string id="ui_mcm_ii_hipfire_max_dist_desc"><text>Hard cutoff on the effective identify range while hip-firing (not aiming down sight, not through binoculars). Caps the base identification distance after any scaling. 0 = no cap.</text></string>
 
 	<string id="ui_mcm_ii_faceredact_title"><text>Face Redaction</text></string>
 	<string id="ui_mcm_ii_redact_face"><text>Redact faces</text></string>
@@ -117,11 +120,9 @@
 	<string id="ui_mcm_ii_hold_time"><text>Identification visibility (s)</text></string>
 	<string id="ui_mcm_ii_hold_time_desc"><text>How long the tag stays fully visible after identification (while the target remains in sight; out-of-sight targets drop sooner, see "Drop tag when out of sight").</text></string>
 
-	<string id="ui_mcm_ii_max_dist"><text>Max range (m)</text></string>
-	<string id="ui_mcm_ii_max_dist_desc"><text>Maximum range identification works at.</text></string>
+	<string id="ui_mcm_ii_max_dist"><text>Base identification distance (m)</text></string>
+	<string id="ui_mcm_ii_max_dist_desc"><text>The BASE range identification works at, before it's scaled up (binocular/ADS magnification, range boosts) or down (distance/other penalties). It is not a hard maximum -- the effective range can end up higher or lower. To hard-cap the effective range, use the "Max identification distance" cutoffs on the Hipfire / ADS / Binoculars pages.</text></string>
 
-	<string id="ui_mcm_ii_fade_dist"><text>Fade-out range (m)</text></string>
-	<string id="ui_mcm_ii_fade_dist_desc"><text>Range at which the tag starts fading out with distance.</text></string>
 
 	<string id="ui_mcm_ii_fov_assist"><text>FOV target assist</text></string>
 	<string id="ui_mcm_ii_fov_assist_desc"><text>When you don't land a direct hit, identify the nearest target within the on-screen assist circle. Turn off to require aiming directly at the target.</text></string>
@@ -135,12 +136,12 @@
 	<string id="ui_mcm_ii_require_los"><text>Require line of sight</text></string>
 	<string id="ui_mcm_ii_require_los_desc"><text>Only pick targets you can actually see.</text></string>
 	<string id="ui_mcm_ii_hide_off_aim"><text>Only show overlay while aimed</text></string>
-	<string id="ui_mcm_ii_hide_off_aim_desc"><text>Show a target's identification overlay only while you're aiming at or near it (within the FOV radius of your aim point); it disappears when you look away and reappears when you aim back. Identification itself still completes. Default off.</text></string>
+	<string id="ui_mcm_ii_hide_off_aim_desc"><text>Only ever track the target you're aiming at or near (within the FOV radius of your aim point). Aiming away DROPS it -- so aiming back re-runs the whole scan from scratch rather than instantly reappearing. Scopes identification to the aimed target (auto-identify won't fill the screen). Default off.</text></string>
 
 	<string id="ui_mcm_ii_hide_unseen"><text>Drop tag when out of sight</text></string>
 	<string id="ui_mcm_ii_hide_unseen_desc"><text>Remove an active tag as soon as its target goes out of sight (behind cover or off-screen), instead of waiting out the visibility duration. A brief occlusion is tolerated; re-identify (or auto-identify) brings it back.</text></string>
 
-	<string id="ui_mcm_ii_binocular_mode"><text>Binocular mode</text></string>
+	<string id="ui_mcm_ii_binocular_mode"><text>Auto Identification</text></string>
 	<string id="ui_mcm_ii_binocular_mode_desc"><text>Also auto-identify on a steady aim through raised binoculars, alongside the normal key.</text></string>
 
 	<string id="ui_mcm_ii_require_binoculars"><text>Require binoculars</text></string>
@@ -162,9 +163,11 @@
 	<string id="ui_mcm_ii_binoc_range_mult_desc"><text>Max (and fade-out) distance multiplier while binoculars are raised. A flat multiplier by default, or the x1 base when "Scale range by magnification" (below) is on.</text></string>
 	<string id="ui_mcm_ii_binoc_zoom_scaling"><text>Scale range by magnification</text></string>
 	<string id="ui_mcm_ii_binoc_zoom_scaling_desc"><text>Multiply the binocular range by the binocular's magnification (like the ADS option), so the range tracks the optical zoom instead of a flat multiplier. Off = flat "Binoculars max distance multiplier". On: set that multiplier to 1.0 for range = base x magnification.</text></string>
+	<string id="ui_mcm_ii_binoc_max_dist"><text>Max identification distance (m)</text></string>
+	<string id="ui_mcm_ii_binoc_max_dist_desc"><text>Hard cutoff on the effective identify range through binoculars. Caps the base identification distance after magnification/boost scaling -- use this to stop high-magnification binoculars from reaching absurdly far. 0 = no cap.</text></string>
 
 	<string id="ui_mcm_ii_ads_title"><text>Aim Down Sight (ADS)</text></string>
-	<string id="ui_mcm_ii_ads_mode"><text>ADS mode</text></string>
+	<string id="ui_mcm_ii_ads_mode"><text>Auto Identification</text></string>
 	<string id="ui_mcm_ii_ads_mode_desc"><text>Auto-identify while aiming down sight once a target has been held on your aim (or inside the FOV assist range, if that's on) for the hold time below, alongside the normal key. You can track a moving target; aiming at empty air does nothing.</text></string>
 	<string id="ui_mcm_ii_ads_hold_time"><text>ADS hold time (s)</text></string>
 	<string id="ui_mcm_ii_ads_hold_time_desc"><text>How long (seconds) a target must stay on your aim (or in FOV assist range) while aiming down sight before it auto-identifies, in ADS mode. Set to 0 to identify instantly the moment you aim at a target, with no wait.</text></string>
@@ -178,6 +181,8 @@
 	<string id="ui_mcm_ii_ads_zoom_scaling_desc"><text>Multiply the ADS range by the scope's magnification (x2, x4, ...), so higher-power optics reach further. Works with PiP scopes and, on engines without PiP, from the aim FOV. Iron sights stay near the x1 base.</text></string>
 	<string id="ui_mcm_ii_ads_hide_main"><text>Hide main-view UI while aiming</text></string>
 	<string id="ui_mcm_ii_ads_hide_main_desc"><text>While aiming down sight, suppress all main-view drawing (identification tags and main-view redaction) for a clean sight picture. In-scope markers/redaction (if any) still draw.</text></string>
+	<string id="ui_mcm_ii_ads_max_dist"><text>Max identification distance (m)</text></string>
+	<string id="ui_mcm_ii_ads_max_dist_desc"><text>Hard cutoff on the effective identify range while aiming down sight. Caps the base identification distance after magnification/boost scaling. 0 = no cap.</text></string>
 
 	<string id="ui_mcm_ii_pip_title"><text>PiP Scope (in-scope UI)</text></string>
 	<string id="ui_mcm_ii_pip_markers"><text>Identification markers in scope</text></string>

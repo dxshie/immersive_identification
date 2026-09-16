@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- **Default FOV assist radius lowered from 90 to 35** (tighter default target assist).
+- New **"Default settings"** MCM preset — resets every option to its default in one click
+  (colours reset separately via the Colors page's "Custom colours" toggle).
+- **`hide_off_aim` ("Only show overlay while aimed") is now a list-membership gate**, not a
+  display gate: aiming away drops the target, so aiming back re-runs the full scan instead of
+  reappearing instantly; auto-identify is aim-scoped when it's on. Removed the tag fade-out
+  *distance* property (tags stay full-opacity to the range cutoff).
+
+- Renamed the **"Max range"** MCM setting to **"Base identification distance"** — it's the
+  *base* range that scales up (magnification / boosts) or down (penalties), not a hard maximum.
+  (Internal key unchanged for save/preset compatibility.)
+- New **"Max identification distance"** hard-cutoff sliders (5 m steps) on the **Hipfire /
+  ADS / Binoculars** pages: clamp the effective identify range per mode after all scaling, so a
+  high-magnification binocular (or any runaway scaling) can't reach absurdly far. 0 = no cap.
+- Re-look re-scan, weight penalty, and the Russian weight-penalty strings (see prior entries).
+
 ## 3.1.0 — everything since 2.53.0
 
 Summarizes changes from **v2.53.0** to **v3.1.0**, grouped by area (final behaviour, not

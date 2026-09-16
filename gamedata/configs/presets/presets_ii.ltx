@@ -12,6 +12,122 @@
 ; Keep in sync with the page an option lives on in ii_mcm.script (+ MCM_PAGES in
 ; ii_identify.script), or the preset writes a dead path and silently does nothing.
 
+[ii_default]
+;  Every option at its default value -- selecting this preset resets the mod
+;  (colours reset separately via the Colors page's 'Custom colours' toggle).
+
+ii/general/enabled                = true
+ii/general/modifier_index         = 1
+ii/general/instant_identify       = false
+ii/general/scan_time              = 0.35
+ii/general/fade_time              = 0.45
+ii/general/hold_time              = 4.0
+ii/general/hide_unseen            = true
+ii/general/max_dist               = 50
+
+ii/uistyle/general/ui_style               = 1
+ii/uistyle/general/show_name              = true
+ii/uistyle/general/show_faction           = true
+ii/uistyle/general/show_rank              = true
+ii/uistyle/general/show_weapon            = true
+ii/uistyle/general/color_by_relation      = true
+ii/uistyle/general/card_scale             = 1.0
+ii/uistyle/general/mini_scale_cutoff      = 0.4
+ii/uistyle/general/mini_dist_scale        = true
+ii/uistyle/general/ui_offset_x            = 0
+ii/uistyle/general/ui_offset_y            = 0
+
+ii/uistyle/bodycam/box_area               = 1
+ii/uistyle/bodycam/box_color_source       = 1
+ii/uistyle/bodycam/box_thickness          = 2
+ii/uistyle/bodycam/box_padding            = 0.2
+ii/uistyle/bodycam/box_opacity            = 1.0
+
+ii/uistyle/crooks/crooks_pos             = 1
+ii/uistyle/crooks/crooks_x               = 0
+ii/uistyle/crooks/crooks_y               = 0
+
+ii/targeting/fov_assist             = true
+ii/targeting/freeaim_assist         = false
+ii/targeting/fov_radius             = 35
+ii/targeting/require_los            = true
+ii/targeting/hide_off_aim           = false
+ii/targeting/auto_identify          = false
+
+ii/hipfire/hipfire_mode           = false
+ii/hipfire/hipfire_hold_time      = 1.0
+ii/hipfire/instant_exclude_hipfire = false
+ii/hipfire/hipfire_max_dist       = 0
+
+ii/binoc/binocular_mode         = false
+ii/binoc/require_binoculars     = false
+ii/binoc/steady_time            = 0.6
+ii/binoc/fov_assist_binoc       = true
+ii/binoc/binoc_boost            = true
+ii/binoc/binoc_scan_mult        = 0.4
+ii/binoc/binoc_range_mult       = 4.4
+ii/binoc/binoc_zoom_scaling     = false
+ii/binoc/instant_exclude_binoc  = false
+ii/binoc/binoc_max_dist         = 0
+
+ii/ads/ads_mode               = false
+ii/ads/ads_hold_time          = 0.6
+ii/ads/ads_boost              = true
+ii/ads/ads_scan_mult          = 0.6
+ii/ads/ads_range_mult         = 1.0
+ii/ads/ads_zoom_scaling       = true
+ii/ads/ads_hide_main          = false
+ii/ads/instant_exclude_ads    = false
+ii/ads/ads_max_dist           = 0
+
+ii/pip/pip_markers            = true
+ii/pip/pip_redact             = true
+ii/pip/pip_hide_main          = false
+
+ii/faceredact/redact_face            = false
+ii/faceredact/redact_face_style      = 1
+ii/faceredact/redact_face_padding    = 0.15
+ii/faceredact/redact_range           = 100
+ii/faceredact/redact_strength        = 1.0
+
+ii/scantime/dist_penalty           = true
+ii/scantime/dist_penalty_max       = 5.0
+ii/scantime/rank_penalty           = true
+ii/scantime/rank_penalty_max       = 3.0
+ii/scantime/night_penalty          = true
+ii/scantime/night_penalty_max      = 2.0
+ii/scantime/weight_penalty         = false
+ii/scantime/weight_penalty_max     = 2.0
+ii/scantime/weight_penalty_ref     = 6.0
+ii/scantime/familiarity_boost      = true
+ii/scantime/familiarity_scan_mult  = 0.6
+ii/scantime/perception_compat      = true
+ii/scantime/perception_scan_mult   = 0.04
+ii/scantime/perception_xp          = 20
+ii/scantime/perception_loot_xp     = 20
+
+ii/debug/debug_log              = false
+ii/debug/debug_draw             = false
+ii/debug/debug_sim_stock        = false
+
+ii/wdcompat/wd_ignore              = false
+ii/wdcompat/wd_require_kit         = true
+ii/wdcompat/wd_proc_t1             = 1.5
+ii/wdcompat/wd_proc_t2             = 1.0
+ii/wdcompat/wd_proc_t3             = 0.5
+ii/wdcompat/wd_scan_t1             = 10
+ii/wdcompat/wd_scan_t2             = 20
+ii/wdcompat/wd_scan_t3             = 30
+ii/wdcompat/wd_feat_faction        = 1
+ii/wdcompat/wd_feat_distance       = 1
+ii/wdcompat/wd_feat_relationship   = 2
+ii/wdcompat/wd_feat_rank           = 2
+ii/wdcompat/wd_feat_weapon         = 3
+ii/wdcompat/wd_scanner_binoc       = 1
+ii/wdcompat/wd_scanner_ads         = 2
+ii/wdcompat/wd_scanner_mag         = 2
+ii/wdcompat/wd_scanner_nonight     = 3
+
 [ii_card]
 ii/uistyle/general/ui_style           = 1
 ii/uistyle/general/show_name          = true
