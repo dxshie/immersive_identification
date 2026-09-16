@@ -12,6 +12,7 @@ local MAX_TAGS = 12 -- most identifications tracked/drawn at once (raised from 5
 local DBG_DOTS = 96 -- debug-draw dot pool (FOV ring segments + in-ring entity bones)
 local DBG_RING_SEG = 32 -- dots forming the FOV ring outline
 local DBG_TEXTS = 16 -- per-candidate distance labels
+local DBG_INFO = 14 -- bottom-right info panel lines (aim/LOS state + FOV-radius target list)
 
 -- render()'s per-frame scratch list of on-screen cards, reused instead of
 -- allocated fresh every call -- tracked is capped at MAX_TAGS (see
@@ -1385,14 +1386,12 @@ local function debug_dump_aim()
 	end
 end
 
--- Geometric occlusion test.
---
--- db.actor:see() below is smoothed/cached with a short grace window on losing
--- sight -- so an NPC that just stepped behind a wall (or one the AI still
--- "remembers") keeps reading visible for a beat, which is exactly how occluded
--- targets were still getting identified. A fresh, instantaneous raycast against
--- STATIC world geometry closes that gap. ray_pick / rq_target confirmed in
--- xray-monolith src/xrGame/level_script.cpp (class_<CRayPick>("ray_pick"),
+-- Geometric occlusion test -- the authoritative LOS signal (see has_los: the actor's AI-vision
+-- db.actor:see() is intentionally not used, as it false-negatives on distant/peripheral/shadowed
+-- targets the player clearly sees). A fresh, instantaneous raycast against STATIC world geometry
+-- answers "is there an opaque wall between the render camera and the target," transparency-aware
+-- so see-through clutter (fences/foliage/glass/wide clip meshes) doesn't false-block. ray_pick /
+-- rq_target confirmed in xray-monolith src/xrGame/level_script.cpp (class_<CRayPick>("ray_pick"),
 -- enum rq_target).
 --
 -- Cast from the target's anchor point (chest/head, already lifted clear of the
@@ -1406,43 +1405,88 @@ end
 local RAY_LOS_TOL = 0.3 -- metres: stop short of the camera
 local RQT_STATIC = (rq_target and rq_target.rqtStatic) or 2 -- collide::rqtStatic
 local RQT_BOTH = (rq_target and rq_target.rqtBoth) or 3 -- collide::rqtStatic|rqtObject
--- LOS scratch bundled into one local (ray handle + scratch vectors) to stay under Lua
--- 5.1's 200-local-per-chunk limit.
-local _los = { ray = nil, dir = vector(), pt = vector() }
+-- LOS scratch + tunables bundled into ONE local (ray handle, scratch vectors, and the
+-- see-through march params) to stay under Lua 5.1's 200-local-per-chunk limit.
+--   seethrough: a hit whose material is at least this see-through (fVisTransparencyFactor,
+--     0=opaque..1=fully transparent-to-sight) is NOT a real occluder -- chain-link fences,
+--     foliage, glass, and the wider invisible CLIP meshes that were false-blocking a clearly
+--     visible target. The march skips past such hits; only an OPAQUE surface blocks LOS.
+--   march_steps: cap on see-through hits skipped before giving up (-> treat as clear).
+local _los = { ray = nil, dir = vector(), pt = vector(), march = vector(), seethrough = 0.5, march_steps = 6 }
 
--- Body bones sampled for the multi-point LOS backstop (below), spread head-to-toe so
--- ANY exposed part counts as visible. The head anchor is tested separately first (the
--- common fully-visible early-out), so this list is the rest of the body -- a target is
--- only "occluded" when the head AND every one of these is blocked by static geometry.
-local LOS_BONES = { "bip01_spine2", "bip01_spine", "bip01_pelvis", "bip01_l_calf", "bip01_r_calf" }
+-- Body bones sampled for the multi-point LOS check (below), spread head-to-toe so ANY exposed
+-- part counts as visible -- a target is only "occluded" when EVERY one is blocked by static
+-- geometry. Head + shoulders first (and included, not a separate lifted anchor) so a target
+-- PEEKING with just its head/shoulder over cover passes, and so the head sample is the REAL head
+-- bone rather than a lifted point that can clip into a ceiling.
+local LOS_BONES = {
+	"bip01_head",
+	"bip01_spine2",
+	"bip01_l_upperarm",
+	"bip01_r_upperarm",
+	"bip01_spine",
+	"bip01_pelvis",
+	"bip01_l_calf",
+	"bip01_r_calf",
+}
 
--- Cast one static-geometry ray from `origin` toward the camera, stopping RAY_LOS_TOL
--- short so near-eye geometry can't false-trigger. Returns: true = clear (unblocked),
--- false = blocked, nil = point-blank / API absent (caller treats nil as "clear"/fail-open).
+-- Cast a static-geometry ray from `origin` toward the camera, stopping RAY_LOS_TOL short so
+-- near-eye geometry can't false-trigger. See-through hits (fences/foliage/glass/wide clip meshes,
+-- per the material's fVisTransparencyFactor) are skipped and the ray continues from just past
+-- them -- so only an OPAQUE surface blocks. This mirrors the engine's own bullet/visibility
+-- pick that accumulates transparency instead of stopping at the first collision. Returns:
+-- true = clear, false = blocked by something opaque, nil = point-blank / API absent (fail-open).
 local function _los_point_clear(origin, cam_pos)
 	local dir = _los.dir:set(cam_pos):sub(origin) -- cam - origin
-	local dist = dir:magnitude()
-	if dist <= RAY_LOS_TOL then
+	local total = dir:magnitude()
+	if total <= RAY_LOS_TOL then
 		return nil -- essentially point-blank -> fail open
 	end
 	dir:normalize()
-	local ok, blocked = pcall(function()
+	if not rawget(_G, "ray_pick") then
+		return nil
+	end
+	local ok, clear = pcall(function()
 		if not _los.ray then
-			if not rawget(_G, "ray_pick") then
-				return nil
-			end
 			_los.ray = ray_pick()
 		end
-		_los.ray:set_flags(RQT_STATIC)
-		_los.ray:set_position(origin)
-		_los.ray:set_direction(dir)
-		_los.ray:set_range(dist - RAY_LOS_TOL)
-		return _los.ray:query()
+		local dx, dy, dz = dir.x, dir.y, dir.z
+		local advanced = 0
+		for _ = 1, _los.march_steps do
+			local remaining = (total - RAY_LOS_TOL) - advanced
+			if remaining <= 0 then
+				return true -- reached the camera side with no opaque hit
+			end
+			_los.ray:set_flags(RQT_STATIC)
+			_los.ray:set_position(
+				_los.march:set(origin.x + dx * advanced, origin.y + dy * advanced, origin.z + dz * advanced)
+			)
+			_los.ray:set_direction(dir)
+			_los.ray:set_range(remaining)
+			if not _los.ray:query() then
+				return true -- nothing more in the way -> clear
+			end
+			-- Hit something: opaque = blocked; see-through = skip past it and keep marching.
+			local transp = 0
+			if _los.ray.get_result then
+				local rr = _los.ray:get_result()
+				transp = (rr and rr.material_vis_transparency_factor) or 0
+			end
+			if transp < _los.seethrough then
+				return false -- opaque surface -> genuinely blocked
+			end
+			local hitd = (_los.ray.get_distance and _los.ray:get_distance()) or 0
+			if hitd <= 0 then
+				return true -- degenerate hit distance -> fail open toward visible
+			end
+			advanced = advanced + hitd + 0.05 -- step just past the transparent surface
+		end
+		return true -- exhausted the step budget still in see-through material -> treat as clear
 	end)
-	if not ok or blocked == nil then
+	if not ok or clear == nil then
 		return nil -- API absent / errored -> fail open
 	end
-	return not blocked
+	return clear
 end
 
 -- Multi-point line-of-sight backstop: clear if the head anchor OR any sampled body
@@ -1458,21 +1502,15 @@ local function has_clear_ray(target_obj)
 	end -- fail open
 	local cam = dev.cam_pos
 
-	-- 1) Head anchor (lifted): the usual case, and the cheapest to pass on.
-	local origin = anchor_pos(target_obj)
-	if origin then
-		local clear = _los_point_clear(origin, cam)
-		if clear ~= false then
-			return true -- clear, or nil (point-blank / API absent -> fail open)
-		end
-	end
-
-	-- 2) Head occluded: try a spread of body bones; any clear one = visible.
+	-- Sample the real body bones (head/shoulders first for the peek + common cases); ANY clear
+	-- ray = visible. Early-outs on the first exposed point.
 	local base = safe_call(target_obj.position, target_obj)
+	local any_bone = false
 	if base then
 		for _, bone in ipairs(LOS_BONES) do
 			local p = safe_call(target_obj.bone_position, target_obj, bone)
 			if p and p:distance_to_sqr(base) < 25 then -- sane bone (within 5 m of origin)
+				any_bone = true
 				local clear = _los_point_clear(_los.pt:set(p), cam)
 				if clear ~= false then
 					return true -- a body part is exposed (or fail-open)
@@ -1481,51 +1519,64 @@ local function has_clear_ray(target_obj)
 		end
 	end
 
-	return false -- head and every sampled body point blocked -> occluded
+	-- Monster / non-bip01 rig (no usable bones): fall back to the lifted anchor point.
+	if not any_bone then
+		local origin = anchor_pos(target_obj)
+		if origin and _los_point_clear(origin, cam) ~= false then
+			return true
+		end
+	end
+
+	return false -- every sampled point blocked -> occluded
 end
 
--- Line-of-sight check: screen-space proximity alone doesn't prove visibility
--- (an NPC behind a building can still project near the crosshair), and
--- neither does a raw raycast hit (see get_target_obj() below) -- so every
--- candidate is gated through this instead. Two layers, both must pass: the
--- engine's own visibility primitive `obj:see(other)`
--- (src/xrGame/script_game_object_script2.cpp:138 -> CheckObjectVisibility ->
--- CActorMemory::visible_now(), a real camera-driven per-triangle occlusion
--- raycast, the same one autoaim and PDA marker gating use) for "can the player
--- actually perceive this" (darkness, stealth), AND has_clear_ray() as a hard
--- geometric backstop for see()'s grace-window leak through solid geometry.
+-- aim_model_target(max_dist) -> the stalker/monster whose MODEL the crosshair is directly over
+-- (mesh raycast along the true aim ray), or nil. Forward-declared here (defined below, after the
+-- aim-ray helpers) so has_los can consult it; also the FOV assist's "aiming at it" fallback.
+local aim_model_target
+
+-- Line-of-sight check. GEOMETRY is the authority: a direct mesh hit, or a clear
+-- transparency-aware ray from the RENDER CAMERA to any body point (has_clear_ray).
+--
+-- We deliberately do NOT gate on db.actor:see() anymore. That is the actor's AI vision
+-- (script_game_object_script2.cpp:138 -> visual_memory_manager::visible_now): a lookup in the
+-- actor's visual-MEMORY set, populated by object_visible_distance() from the AI eye bone/head
+-- direction and limited by vision RANGE, an FOV CONE, and target LUMINOSITY -- none of which
+-- match "what the player sees on screen." It false-negatives on exactly this mod's cases: a
+-- distant target you're scoping/glassing (beyond AI vision range), a peripheral one (outside the
+-- cone), or one in shadow -- all clearly visible to the player. (Night is already a scan-time
+-- penalty, not a visibility block.) Geometry alone answers "is there an opaque wall in the way,"
+-- which is the real question here.
 local function has_los(target_obj)
 	if not db.actor then
 		return true
 	end
-	local ok, visible = pcall(db.actor.see, db.actor, target_obj)
-	if not ok then
+	-- A direct mesh hit already proved a clear geometric line (the aim ray reached the model past
+	-- any opaque blocker), so skip the body-bone sampling. The crosshair's direct-hit id is cached
+	-- by time_global (in the _los bundle) so a crowd of has_los() calls triggers at most one mesh
+	-- raycast per frame.
+	local tg = time_global()
+	if _los.aim_tg ~= tg then
+		_los.aim_tg = tg
+		local m = aim_model_target and aim_model_target(1e6)
+		_los.aim_id = m and m:id() or nil
+	end
+	if target_obj:id() == _los.aim_id then
 		return true
-	end -- fail open: don't block selection if the check itself errors
-	if not visible then
-		return false
 	end
 	return has_clear_ray(target_obj)
 end
 
--- Per-frame visibility for the hide_unseen drop. db.actor:see alone is too
--- laggy here: its grace/memory window keeps a target flagged visible for a
--- while after it steps behind a wall, so the tag would linger and fade on its
--- normal timer instead of dropping. So this ALSO requires has_clear_ray -- a
--- fresh geometric raycast against static geometry that goes false the instant a
--- wall interposes, giving the near-instant drop the option promises. Fails open
--- (never blanks a tag on a check error). Per-frame across tracked targets, but
--- there are only ever a handful.
+-- Per-frame visibility for the hide_unseen drop. Pure geometry (has_clear_ray): a fresh
+-- transparency-aware raycast that goes false the instant a wall interposes, giving the
+-- near-instant drop the option promises. Deliberately NOT gated on db.actor:see() -- same reason
+-- as has_los: see() is the actor's AI vision (range/FOV-cone/luminosity limited), which would
+-- wrongly drop a tag on a distant scoped/glassed or shadowed target the player still sees. Fails
+-- open (never blanks a tag on a check error). Per-frame across tracked targets, but there are
+-- only ever a handful.
 local function tag_visible(obj)
 	if not db.actor then
 		return true
-	end
-	local ok, visible = pcall(db.actor.see, db.actor, obj)
-	if not ok then
-		return true
-	end
-	if not visible then
-		return false
 	end
 	return has_clear_ray(obj)
 end
@@ -1543,12 +1594,6 @@ end
 -- target just for sitting closer to the aim point, since re-hitting it does
 -- nothing new (see try_identify()'s tracked[id] branch) -- the busy one is
 -- only ever returned when nothing else in the FOV circle qualifies at all.
--- Forward declaration, defined after the aim-ray helpers below:
--- aim_model_target(max_dist) -> the stalker/monster whose MODEL the crosshair is over
--- (mesh raycast along the true aim ray), or nil. The "aiming at it" fallback for when the
--- assist's screen radius doesn't cover the target (too close / aiming just off the
--- silhouette). Forward-declared; defined below after the aim-ray helpers.
-local aim_model_target
 
 local function find_nearest_in_fov(max_dist)
 	if not db.actor or not level.iterate_nearest then
@@ -3106,7 +3151,7 @@ function IiTags:InitControls()
 	-- Debug-draw pool (MCM "Debug draw"): round dots for the FOV ring + in-ring
 	-- entity bones, one text line for the radius, and a dedicated aim dot created
 	-- LAST so it draws on top. All start hidden; only shown when debug_draw is on.
-	self.dbg = { dots = {}, texts = {}, text = nil, aim = nil }
+	self.dbg = { dots = {}, texts = {}, info = {}, text = nil, aim = nil }
 	for i = 1, DBG_DOTS do
 		local d = self.xml:InitStatic("dbg_dot", self)
 		d:Show(false)
@@ -3121,6 +3166,12 @@ function IiTags:InitControls()
 	self.dbg.text:Show(false)
 	self.dbg.status = self.xml:InitTextWnd("dbg_status:text", self)
 	self.dbg.status:Show(false)
+	-- Bottom-right info-panel lines (aim/LOS state + list of targets in the FOV radius).
+	for i = 1, DBG_INFO do
+		local t = self.xml:InitTextWnd("dbg_status:text", self)
+		t:Show(false)
+		self.dbg.info[i] = t
+	end
 	self.dbg.aim = self.xml:InitStatic("dbg_dot", self)
 	self.dbg.aim:Show(false)
 
@@ -3226,6 +3277,11 @@ function IiTags:hide_debug()
 	for i = 1, DBG_TEXTS do
 		d.texts[i]:Show(false)
 	end
+	if d.info then
+		for i = 1, DBG_INFO do
+			d.info[i]:Show(false)
+		end
+	end
 	if d.text then
 		d.text:Show(false)
 	end
@@ -3304,6 +3360,8 @@ function IiTags:draw_debug()
 	-- Bones of every entity inside the ring: GREEN if within max_dist (a real
 	-- identify candidate), RED if beyond max range (rejected for distance). Scans a
 	-- bit past max_dist so out-of-range candidates you're aiming at still show.
+	-- Also collects the in-ring targets for the bottom-right info panel (name/dist/LOS).
+	local fov_list = {}
 	if db.actor and level and level.iterate_nearest then
 		local apos = db.actor:position()
 		local actor_id = db.actor:id()
@@ -3322,11 +3380,18 @@ function IiTags:draw_debug()
 				if sd and sd <= radius then
 					local base = obj:position()
 					local dist = math.sqrt(apos:distance_to_sqr(base))
+					local in_range = dist <= max_dist
 					-- Green in range, red out of range.
 					local cr, cg, cb = 235, 60, 70
-					if dist <= max_dist then
+					if in_range then
 						cr, cg, cb = 60, 235, 70
 					end
+					fov_list[#fov_list + 1] = {
+						name = safe_call(obj.character_name, obj) or safe_call(obj.name, obj) or "?",
+						dist = dist,
+						in_range = in_range,
+						los = has_los(obj),
+					}
 					local drew = false
 					local tx, ty -- label anchor: first projected bone
 					for _, bone in ipairs(BODY_BONES) do
@@ -3407,6 +3472,80 @@ function IiTags:draw_debug()
 		d.status:SetTextColor(GetARGB(255, 120, 220, 255))
 		d.status:SetWndPos(P(math.floor(cx + 6), math.floor(cy - radius - 2)))
 		d.status:Show(true)
+	end
+
+	-- Bottom-right info panel: the aim-model raycast hit + its LOS, then the list of targets
+	-- currently inside the FOV radius (name, distance, in-range?, LOS?). All from this frame's
+	-- data, so it mirrors exactly what target acquisition sees right now.
+	if d.info then
+		local INFO_LEFT, INFO_BOTTOM, INFO_LH = 690, 744, 16
+		local lines = {} -- { str, r, g, b }
+
+		-- Aim-model mesh raycast (what the crosshair is directly ON) + its LOS. `see` is the engine
+		-- AI-vision flag, shown for diagnostics ONLY -- it no longer gates LOS (LOS = mesh hit OR a
+		-- clear geometric ray). So `see: NO` with `LOS: CONFIRMED` is expected: the player sees a
+		-- target the AI vision (range/cone/light) doesn't.
+		local aim_obj = aim_model_target(max_dist)
+		if aim_obj then
+			local an = safe_call(aim_obj.character_name, aim_obj) or safe_call(aim_obj.name, aim_obj) or "?"
+			lines[#lines + 1] = { "mesh hit: " .. an, 90, 235, 110 }
+			local seen = db.actor and (safe_call(db.actor.see, db.actor, aim_obj) ~= false) or false
+			local ray = has_clear_ray(aim_obj)
+			local los = has_los(aim_obj)
+			lines[#lines + 1] =
+				{ "  see: " .. (seen and "yes" or "NO") .. "  ray: " .. (ray and "clear" or "blocked"), 150, 200, 235 }
+			lines[#lines + 1] = {
+				"  LOS: " .. (los and "CONFIRMED" or "blocked"),
+				los and 90 or 235,
+				los and 235 or 70,
+				los and 110 or 70,
+			}
+		else
+			lines[#lines + 1] = { "mesh hit: none", 180, 180, 180 }
+		end
+
+		lines[#lines + 1] = { string.format("in FOV radius: %d", #fov_list), 255, 220, 40 }
+		table.sort(fov_list, function(a, b)
+			return a.dist < b.dist
+		end)
+		for i = 1, #fov_list do
+			local e = fov_list[i]
+			local r, g, b = 60, 235, 70
+			if not e.in_range then
+				r, g, b = 235, 60, 70
+			end
+			local nm = e.name
+			if #nm > 16 then
+				nm = nm:sub(1, 16)
+			end
+			lines[#lines + 1] = {
+				string.format(
+					"%s %dm %s %s",
+					nm,
+					math.floor(e.dist + 0.5),
+					e.in_range and "R" or "-",
+					e.los and "LOS" or "los?"
+				),
+				r,
+				g,
+				b,
+			}
+		end
+
+		-- Bottom-aligned: the block's LAST line sits at INFO_BOTTOM, earlier lines stack upward.
+		local n = math.min(#lines, DBG_INFO)
+		local top = INFO_BOTTOM - (n - 1) * INFO_LH
+		for i = 1, n do
+			local w = d.info[i]
+			local ln = lines[i]
+			w:SetText(ln[1])
+			w:SetTextColor(GetARGB(255, ln[2], ln[3], ln[4]))
+			w:SetWndPos(P(INFO_LEFT, top + (i - 1) * INFO_LH))
+			w:Show(true)
+		end
+		for i = n + 1, DBG_INFO do
+			d.info[i]:Show(false)
+		end
 	end
 end
 

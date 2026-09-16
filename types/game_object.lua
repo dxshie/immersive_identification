@@ -69,6 +69,11 @@ function game_object:set_character_community(community, squad, group) end
 ---@return string
 function game_object:character_name() end
 
+--- The object's engine name/section string (e.g. the NPC's server-object name). Valid for any
+--- game_object, unlike character_name (InventoryOwners only). script_game_object.cpp.
+---@return string
+function game_object:name() end
+
 --- Rank id for CAI_Stalker objects ("novice"/"experienced"/"veteran"/
 --- "master"/"expert"); SAFE_WRAP, logs and returns "" for non-stalkers
 --- (monsters, the actor). Localise via "st_rank_" .. id (the same

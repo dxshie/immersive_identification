@@ -332,6 +332,11 @@ function RayPick:query() end
 function RayPick:get_object() end
 ---@return number
 function RayPick:get_distance() end
+--- The hit's material result. Fields incl. `range`, `material_name`, `material_flags`, and
+--- `material_vis_transparency_factor` (0 opaque .. 1 fully transparent-to-sight). Custom-exe
+--- binding (level_script.cpp: class_<script_rq_result>("rq_result")); guard existence.
+---@return { range: number, material_vis_transparency_factor: number, material_flags: number, material_name: string }
+function RayPick:get_result() end
 
 --- Constructs a reusable ray. Also accepts (pos, dir, range, flags, ignore).
 ---@return RayPick
