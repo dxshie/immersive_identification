@@ -1,22 +1,65 @@
 # Changelog
 
-## Unreleased
+## 3.2.0 — everything since 3.1.0
 
-- **Default FOV assist radius lowered from 90 to 35** (tighter default target assist).
-- New **"Default settings"** MCM preset — resets every option to its default in one click
-  (colours reset separately via the Colors page's "Custom colours" toggle).
-- **`hide_off_aim` ("Only show overlay while aimed") is now a list-membership gate**, not a
-  display gate: aiming away drops the target, so aiming back re-runs the full scan instead of
-  reappearing instantly; auto-identify is aim-scoped when it's on. Removed the tag fade-out
-  *distance* property (tags stay full-opacity to the range cutoff).
+Focused on **line-of-sight reliability**, **snappier auto-identification**, and tidying up the
+range/penalty model. Russian translation kept in full parity throughout.
 
-- Renamed the **"Max range"** MCM setting to **"Base identification distance"** — it's the
-  *base* range that scales up (magnification / boosts) or down (penalties), not a hard maximum.
-  (Internal key unchanged for save/preset compatibility.)
-- New **"Max identification distance"** hard-cutoff sliders (5 m steps) on the **Hipfire /
-  ADS / Binoculars** pages: clamp the effective identify range per mode after all scaling, so a
-  high-magnification binocular (or any runaway scaling) can't reach absurdly far. 0 = no cap.
-- Re-look re-scan, weight penalty, and the Russian weight-penalty strings (see prior entries).
+### Line-of-sight overhaul (fixes "I clearly see the target but LOS says no")
+- **Geometry is now the LOS authority.** Dropped the `db.actor:see()` gate — that's the actor's
+  **AI vision** (a visual-memory lookup limited by vision *range*, an *FOV cone*, and target
+  *luminosity*, driven by the AI head, not your camera), which false-negated on exactly this
+  mod's cases: a distant target you're scoping/glassing, a peripheral one, or one in shadow —
+  all clearly on your screen. LOS is now: a clear geometric ray from the render camera, **or** a
+  direct crosshair mesh-hit. (Night is a scan-time penalty, not a visibility block.)
+- **Transparency-aware occlusion.** The LOS raycast now marches through **see-through** materials
+  (chain-link fences, foliage, glass, and the wider invisible **clip meshes**) instead of
+  stopping at the first collision — only an **opaque** surface blocks. This was the main cause of
+  a clearly-visible target reading as occluded.
+- **A direct mesh-hit counts as clear LOS** — the aim ray already proved a clear line to the
+  target's model, so the body-sample check is skipped for the aimed target.
+- **Better body sampling for peeks.** Added head + shoulder sample points (using the real head
+  bone, not a lifted anchor that could clip into a ceiling), so a target peeking with just its
+  head/shoulder over cover is detected. The "behind a wall" guard is fully intact.
+
+### Identification behaviour
+- **Snappy auto-identify.** The target under your crosshair now identifies **immediately** (the
+  full-scene sweep stays throttled), removing the up-to-250 ms delay before a scan even started.
+- **"Only show overlay while aimed" is now a list-membership gate** (not a display gate): aiming
+  away **drops** the target, so aiming back re-runs the **whole scan** rather than reappearing
+  instantly. Auto-identify is aim-scoped while it's on.
+- **Re-look re-scan.** After looking away and back, an already-identified target re-runs its scan
+  instead of refreshing instantly.
+- **New held-item weight penalty** (Scan Time page, off by default): the heavier the item in your
+  hands, the longer identification takes — a heavy weapon is harder to hold steady enough to
+  read a target. Tunable max slowdown + reference weight.
+
+### Range model
+- **Renamed "Max range" → "Base identification distance"** — it's the *base* that scales up
+  (magnification / boosts) or down (penalties), not a hard maximum. (Internal key unchanged, so
+  saves/presets are unaffected.)
+- **New per-mode "Max identification distance" hard-cutoff sliders** (Hipfire / ADS / Binoculars,
+  5 m steps) that clamp the *effective* range after all scaling, so a high-magnification binocular
+  (or any runaway scaling) can't reach absurdly far. 0 = no cap.
+- **ADS range multiplier default is now 1.0** (was 1.6) — plain/iron-sight ADS no longer widens
+  the range by itself; scope magnification still does (with zoom-scaling on).
+- **Removed the tag fade-out-with-distance** — tags stay full-opacity up to the range cutoff.
+
+### MCM & presets
+- The three per-mode auto-trigger toggles (Hipfire / ADS / Binoculars) are renamed
+  **"Auto Identification"**.
+- New **"Default settings"** preset — resets every option to its default in one click (colours
+  reset separately via the Colors page's "Custom colours" toggle).
+- **Default FOV assist radius lowered 90 → 35** (tighter default assist).
+
+### Debug
+- New **bottom-right info panel** (Debug draw): every target currently inside the FOV radius
+  (name / distance / in-range / LOS), plus the aim **mesh-hit** with a **see / ray / LOS**
+  breakdown so you can tell exactly which check is (or isn't) gating.
+
+### Fixes
+- Fixed a **crash** (`draw_slot`, nil text width) when a target with no displayable text — e.g.
+  a mutant — drew as a **Card** (surfaced by the Default preset selecting the Card style).
 
 ## 3.1.0 — everything since 2.53.0
 
