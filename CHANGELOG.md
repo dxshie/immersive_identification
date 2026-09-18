@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- **Reverted the depth-aware Bodycam text** rendering — the name / faction / weapon lines now
+  always draw as flat CUIStatic text (like the box already did), instead of the engine
+  glyph-emitter overlay that occluded them behind walls / the viewmodel. (Mod side; the matching
+  engine glyph pass is being removed separately.)
+- New **"Identify all in assist radius"** toggle (Targeting, on by default): automatic
+  identification (Auto-identify + the hipfire / ADS / binocular auto-triggers) reveals **every**
+  eligible target inside the target-assist radius, so a cluster of stacked stalkers is identified
+  at once. Turn it **off** to identify only the single target nearest your aim. (A manual keypress
+  always identifies the nearest.)
+- **Minimal style** — its two elements are now individually toggleable, reusing the existing
+  content toggles: the **faction dot** follows **Show faction**, the **relation sign** follows
+  **Colour by relation**. Turning both off leaves a neutral locator dot so the tag never vanishes.
+- New **"Exclude hostiles in combat"** toggle (Targeting, off by default): an entity that is
+  actively hostile toward you and aware of you (pulled aggro / will attack) is never chosen as an
+  identification target — the assist skips it and no path can identify it. A target identified
+  *before* combat that then turns hostile has its tag **dropped immediately** the moment you engage
+  it. Detected from its AI combat target and its enemy relation + line of sight to you.
+- **Debug draw** gained an **identify tracer + performance readout** in the info panel: a **CPS**
+  (cycles/sec) counter and per-cycle mod-loop time; the enabled auto-triggers; the **last
+  identification** (what triggered it, target, when, scan time); and a live **"gate"** line that
+  explains why the aimed candidate is or isn't being identified (out of range, no LOS, hostile,
+  already identified, eligible, …).
+
 ## 3.3.0 — everything since 3.2.0
 
 Foliage/cover control for line of sight, built on 3.2.0's LOS overhaul. Russian translation kept

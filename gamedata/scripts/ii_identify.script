@@ -12,7 +12,7 @@ local MAX_TAGS = 12 -- most identifications tracked/drawn at once (raised from 5
 local DBG_DOTS = 96 -- debug-draw dot pool (FOV ring segments + in-ring entity bones)
 local DBG_RING_SEG = 32 -- dots forming the FOV ring outline
 local DBG_TEXTS = 16 -- per-candidate distance labels
-local DBG_INFO = 14 -- bottom-right info panel lines (aim/LOS state + FOV-radius target list)
+local DBG_INFO = 20 -- bottom-right info panel lines (perf + identify trace + aim/LOS state + FOV list)
 
 -- render()'s per-frame scratch list of on-screen cards, reused instead of
 -- allocated fresh every call -- tracked is capped at MAX_TAGS (see
@@ -86,9 +86,11 @@ DEFAULTS = {
 	fov_radius = 35, -- virtual-space px (1024-wide, 768-tall): target-assist radius (MCM range 0-90).
 	-- A straight screen-pixel ring around the aim point (screen_dist_to_body); a target whose
 	-- nearest body point projects within this many px of the crosshair is a candidate.
+	fov_identify_all = true, -- auto-identification (auto/hipfire/ADS/binocular): reveal EVERY eligible target inside the FOV-assist radius (a cluster of stacked NPCs all get IDd). Off = only the single target nearest the aim point. (Manual keypress always identifies the nearest.)
 	require_los = true, -- target-assist fallback only picks targets with clear line of sight
 	los_block_seethrough = false, -- LOS: treat SEE-THROUGH surfaces (fences, glass, foliage, and invisible clip meshes) as OPAQUE, so identification is blocked through them (default off = see through them)
 	los_block_foliage = false, -- LOS: block identification through FOLIAGE specifically (best-effort by material name); subset of los_block_seethrough for when you only want plants to block
+	exclude_hostile = false, -- don't allow an entity that is actively hostile toward you AND aware of you (in combat / pulled aggro) to be an identification target
 	hide_off_aim = false, -- only track the target you're aiming at / near (nearest body point
 	-- within fov_radius, or the direct model hit). MEMBERSHIP gate: aiming away DROPS it, so
 	-- aiming back re-runs the whole scan (not an instant reappear). Off by default.
@@ -1626,6 +1628,35 @@ local function has_los(target_obj)
 	return has_clear_ray(target_obj)
 end
 
+-- Is `obj` actively hostile toward the actor AND aware of them -- i.e. in combat / has pulled
+-- aggro and will attack? Two signals, either sufficient:
+--   1. its AI combat target IS the actor (`best_enemy()` -- the precise "engaging you now" signal;
+--      guarded via existence + pcall since the binding may be absent on some exes), OR
+--   2. it is enemy-DISPOSED toward the actor (`relation` == enemy, which reflects dynamic goodwill,
+--      so shooting a neutral flips it) AND currently SEES the actor (`see()` -- the NPC's own
+--      perception of you). "hostile + aware" is a solid proxy for "will attack".
+-- All engine calls guarded so a missing binding degrades to "not hostile" (never over-excludes).
+local function is_hostile_engaging(obj)
+	if not db.actor or not obj then
+		return false
+	end
+	local aid = db.actor:id()
+	if obj.best_enemy then
+		local ok, e = pcall(obj.best_enemy, obj)
+		if ok and e and e:id() == aid then
+			return true
+		end
+	end
+	local ok2, rel = pcall(obj.relation, obj, db.actor)
+	if ok2 and rel == game_object.enemy then
+		local ok3, seen = pcall(obj.see, obj, db.actor)
+		if ok3 and seen then
+			return true
+		end
+	end
+	return false
+end
+
 -- Per-frame visibility for the hide_unseen drop. Pure geometry (has_clear_ray): a fresh
 -- transparency-aware raycast that goes false the instant a wall interposes, giving the
 -- near-instant drop the option promises. Deliberately NOT gated on db.actor:see() -- same reason
@@ -1670,7 +1701,7 @@ local function find_nearest_in_fov(max_dist)
 			local alive = safe_call(obj.alive, obj)
 			if alive then
 				local comm = safe_call(obj.character_community, obj)
-				if comm and comm ~= "" then
+				if comm and comm ~= "" and not (C.exclude_hostile and is_hostile_engaging(obj)) then
 					-- Screen-pixel distance to the NEAREST point on the whole body (head,
 					-- torso, pelvis, limbs), not a single anchor -- so aiming anywhere on
 					-- the entity counts. fov_radius is a straight screen radius.
@@ -1698,7 +1729,7 @@ local function find_nearest_in_fov(max_dist)
 	-- Fall back to a mesh raycast: if the crosshair is on the target's MODEL, take it --
 	-- the same "aiming at it" pick used when FOV assist is off.
 	local model = aim_model_target(max_dist)
-	if model and (not C.require_los or has_los(model)) then
+	if model and (not C.require_los or has_los(model)) and not (C.exclude_hostile and is_hostile_engaging(model)) then
 		return model
 	end
 	return nil
@@ -1872,15 +1903,35 @@ end
 -- 200-per-chunk limit). binoc/ads = fov must drop below this fraction of the unzoomed
 -- baseline to count as zoomed/aiming; mag_min = below this ratio the FOV barely narrowed
 -- (treat as un-magnified, x1).
-local _ZOOMCFG = { binoc = 0.7, ads = 0.85, mag_min = 1.05 }
+-- Zoom-detection config + the live ADS flag, bundled into one local (200-per-chunk cap).
+--   `zoomed`: ADS (aim-down-sight) state, tracked from STOCK engine callbacks so it works on ANY
+--   exe -- the engine fires actor_on_weapon_zoom_in/out (WeaponMagazined -> eOnWeaponZoomIn/Out)
+--   the instant the sight is raised/lowered, for EVERY weapon including 1x optics that change no
+--   FOV. Set by the handlers registered in on_game_start; read by is_ads_active below.
+local _ZOOMCFG = { binoc = 0.7, ads = 0.85, mag_min = 1.05, zoomed = false, was_boost = false, zoom_item = false }
 local _fov_baseline = 60 -- self-corrects within moments of normal (unzoomed) play either way
 
--- ADS (aim-down-sight) state, tracked from STOCK engine callbacks so it works on ANY
--- exe -- same idea as detecting binoculars from active_item(). The engine fires
--- actor_on_weapon_zoom_in/out (WeaponMagazined -> eOnWeaponZoomIn/Out) the instant the
--- sight is raised/lowered, for EVERY weapon including 1x optics that change no FOV. Set
--- by the handlers registered in on_game_start; read by is_ads_active below.
-local _ads = { zoomed = false }
+-- Debug tracing + perf, surfaced on the Debug-draw info panel. One bundle to spare top-level
+-- locals (see the 200-local cap in CLAUDE.md).
+--   Perf: `cps` = actor_on_update cycles counted per 1 s window; `loop_ms`/`loop_peak` = wall time
+--   the mod's per-frame work took (os.clock, when available; ms). `frames`/`sec_start` accumulate
+--   the current window.
+--   Trace: `src` is the trigger CONTEXT, set right before each identify attempt (key / hipfire /
+--   ads / binoc / auto); `last_*` snapshot the most recent successful commit so the panel can show
+--   WHY the last identification happened. WHY one ISN'T happening is computed live in draw_debug.
+local _trace = {
+	frames = 0,
+	sec_start = 0,
+	cps = 0,
+	loop_ms = 0,
+	loop_peak = 0, -- accumulates within the current window
+	loop_shown_peak = 0, -- peak of the last completed window (what the panel shows)
+	src = "-",
+	last_src = "-",
+	last_name = "-",
+	last_tg = 0,
+	last_scan = 0,
+}
 
 local function update_fov_baseline()
 	if is_binoc_held() then
@@ -1916,14 +1967,26 @@ local function is_ads_active()
 		return false
 	end
 	-- PRIMARY: the weapon-zoom flag driven by the stock actor_on_weapon_zoom_in/out
-	-- callbacks (see _ads above). Works on ANY exe and for 1x optics that change no FOV
+	-- callbacks (see _ZOOMCFG.zoomed above). Works on ANY exe and for 1x optics that change no FOV
 	-- -- the case the heuristics below can't detect. When true we are aiming, period.
-	if _ads.zoomed then
-		-- Self-heal a stuck flag: zoom_out normally clears it, but a build that skips that
-		-- callback on holster/weapon-switch could leave it set at hipfire. An empty hand
-		-- (no active item) is never ADS, so reset and treat as lowered.
-		if db.actor and not safe_call(db.actor.active_item, db.actor) then
-			_ads.zoomed = false
+	if _ZOOMCFG.zoomed then
+		-- Self-heal a stuck flag: zoom_out normally clears it, but a build can skip that callback,
+		-- leaving the flag set at hipfire. Two heals:
+		--   1. Empty hand (no active item = holstered) is never ADS.
+		--   2. A DIFFERENT active item than the one that raised the flag = you switched weapons
+		--      (the common missed-zoom_out case), so treat as lowered. Only fires once we captured
+		--      the zooming weapon's id (see the zoom_in callback), so it never wrongly cancels a
+		--      valid 1x-optic ADS where no FOV change is visible.
+		local item = db.actor and safe_call(db.actor.active_item, db.actor)
+		if not item then
+			_ZOOMCFG.zoomed = false
+			_ZOOMCFG.zoom_item = false
+			return false
+		end
+		local iid = safe_call(item.id, item)
+		if _ZOOMCFG.zoom_item and iid and iid ~= _ZOOMCFG.zoom_item then
+			_ZOOMCFG.zoomed = false
+			_ZOOMCFG.zoom_item = false
 			return false
 		end
 		return true
@@ -2494,6 +2557,12 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 	if tier_blocked() then
 		return
 	end
+	-- Exclude an entity that is actively hostile + engaging the actor (in combat / pulled aggro).
+	-- Choke-point gate so NO path (key / auto / dwell / sweep) can identify one; the selection
+	-- filters below also skip them so the FOV assist moves on to another target.
+	if C.exclude_hostile and is_hostile_engaging(obj) then
+		return
+	end
 	local dist = safe_call(function()
 		return obj:position():distance_to(db.actor:position())
 	end)
@@ -2657,6 +2726,14 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 		hold_ms = HOLD_MS,
 	}
 
+	-- Debug trace: a fresh reveal was just committed (the refresh branch returned above). Record
+	-- the trigger context (_trace.src, set by whichever path is identifying) + result so the
+	-- Debug-draw panel can show WHY the last identification happened.
+	_trace.last_src = _trace.src
+	_trace.last_name = display_name(obj, comm) or safe_call(obj.name, obj) or "?"
+	_trace.last_tg = tg
+	_trace.last_scan = eff_scan_ms
+
 	-- NB: the Promin OSD readout (_last_id, read by get_last_identified) is NOT populated
 	-- here at scan START -- it's captured in render() at the moment the scan COMPLETES, so
 	-- the readout respects scan time (a slower process module = a longer wait before the
@@ -2815,6 +2892,7 @@ local function update_auto_identify(tg)
 	if C.require_binoculars and not tier_active() and not binoc then
 		return
 	end
+	_trace.src = "auto-identify"
 
 	-- Snappy on-aim: identify the target directly under the crosshair EVERY frame (direct-hit
 	-- only via get_target_obj(..., allow_fov=false) -- no scene scan, so it's cheap). This starts
@@ -2826,6 +2904,12 @@ local function update_auto_identify(tg)
 		if comm and comm ~= "" and has_los(direct) then
 			identify_target(direct, comm, boosted, eff_max_dist, scan_mult, true)
 		end
+	end
+
+	-- "Only nearest to aim" mode (fov_identify_all off): the direct hit above IS the target under
+	-- the crosshair, so skip the scene sweep that would reveal everyone else.
+	if not C.fov_identify_all then
+		return
 	end
 
 	-- Throttled full sweep of the rest of the visible scene (peripheral / FOV-assist targets).
@@ -2987,7 +3071,8 @@ local function update_ads_dwell(tg)
 	if (tg - _dwell.ads.start) >= (C.ads_hold_time or 0) * 1000 then
 		if tg - _dwell.ads.last >= STEADY_SWEEP_MS then
 			_dwell.ads.last = tg
-			if C.fov_assist then
+			_trace.src = "ADS dwell"
+			if C.fov_assist and C.fov_identify_all then
 				sweep_identify_in_fov(tg)
 			else
 				try_identify(true)
@@ -3034,7 +3119,8 @@ local function update_hipfire_dwell(tg)
 	if (tg - _dwell.hip.start) >= (C.hipfire_hold_time or 0) * 1000 then
 		if tg - _dwell.hip.last >= STEADY_SWEEP_MS then
 			_dwell.hip.last = tg
-			if C.fov_assist then
+			_trace.src = "hipfire dwell"
+			if C.fov_assist and C.fov_identify_all then
 				sweep_identify_in_fov(tg)
 			else
 				try_identify(true)
@@ -3081,10 +3167,11 @@ local function update_binocular_scan(tg)
 	if (tg - _steady.start) >= C.steady_time * 1000 then
 		if tg - _steady.last_sweep >= STEADY_SWEEP_MS then
 			_steady.last_sweep = tg
-			if C.fov_assist_binoc then
+			_trace.src = "binoc steady"
+			if C.fov_assist_binoc and C.fov_identify_all then
 				sweep_identify_in_fov(tg)
 			else
-				try_identify(true) -- direct aim only (allow_fov off inside try_identify)
+				try_identify(true) -- nearest-to-aim only (all-in-radius off, or fov assist off)
 			end
 		end
 	end
@@ -3104,6 +3191,7 @@ local function install_key_hook()
 		if not disabled then
 			local dik = active_dik()
 			if dik and key == dik and modifiers_ok() then
+				_trace.src = "key press"
 				try_identify()
 			end
 		end
@@ -3460,6 +3548,7 @@ function IiTags:draw_debug()
 						cr, cg, cb = 60, 235, 70
 					end
 					fov_list[#fov_list + 1] = {
+						obj = obj, -- kept for the gate/why-not evaluation in the info panel below
 						name = safe_call(obj.character_name, obj) or safe_call(obj.name, obj) or "?",
 						dist = dist,
 						in_range = in_range,
@@ -3559,6 +3648,99 @@ function IiTags:draw_debug()
 		-- clear geometric ray). So `see: NO` with `LOS: CONFIRMED` is expected: the player sees a
 		-- target the AI vision (range/cone/light) doesn't.
 		local aim_obj = aim_model_target(max_dist)
+
+		-- Perf: cycles/sec of actor_on_update, plus the last cycle's mod-work time and the peak over
+		-- the previous 1 s window (os.clock; may read 0 on a coarse clock but still flags spikes).
+		lines[#lines + 1] = {
+			string.format("cps %d  loop %.2fms (pk %.2f)", _trace.cps, _trace.loop_ms, _trace.loop_shown_peak),
+			150,
+			220,
+			150,
+		}
+
+		-- Which auto triggers are enabled (why it would / wouldn't auto-identify without a keypress).
+		local trg = {}
+		if C.auto_identify then
+			trg[#trg + 1] = "auto"
+		end
+		if C.hipfire_mode then
+			trg[#trg + 1] = "hip"
+		end
+		if C.ads_mode then
+			trg[#trg + 1] = "ads"
+		end
+		if C.binocular_mode then
+			trg[#trg + 1] = "binoc"
+		end
+		lines[#lines + 1] =
+			{ "triggers: " .. (#trg > 0 and table.concat(trg, ",") or "none (key only)"), 180, 180, 180 }
+
+		-- WHY the last identification happened: trigger context + target + how long ago + scan time.
+		if _trace.last_tg > 0 then
+			local ln = _trace.last_name
+			if #ln > 14 then
+				ln = ln:sub(1, 14)
+			end
+			lines[#lines + 1] = {
+				string.format(
+					"last id: %s <- %s  %.1fs  %dms",
+					ln,
+					_trace.last_src,
+					(time_global() - _trace.last_tg) / 1000,
+					_trace.last_scan
+				),
+				200,
+				200,
+				120,
+			}
+		else
+			lines[#lines + 1] = { "last id: (none yet)", 160, 160, 160 }
+		end
+
+		-- WHY an identification IS / ISN'T happening for the best candidate right now: walk the same
+		-- gates target acquisition applies and report the first blocker (or "eligible").
+		local cand = aim_obj
+		if not cand and #fov_list > 0 then
+			table.sort(fov_list, function(a, b)
+				return a.dist < b.dist
+			end)
+			cand = fov_list[1].obj
+		end
+		local why, wr, wg, wb = "eligible -> press key / auto", 90, 235, 110
+		if not C.enabled then
+			why, wr, wg, wb = "mod disabled", 235, 70, 70
+		elseif C.require_binoculars and not is_binoc_active() and not tier_active() then
+			why, wr, wg, wb = "needs binoculars (require_binoculars)", 235, 160, 60
+		elseif not cand then
+			why, wr, wg, wb = "no target on aim / in FOV", 235, 160, 60
+		elseif tier_blocked() then
+			why, wr, wg, wb = "scanner kit not worn (WD)", 235, 160, 60
+		else
+			local cid = cand:id()
+			local cdist = math.sqrt(db.actor:position():distance_to_sqr(cand:position()))
+			local comm = safe_call(cand.character_community, cand)
+			if cdist > max_dist then
+				why, wr, wg, wb =
+					string.format("out of range (%dm > %dm)", math.floor(cdist), math.floor(max_dist)), 235, 160, 60
+			elseif not safe_call(cand.alive, cand) then
+				why, wr, wg, wb = "target not alive", 235, 160, 60
+			elseif not (comm and comm ~= "") then
+				why, wr, wg, wb = "no community (unidentifiable)", 235, 160, 60
+			elseif not has_los(cand) then
+				why, wr, wg, wb = "no LOS (see mesh/ray below)", 235, 70, 70
+			elseif C.exclude_hostile and is_hostile_engaging(cand) then
+				why, wr, wg, wb = "hostile & engaging (excluded)", 235, 120, 60
+			elseif tracked[cid] then
+				local e = tracked[cid]
+				why, wr, wg, wb =
+					string.format("already identified (%.1fs)", (time_global() - (e.last_seen_tg or e.t0)) / 1000),
+					120,
+					200,
+					235
+			end
+		end
+		lines[#lines + 1] = { "gate: " .. why, wr, wg, wb }
+
 		if aim_obj then
 			local an = safe_call(aim_obj.character_name, aim_obj) or safe_call(aim_obj.name, aim_obj) or "?"
 			lines[#lines + 1] = { "mesh hit: " .. an, 90, 235, 110 }
@@ -3669,20 +3851,6 @@ local BODYCAM_LINE_H = 19
 -- see UI_KX). Edges butt at the corners with NO overlap: top/bottom span the
 -- full width, left/right fill only the gap between them -- so a thick outline
 -- no longer double-draws (and darkens) at the corners.
--- Depth-aware overlay binding (custom bodycam exe): draws world-anchored rects
--- depth-tested against the scene, so walls/viewmodel clip the box per-pixel. Same
--- guarded-existence pattern as the redaction/marker paths; inert on a stock exe, where
--- draw_head_box falls back to the (non-depth-aware) CUIStatic edges.
-local function overlay_binding()
-	local bc = ext_bodycam()
-	if bc and bc.overlay_begin and bc.overlay_rect and bc.overlay_commit then
-		return bc
-	end
-	return nil
-end
----@type any
-local _overlay_bc = nil -- set for the current frame in render() (begin..commit)
-
 local function draw_head_box(s, cx, cy, hw, hh, alpha, r, g, b, wx, wy, wz)
 	local t = C.box_thickness or 2
 	if t < 1 then
@@ -3781,28 +3949,14 @@ local function draw_shadowed_text(main, sh, x, y, alpha, r, g, b, shadow_a)
 	main:Show(true)
 end
 
--- Depth-aware TEXT: ENABLED via the engine glyph-emitter (custom bodycam exe).
--- overlay_text_add submits each line (virtual coords + world anchor); the engine's
--- phase_bodycam_text rasterises the glyphs directly as screen-space quads (atlas UVs,
--- bypassing CGameFont::OnRender -- the transform-inheritance that left rt_bodycam_text
--- empty across v2.31..v2.38), then composites depth-tested (occluded by walls +
--- viewmodel, like the box). Inert on a stock exe: overlay_text_add is absent there, so
--- draw_bodycam_line falls back to the flat CUIStatic text. See docs/engine-depth-overlay.md.
-local DEPTH_TEXT = true
-
--- Draw one bodycam text line either depth-aware (engine overlay, occluded by
--- walls/viewmodel) or, when disabled/absent, as the flat CUIStatic shadowed text.
--- main_w/sh_w are the widget + its shadow copy.
+-- Draw one bodycam text line as flat CUIStatic shadowed text. (The depth-aware engine
+-- glyph-emitter path was reverted; this is the sole path now.) main_w/sh_w are the widget +
+-- its shadow copy. wx/wy/wz (the world anchor) are unused now but kept in the signature so the
+-- callers don't change.
 local function draw_bodycam_line(main_w, sh_w, str, x, y, alpha, r, g, b, shadow_a, wx, wy, wz)
-	if DEPTH_TEXT and _overlay_bc and _overlay_bc.overlay_text_add and wx then
-		main_w:Show(false)
-		sh_w:Show(false)
-		pcall(_overlay_bc.overlay_text_add, str, x, y, r / 255, g / 255, b / 255, alpha / 255, wx, wy, wz)
-	else
-		main_w:SetText(str)
-		sh_w:SetText(str)
-		draw_shadowed_text(main_w, sh_w, x, y, alpha, r, g, b, shadow_a)
-	end
+	main_w:SetText(str)
+	sh_w:SetText(str)
+	draw_shadowed_text(main_w, sh_w, x, y, alpha, r, g, b, shadow_a)
 end
 
 -- Minimal-style relation sign (-/+/o), centred on the same anchor point as
@@ -3947,9 +4101,23 @@ function IiTags:draw_slot(
 	-- regardless of scale -- a distinct, user-selected visual language, not
 	-- just Card style's own too-small-to-fit fallback below.
 	if C.ui_style == 2 then
-		hide_card_widgets(s)
-		draw_node_glow(s, hx, hy, scale, alpha, fcol[1], fcol[2], fcol[3])
-		draw_sign(s, hx, hy, alpha, sign)
+		hide_card_widgets(s) -- also hides sign/sign_sh, so a skipped sign stays hidden
+		-- Minimal reuses the existing content toggles: the faction-coloured dot honours
+		-- `show_faction`, the relation sign honours `color_by_relation`. If BOTH are off, keep a
+		-- neutral locator dot so the tag doesn't vanish entirely.
+		local show_dot = C.show_faction
+		local show_relsign = C.color_by_relation
+		if show_dot then
+			draw_node_glow(s, hx, hy, scale, alpha, fcol[1], fcol[2], fcol[3])
+		elseif not show_relsign then
+			draw_node_glow(s, hx, hy, scale, alpha, COL_NEUTRAL[1], COL_NEUTRAL[2], COL_NEUTRAL[3])
+		else
+			s.node:Show(false)
+			s.glow:Show(false)
+		end
+		if show_relsign then
+			draw_sign(s, hx, hy, alpha, sign)
+		end
 		return
 	end
 
@@ -4906,17 +5074,6 @@ local function render(tg)
 		svp_ui_markers_begin()
 	end
 
-	-- Depth-aware bodycam overlay: open the per-frame rect + text batches
-	-- (draw_head_box / draw_slot fill them). Committed at every exit below so a
-	-- stale batch never persists.
-	_overlay_bc = overlay_binding()
-	if _overlay_bc then
-		pcall(_overlay_bc.overlay_begin)
-		if _overlay_bc.overlay_text_begin then
-			pcall(_overlay_bc.overlay_text_begin)
-		end
-	end
-
 	-- First pass: resolve which targets are actually on-screen and drawable
 	-- this frame (unchanged logic from before), collecting them instead of
 	-- drawing immediately, so the second pass below can see every card's
@@ -4992,6 +5149,13 @@ local function render(tg)
 		-- dwell aim the target, and auto-identify skips off-aim ones -- so a dropped target isn't
 		-- immediately re-added while you're still looking away.)
 		if not remove and C.hide_off_aim and under_aim == false then
+			remove = true
+		end
+
+		-- exclude_hostile: a target identified BEFORE combat that now turns hostile + engages you
+		-- (you pulled aggro after identifying it) is dropped immediately -- consistent with never
+		-- being able to acquire one. Only a handful of tracked targets, and only when the toggle's on.
+		if not remove and obj and C.exclude_hostile and is_hostile_engaging(obj) then
 			remove = true
 		end
 
@@ -5156,13 +5320,6 @@ local function render(tg)
 		for i = 1, MAX_TAGS do
 			TAGS:hide_slot(i)
 		end
-		if _overlay_bc then
-			pcall(_overlay_bc.overlay_commit) -- empty: clear any prior overlay rects
-			if _overlay_bc.overlay_text_commit then
-				pcall(_overlay_bc.overlay_text_commit)
-			end
-			_overlay_bc = nil
-		end
 		return
 	end
 
@@ -5222,14 +5379,6 @@ local function render(tg)
 	-- Crooks style: the single static "last identified" readout (self-gates / hides itself
 	-- when the style is off or there's nothing identified yet).
 	TAGS:draw_crooks()
-
-	if _overlay_bc then
-		pcall(_overlay_bc.overlay_commit) -- publish this frame's depth-overlay rects
-		if _overlay_bc.overlay_text_commit then
-			pcall(_overlay_bc.overlay_text_commit)
-		end
-		_overlay_bc = nil
-	end
 end
 
 -- Tear down every UI element the mod has drawn: hide all tag slots, drop the
@@ -5247,11 +5396,6 @@ local function teardown_ui()
 	end
 	face_ids = {}
 	redaction_clear()
-	local ob = overlay_binding() -- clear any depth-overlay rects
-	if ob then
-		pcall(ob.overlay_begin)
-		pcall(ob.overlay_commit)
-	end
 end
 
 -- When the ADS range boost ends (you zoom out / lower the sight), the effective
@@ -5263,11 +5407,10 @@ end
 -- Deliberately NOT applied to binoculars: those keep a just-glassed distant tag
 -- readable after you lower them (see boost_params()'s snapshot comment), a
 -- dedicated-observation UX that differs from ADS's transient combat aid.
-local _was_ads_boost = false
 local function update_ads_range_cull()
 	local _, ads, _, eff_max_dist = boost_params()
 	local ads_boost = ads and C.ads_boost
-	if _was_ads_boost and not ads_boost then
+	if _ZOOMCFG.was_boost and not ads_boost then
 		local apos = db.actor and safe_call(db.actor.position, db.actor)
 		if apos then
 			for id, e in pairs(tracked) do
@@ -5281,10 +5424,25 @@ local function update_ads_range_cull()
 			end
 		end
 	end
-	_was_ads_boost = ads_boost
+	_ZOOMCFG.was_boost = ads_boost
 end
 
 local function actor_on_update()
+	-- Debug perf: count this cycle; every 1 s window roll the frame tally into CPS and publish the
+	-- window's peak loop time. Runs every call (including early-return frames) so CPS is honest.
+	_trace.frames = _trace.frames + 1
+	local _tnow = time_global()
+	if _tnow - _trace.sec_start >= 1000 then
+		_trace.cps = _trace.frames
+		_trace.frames = 0
+		_trace.loop_shown_peak = _trace.loop_peak
+		_trace.loop_peak = 0
+		_trace.sec_start = _tnow
+	end
+	-- Wall-clock start of this cycle's mod work (only when debug draw is on, to avoid the os.clock
+	-- calls otherwise). os.clock may be coarse on some builds -- peak/last still flag spikes.
+	local _c0 = (C.debug_draw and os and os.clock) and os.clock() or nil
+
 	update_fov_baseline() -- keep this warm even while the mod is disabled
 
 	-- Snapshot the optional external tier system (WD compat) once for this frame. Every
@@ -5328,6 +5486,14 @@ local function actor_on_update()
 	update_redact_membership(tg)
 	update_loot_xp()
 	render(tg)
+
+	if _c0 then
+		local ms = (os.clock() - _c0) * 1000
+		_trace.loop_ms = ms
+		if ms > _trace.loop_peak then
+			_trace.loop_peak = ms
+		end
+	end
 end
 
 -- --------------------------------------------------------------------------
@@ -5379,12 +5545,17 @@ function on_game_start()
 	RegisterScriptCallback("on_option_change", on_option_change)
 	RegisterScriptCallback("save_state", save_state)
 	RegisterScriptCallback("load_state", load_state)
-	-- Stock weapon-zoom callbacks -> ADS flag (see _ads / is_ads_active). Anonymous
+	-- Stock weapon-zoom callbacks -> ADS flag (see _ZOOMCFG.zoomed / is_ads_active). Anonymous
 	-- handlers so they add no top-level locals (Lua 5.1's 200-per-chunk limit).
 	RegisterScriptCallback("actor_on_weapon_zoom_in", function()
-		_ads.zoomed = true
+		_ZOOMCFG.zoomed = true
+		-- Remember WHICH weapon zoomed, so is_ads_active can detect a later weapon switch that the
+		-- engine forgot to emit a zoom_out for (else the flag sticks and hipfire reads as ADS).
+		local it = db.actor and safe_call(db.actor.active_item, db.actor)
+		_ZOOMCFG.zoom_item = (it and safe_call(it.id, it)) or false
 	end)
 	RegisterScriptCallback("actor_on_weapon_zoom_out", function()
-		_ads.zoomed = false
+		_ZOOMCFG.zoomed = false
+		_ZOOMCFG.zoom_item = false
 	end)
 end

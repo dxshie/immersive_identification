@@ -88,6 +88,12 @@ function game_object:rank_name() end
 ---@return integer one of game_object.enemy/.friend/.neutral/.dummy
 function game_object:relation(other) end
 
+--- The object's current best/primary combat enemy (CAI_Stalker memory), or nil when not in
+--- combat. Used to tell whether an NPC is actively engaging the actor. May be absent on some
+--- engine forks -- guard with existence + pcall. script_game_object bindings.
+---@return game_object|nil
+function game_object:best_enemy() end
+
 ---@param bone string|integer bone name or index
 ---@param world boolean? default true
 ---@return Fvector

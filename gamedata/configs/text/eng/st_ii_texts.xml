@@ -95,13 +95,13 @@
 	<string id="ui_mcm_ii_redact_strength_desc"><text>Master intensity of the redaction effect.</text></string>
 
 	<string id="ui_mcm_ii_color_by_relation"><text>Colour by relation</text></string>
-	<string id="ui_mcm_ii_color_by_relation_desc"><text>Tint the tag by your relation to the target: red enemy, green friend, tan neutral.</text></string>
+	<string id="ui_mcm_ii_color_by_relation_desc"><text>Tint the tag by your relation to the target: red enemy, green friend, tan neutral. In Minimal style this also toggles the relation sign (-/+/o).</text></string>
 
 	<string id="ui_mcm_ii_show_name"><text>Show name</text></string>
 	<string id="ui_mcm_ii_show_name_desc"><text>Show the target's name line. Applies to every style that draws text (Card and Bodycam).</text></string>
 
 	<string id="ui_mcm_ii_show_faction"><text>Show faction</text></string>
-	<string id="ui_mcm_ii_show_faction_desc"><text>Show the target's faction line. Applies to every style that draws text (Card and Bodycam).</text></string>
+	<string id="ui_mcm_ii_show_faction_desc"><text>Show the target's faction line on styles that draw text (Card and Bodycam). In Minimal style it toggles the faction-coloured dot.</text></string>
 
 	<string id="ui_mcm_ii_show_rank"><text>Show rank</text></string>
 	<string id="ui_mcm_ii_show_rank_desc"><text>Show the target's rank line (Card and Bodycam, and below the name in the Crooks readout).</text></string>
@@ -132,6 +132,8 @@
 
 	<string id="ui_mcm_ii_fov_radius"><text>Target-assist radius (px)</text></string>
 	<string id="ui_mcm_ii_fov_radius_desc"><text>Aim tolerance for picking a target without a direct hit. Measured as an angle from where you aim, so it works the same whether hip-firing or scoped at any magnification (0 = direct hit only).</text></string>
+	<string id="ui_mcm_ii_fov_identify_all"><text>Identify all in assist radius</text></string>
+	<string id="ui_mcm_ii_fov_identify_all_desc"><text>For automatic identification (Auto-identify and the hipfire / ADS / binocular auto-triggers): reveal EVERY eligible target inside the target-assist radius, so a cluster of stacked stalkers all get identified at once. Turn off to identify only the single target nearest your aim point. (A manual keypress always identifies the nearest one.) On by default.</text></string>
 
 	<string id="ui_mcm_ii_require_los"><text>Require line of sight</text></string>
 	<string id="ui_mcm_ii_require_los_desc"><text>Only pick targets you can actually see.</text></string>
@@ -139,6 +141,8 @@
 	<string id="ui_mcm_ii_los_block_seethrough_desc"><text>Treat see-through surfaces -- chain-link fences, glass, foliage, and invisible clip meshes -- as solid for line of sight, so you cannot identify a target through them. Off (default): identification sees through them (only opaque walls block). Applies wherever line of sight is checked (always for auto-identify; for manual identify when Require line of sight is on).</text></string>
 	<string id="ui_mcm_ii_los_block_foliage"><text>Block ID through foliage</text></string>
 	<string id="ui_mcm_ii_los_block_foliage_desc"><text>Block identification through foliage specifically (bushes, trees, grass) while still seeing through fences and glass. A lighter version of "Block ID through transparent surfaces." Best-effort by material name -- if some plants aren't caught, use the full transparent-surfaces block instead.</text></string>
+	<string id="ui_mcm_ii_exclude_hostile"><text>Exclude hostiles in combat</text></string>
+	<string id="ui_mcm_ii_exclude_hostile_desc"><text>Don't allow an entity that is actively hostile toward you and aware of you -- one that has pulled aggro and will attack -- to be an identification target. Detected from its AI combat target and its enemy relation + line of sight to you. The target-assist skips such enemies and picks another target; a target you identified BEFORE combat has its tag removed the moment it turns hostile and engages you. Off by default.</text></string>
 	<string id="ui_mcm_ii_hide_off_aim"><text>Only show overlay while aimed</text></string>
 	<string id="ui_mcm_ii_hide_off_aim_desc"><text>Only ever track the target you're aiming at or near (within the FOV radius of your aim point). Aiming away DROPS it -- so aiming back re-runs the whole scan from scratch rather than instantly reappearing. Scopes identification to the aimed target (auto-identify won't fill the screen). Default off.</text></string>
 

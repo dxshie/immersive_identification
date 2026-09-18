@@ -24,8 +24,10 @@ Five visual styles:
 - **Card** (`ui_style = 1`): dark plate + faction icon + text lines + a leader
   line connecting to a colored dot on the target's chest.
 - **Minimal** (`ui_style = 2`): just a faction-colored dot plus a relation glyph
-  (`-` enemy / `+` friend / `o` neutral). With `mini_dist_scale` on, the dot
-  scales with distance (near = bigger, far = smaller) instead of a flat size.
+  (`-` enemy / `+` friend / `o` neutral). The two elements reuse the existing content
+  toggles — the dot honours `show_faction`, the sign honours `color_by_relation`; if both are off
+  a neutral locator dot is drawn so the tag never fully vanishes. With `mini_dist_scale` on, the
+  dot scales with distance (near = bigger, far = smaller) instead of a flat size.
 - **Simple** (`ui_style = 5`): a compact horizontal strip above the head — the
   Card style's relation-colored dot + glow, then the faction logo, then the name
   (`draw_slot`'s `ui_style == 5` branch). Distance-scaled.
@@ -217,12 +219,22 @@ transparency of the first surface to the aimed target, for tuning the foliage to
 Fails open (returns visible) on an engine error or absent `ray_pick`. `tag_visible` (the
 `hide_unseen` drop) uses the same pure-geometry check for the same reason.
 
-`find_nearest_in_fov` (1291) iterates `level.iterate_nearest`; a candidate must be
+`find_nearest_in_fov` iterates `level.iterate_nearest`; a candidate must be
 non-actor, `IsStalker` or `IsMonster`, alive, have a non-empty
-`character_community`, and (if `require_los`) pass LOS. It selects the candidate
-**nearest to the aim point** within the assist tolerance, not nearest in world
-space. Already-tracked targets are held as a runner-up and only returned if
+`character_community`, (if `require_los`) pass LOS, and (if `exclude_hostile`) not be hostile-and-
+engaging. It selects the candidate **nearest to the aim point** within the assist tolerance, not
+nearest in world space. Already-tracked targets are held as a runner-up and only returned if
 nothing else qualifies.
+
+**Exclude hostiles** (`exclude_hostile`, off by default): `is_hostile_engaging(obj)` returns true
+when the NPC's AI combat target is the actor (`best_enemy()`, guarded) OR it is enemy-disposed
+(`relation == enemy`) AND currently sees the actor (`see()`) — i.e. it has pulled aggro and will
+attack. When on, such entities are filtered out of selection (so the assist picks another target)
+AND rejected at the `identify_target` choke point (so no path — key / auto / dwell / sweep — can
+identify one). A target identified BEFORE combat that later turns hostile is also **dropped from
+`tracked` per-frame** in the render loop (alongside `hide_unseen`/`hide_off_aim`), so its tag
+disappears the moment you engage it — consistent with never being able to acquire one. All engine
+calls are guarded, so a missing binding degrades to "not hostile".
 
 **The assist is a straight screen-pixel radius** around the aim point (no angular
 cone):
@@ -286,9 +298,16 @@ community, and is within `eff_max_dist`.
 - **Steady auto-identify** (`update_binocular_scan`, 2445): when `binocular_mode` is
   active, tracks a "steady" camera direction against an anchor
   (`STEADY_MAX_D2 = 0.002`, ~2.6°); held steady for `steady_time` it fires a
-  **sweep** (`sweep_identify_in_fov`, if `fov_assist_binoc`) or a direct
-  `try_identify(true)` (if not), throttled by `STEADY_SWEEP_MS` so it keeps
+  **sweep** (`sweep_identify_in_fov`, if `fov_assist_binoc` **and** `fov_identify_all`) or a direct
+  `try_identify(true)` (otherwise — nearest to aim), throttled by `STEADY_SWEEP_MS` so it keeps
   re-sweeping while held. ADS uses a separate dwell trigger (§3.5b).
+
+**`fov_identify_all`** (default on) governs the automatic paths' all-vs-nearest choice: the
+hipfire/ADS/binocular dwell sweeps (`sweep_identify_in_fov`, all in the assist ring) run only when
+it's on **and** the relevant `fov_assist*` is on — otherwise they identify the single nearest to
+the aim (`try_identify(true)`). Auto-identify keeps its per-frame direct hit either way, but its
+throttled full-scene sweep is skipped when it's off. The manual keypress always identifies the
+nearest (unaffected).
 
 ### 3.5b Aim Down Sight (ADS)
 
@@ -524,9 +543,11 @@ Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `
 | `fov_assist` | check | true | — | master FOV target-assist; off = direct-hit aim only |
 | `freeaim_assist` | check | false | — | bodycam/free-aim: aim from the weapon barrel/first-eye ray |
 | `fov_radius` | track | **35** | 0, 90, 5 | target-assist **screen radius** (virtual px; 0 = off) |
+| `fov_identify_all` | check | true | — | auto-ID reveals ALL targets in the assist radius; off = only the one nearest the aim (manual key always nearest) |
 | `require_los` | check | true | — | require line of sight |
 | `los_block_seethrough` | check | false | — | LOS: treat see-through surfaces (fences/glass/foliage/clip) as opaque — no ID through them |
 | `los_block_foliage` | check | false | — | LOS: block ID through foliage only (best-effort by material name) |
+| `exclude_hostile` | check | false | — | never target an entity actively hostile + engaging you (in combat / pulled aggro) |
 | `hide_off_aim` | check | false | — | only track the aimed target (membership gate: drop on aim-away, re-scan on aim-back) |
 | `auto_identify` | check | false | — | continuously identify visible in-range targets, no keypress (LOS always required) |
 | **Hipfire** | | | | |
@@ -585,7 +606,7 @@ Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `
 | `perception_loot_xp` | track | 20 | 0, 100, 5 | bonus XP for first loot |
 | **Debug** | | | | |
 | `debug_log` | check | false | — | write aim/trace diagnostics to a dedicated log file |
-| `debug_draw` | check | false | — | on-screen target-assist visualiser (FOV ring, bone dots, bottom-right info panel) |
+| `debug_draw` | check | false | — | on-screen target-assist visualiser: FOV ring, bone dots, and a bottom-right info panel (perf CPS + mod-loop ms; identify trace — active triggers, the last commit's source/target, and a live "gate" line explaining why the aimed candidate is / isn't being identified; aim mesh-hit see/ray/LOS + front material; the FOV-radius target list) |
 | `debug_sim_stock` | check | false | — | pretend the custom engine bindings are absent (test stock fallbacks) |
 | **Wearable Devices** (page `wdcompat`; only bites when the WD compat add-on is installed, §7.3; the page is hidden otherwise) | | | | |
 | `wd_ignore` | check | false | — | master toggle: bypass the WD compat entirely (identify as if WD isn't installed); disables the rest of this page |
