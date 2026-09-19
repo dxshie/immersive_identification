@@ -27,15 +27,20 @@ Five visual styles:
   (`-` enemy / `+` friend / `o` neutral). The two elements reuse the existing content
   toggles — the dot honours `show_faction`, the sign honours `color_by_relation`; if both are off
   a neutral locator dot is drawn so the tag never fully vanishes. With `mini_dist_scale` on, the
-  dot scales with distance (near = bigger, far = smaller) instead of a flat size.
+  dot and glow follow camera depth and zoom (near = bigger, far = smaller), without a
+  far-distance size floor. The relation glyph retains its native font size.
 - **Simple** (`ui_style = 5`): a compact horizontal strip above the head — the
   Card style's relation-colored dot + glow, then the faction logo, then the name
-  (`draw_slot`'s `ui_style == 5` branch). Distance-scaled.
+  (`draw_slot`'s `ui_style == 5` branch). The dot, glow, logo, and spacing follow camera
+  depth and zoom. The graphical group is centred on the anchor; the fixed-font name
+  follows to its right, so name length cannot move the marker off the entity.
 - **Simple 2** (`ui_style = 4`): a compact over-the-head cluster — a
   faction-colored circle (`ii_dot`) and a relation-colored triangle (`ii_tri`,
   pointing at relation) side by side, with a thin rank-colored bar above them
   (`rank_color`, novice grey → legend gold). Distance-scaled and anchored above
-  the head like the PiP marker (`draw_slot`'s `ui_style == 4` branch).
+  the head like the PiP marker (`draw_slot`'s `ui_style == 4` branch). All shapes,
+  including the rank bar, shrink continuously with camera depth and grow with zoom;
+  no minimum pixel dimensions.
 - **Bodycam** (`ui_style = 3`): an unfilled faction-colored rectangle outline
   locked to the target's **head bone**, auto-scaled with distance so it stays a
   constant real-world size around the head (a bounding box with padding). Four
@@ -54,6 +59,11 @@ Five visual styles:
 - **Crooks** (`ui_style = 6`): not a per-entity tag at all — a single **static** screen-space
   readout of the **last-identified** stalker (faction **logo** + name, + rank if `show_rank`),
   anchored to a screen corner (`crooks_pos`) with X/Y offsets (`draw_crooks`).
+- **Minimal 2** (`ui_style = 7`): the most stripped-down marker — a single bare **dot, no glow**,
+  coloured purely by **relation** (red enemy / green friend / tan neutral, always relation-based
+  regardless of `color_by_relation`). No sign, no text. **Always** distance-scales (near = bigger,
+  far = smaller), like Simple / Simple 2, and follows camera zoom. Its centre stays
+  at the projected anchor plus the configured offset, without a distance-based nudge.
 
 Optionally, **Auto-identify** (`auto_identify`, default off) continuously reveals
 every visible target in range without a keypress. The target directly under the crosshair
@@ -392,11 +402,15 @@ state (independent of `pip_markers`), so this also covers `pip_markers`-off.
 order (shadow → line → plate → accent → icon → text → node/glow → spinner →
 bodycam box edges → Simple 2 circle/triangle/bar), plus the debug dot/text pool.
 
-- **World-to-screen:** `anchor_pos(obj)` (610) picks the first of `ANCHOR_BONES`
+- **World-to-screen:** `anchor_pos(obj)` picks the first of `ANCHOR_BONES`
   (`bip01_head`, `bip01_spine2/1`, `bip01_spine`) within 3m and lifts by
   `ANCHOR_LIFT = 0.12`; monsters fall back to `position().y + 1.3`. `project_world`
-  (623) calls `game/level.world2ui`, rejecting `x < -9000` (off-screen/behind).
-- **UI styles** (`ui_style`): 1 Card, 2 Minimal, 3 Bodycam, 4 Simple 2, 5 Simple, 6 Crooks.
+  calls `game/level.world2ui`, rejecting `x < -9000` (off-screen/behind). The render tag anchor
+  goes through **`ui_anchor_pos(obj)`**, which honours the `anchor_basis` list — Head (default;
+  = `anchor_pos`), Torso (`bip01_spine2/1`), or Feet (`position()`) — for the card + all dot
+  styles + the in-scope marker. `anchor_pos` itself stays head-biased for LOS/foliage geometry
+  regardless; the Bodycam box uses its own `box_area`.
+- **UI styles** (`ui_style`): 1 Card, 2 Minimal, 3 Bodycam, 4 Simple 2, 5 Simple, 6 Crooks, 7 Minimal 2 (bare relation dot).
 - **`draw_slot`** branches: for **Crooks** (`ui_style==6`) it hides the per-entity slot and bails
   (Crooks is a single static readout — see below); otherwise scanning spinner only → **bodycam**
   (head-outline box, `ui_style==3`) → **Simple 2** (circle+triangle+rank bar, `ui_style==4`) →
@@ -410,10 +424,20 @@ bodycam box edges → Simple 2 circle/triangle/bar), plus the debug dot/text poo
   anchored to a screen corner (`crooks_pos`) with `crooks_x`/`crooks_y` offsets. Shows only while
   its target is still in `tracked` (the reveal-window linger, or — under `hide_off_aim` — only
   while aimed), following your gaze via the per-frame direct-hit id.
-- **Distance scaling / offsets:** the Minimal dot (`mini_dist_scale_factor`, 3025,
-  when `mini_dist_scale` on) and the Simple 2 cluster scale with distance and are
-  pulled toward the head as the target recedes; `ui_offset_x` / `ui_offset_y` nudge
-  every on-screen element in virtual px.
+- **Distance scaling / offsets:** Minimal (when `mini_dist_scale` is on), Minimal 2,
+  Simple, and Simple 2 derive their graphical scale from a camera-up metre projected
+  beside the anchor (`mini_dist_scale_factor`). Each reference layout unit represents
+  `MARKER.unit_m = 0.03` metres before the `card_scale` multiplier. This uses the same
+  camera projection as the anchor, so size follows view depth and zoom rather than
+  actor distance. There is no far-distance scale floor or minimum pixel dimension;
+  positions and sizes retain fractional pixels. The projection scale is capped at
+  `MARKER.max_scale = 4` for graphics near the camera, before applying `card_scale`.
+  User X/Y offsets use the uncapped projection scale (X also uses `UI_KX`), keeping
+  the offset attached in the camera-facing plane. There is no additional downward
+  distance correction. Simple's graphical group is centred independently of its
+  fixed-font name. Minimal's relation glyph also keeps its native font size.
+  Card, Bodycam, Crooks, and the engine PiP path retain their existing sizing;
+  Minimal with `mini_dist_scale` off retains its fixed size and virtual-pixel offsets.
 - **Aspect correction** `UI_KX` (assigned 375): `(h/w)/(768/1024)`; the X of any
   KX-distorted static (node, glow, line, Simple 2 shapes) is pre-corrected so circles
   stay round and angles stay true under the engine's anisotropic virtual→screen
@@ -518,7 +542,7 @@ Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `
 | `hide_unseen` | check | true | — | hide a tag while its target is out of sight |
 | `max_dist` | track | 50 | 10, 250, 5 | **Base identification distance** (m) — the base, before scaling up/down |
 | **UI Style → General** (`uistyle/general`) | | | | |
-| `ui_style` | list | Card | Card/Minimal/Bodycam/Simple 2/Simple/Crooks | which visual style |
+| `ui_style` | list | Card | Card/Minimal/Bodycam/Simple 2/Simple/Crooks/Minimal 2 | which visual style |
 | `show_name` | check | true | — | show name line |
 | `show_faction` | check | true | — | show faction line |
 | `show_rank` | check | true | — | show rank line (Card/Bodycam/Crooks) |
@@ -529,6 +553,7 @@ Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `
 | `mini_dist_scale` | check | true | — | Minimal dot: scale with distance |
 | `ui_offset_x` | track | 0 | -200, 200, 5 | horizontal nudge for on-screen UI (px) |
 | `ui_offset_y` | track | 0 | -200, 200, 5 | vertical nudge for on-screen UI (px) |
+| `anchor_basis` | list | Head | Head/Torso/Feet | where the tag/marker anchors on the target (`ui_anchor_pos`); Bodycam box keeps its own `box_area` |
 | **UI Style → Bodycam** (`uistyle/bodycam`) | | | | |
 | `box_area` | list | Head | Head/Body | bodycam outline rectangle region |
 | `box_color_source` | list | faction | faction/relation | bodycam box colour source |

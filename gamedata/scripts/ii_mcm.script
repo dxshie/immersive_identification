@@ -31,6 +31,13 @@ function on_mcm_load()
 		end
 	end
 
+	local anchor_basis_content = {}
+	if ii_identify and ii_identify.ANCHOR_BASIS_LIST then
+		for idx, e in ipairs(ii_identify.ANCHOR_BASIS_LIST) do
+			anchor_basis_content[#anchor_basis_content + 1] = { idx, e.label }
+		end
+	end
+
 	local redact_style_content = {}
 	if ii_identify and ii_identify.REDACT_STYLE_LIST then
 		for idx, e in ipairs(ii_identify.REDACT_STYLE_LIST) do
@@ -167,6 +174,7 @@ function on_mcm_load()
 						opt_check("mini_dist_scale"),
 						opt_track("ui_offset_x", -200, 200, 5),
 						opt_track("ui_offset_y", -200, 200, 5),
+						opt_list("anchor_basis", anchor_basis_content),
 					}),
 					page("bodycam", {
 						opt_title("ui_mcm_ii_bodycam_title"),

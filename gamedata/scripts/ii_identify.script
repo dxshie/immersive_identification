@@ -29,7 +29,7 @@ DEFAULTS = {
 	enabled = true,
 	key_dik = 0, -- captured DIK code; 0/nil means "unset, use DEFAULT_KEY_NAME"
 	modifier_index = 1, -- index into MODIFIER_LIST (1 = none)
-	ui_style = 1, -- index into UI_STYLE_LIST (1 = card, 2 = minimal, 3 = bodycam, 6 = crooks)
+	ui_style = 1, -- index into UI_STYLE_LIST (1=card 2=minimal 3=bodycam 4=simple2 5=simple 6=crooks 7=minimal2)
 	crooks_pos = 1, -- Crooks style: screen-corner preset, index into CROOKS_POS_LIST (1=BL, 2=BM, 3=BR)
 	crooks_x = 0, -- Crooks style: X offset from the preset anchor (virtual px, + = right)
 	crooks_y = 0, -- Crooks style: Y offset from the preset anchor (virtual px, + = up)
@@ -114,6 +114,7 @@ DEFAULTS = {
 	mini_scale_cutoff = 0.4, -- below this scale, show just the relation dot instead of the full card
 	ui_offset_x = 0, -- virtual-px (1024-wide) horizontal nudge for the on-screen UI elements
 	ui_offset_y = 0, -- virtual-px (768-tall) vertical nudge for the on-screen UI elements
+	anchor_basis = 1, -- where the tag/marker anchors on the target: index into ANCHOR_BASIS_LIST (1 head, 2 torso, 3 feet). Does NOT affect the Bodycam box (its own box_area) or LOS geometry.
 	mini_dist_scale = true, -- Minimal (dot) style: scale the dot with distance so a far target's dot
 	-- isn't oversized (near = bigger, far = smaller); off = flat card_scale like the other styles
 	binoc_boost = true, -- binoculars speed up + extend identify range, independent of binocular_mode
@@ -272,6 +273,16 @@ UI_STYLE_LIST = {
 	{ label = "simple2" },
 	{ label = "simple" },
 	{ label = "crooks" },
+	{ label = "minimal2" },
+}
+
+-- Where the tag/marker anchors on the target's body (anchor_basis). Index order IS the stored
+-- value. Referenced as ii_identify.ANCHOR_BASIS_LIST from ii_mcm.script, same cross-file pattern
+-- as UI_STYLE_LIST.
+ANCHOR_BASIS_LIST = {
+	{ label = "head" },
+	{ label = "torso" },
+	{ label = "feet" },
 }
 
 -- Screen-corner presets for the Crooks style's static HUD element (crooks_pos). Referenced
@@ -406,6 +417,7 @@ local _v = {
 	aim_dir = vector(),
 	bb_pt = vector(),
 	face_c = vector(),
+	marker_pt = vector(),
 }
 local function P(x, y)
 	return _v.p:set(x, y)
@@ -912,6 +924,26 @@ local function anchor_pos(obj)
 	end
 	base.y = base.y + 1.3
 	return base
+end
+
+-- Where the tag/marker is drawn on the target, per the `anchor_basis` MCM list (1 head / 2 torso /
+-- 3 feet). Head reuses anchor_pos (the legacy default). Distinct from anchor_pos() itself, which
+-- LOS/foliage geometry keeps using head-biased regardless of this UI preference. Each branch
+-- returns a FRESH vector (bone_position / position copies), so callers may mutate it freely.
+local function ui_anchor_pos(obj)
+	local basis = C.anchor_basis or 1
+	if basis == 3 then
+		return obj:position() -- feet / ground: the object's base position, unlifted
+	end
+	if basis == 2 then
+		local base = obj:position()
+		local p = safe_call(obj.bone_position, obj, "bip01_spine2") or safe_call(obj.bone_position, obj, "bip01_spine1")
+		if p and p:distance_to_sqr(base) < 9 then
+			return p -- torso / chest
+		end
+		-- monster / non-bip01 rig: no spine bone -> fall through to the head anchor
+	end
+	return anchor_pos(obj) -- head (default)
 end
 
 local function project_world(pos)
@@ -3889,52 +3921,45 @@ end
 local SPIN_D = 20 -- spinner diameter, px, at scale 1
 local SPIN_PERIOD_MS = 900 -- one full rotation
 
--- Draws just the relation-coloured node dot + its glow halo at the body
--- anchor -- shared by the scanning-spinner branch and draw_slot's mini/full
--- paths, since all three need this exact pair positioned the same way. `s`
--- is a slot table (has .node/.glow), not `self` -- a plain function, not a
--- method. Sizing matches gamma-immersive-quest-markers' card_node/card_glow
--- proportions (node_size=7, glow = node_size * nscale * 2.8).
---
--- Capped separately from the card's own `scale` (which the user can push
--- well past 1x via the card_scale MCM slider): applying that same growth to
--- the small marker dot ballooned it into a blob at high scale, most visible
--- in its baked-in outline ring (see ii_node's texture comment) getting
--- proportionally thick, since a ring that's a fixed fraction of the dot's
--- radius reads heavier the bigger the dot gets. The leader line (drawn
--- separately in draw_slot) isn't capped since a thicker line doesn't have
--- that same "blob" problem.
-local NODE_SCALE_MAX = 1.4
+local MARKER = { unit_m = 0.03, max_scale = 4, card_node_max = 1.4 }
 
--- Minimal (dot) style distance scale: 1.0 at ~20 m, larger up close, smaller far, so a
--- distant target's dot isn't oversized. Clamped both ways. Constants inline to spare
--- top-level locals (Lua 5.1's 200-per-chunk limit).
-local function mini_dist_scale_factor(dist)
-	if not dist or dist <= 0 then
+-- Project a camera-up metre to obtain scale from the same camera as the anchor.
+-- Allow the sample off-screen so markers at the top edge retain their size.
+local function mini_dist_scale_factor(pos, sy)
+	local dev = device and device()
+	local top = dev and dev.cam_top
+	local w2u = (game and game.world2ui) or (level and level.world2ui)
+	if not top or not w2u then
 		return 1
 	end
-	local s = 20 / dist
-	if s < 0.4 then
-		s = 0.4
-	elseif s > 1.6 then
-		s = 1.6
+	local ui = w2u(_v.marker_pt:set(pos.x + top.x, pos.y + top.y, pos.z + top.z), false, true)
+	if not ui then
+		return 1
 	end
-	return s
+	return math.abs(ui.y - sy) * MARKER.unit_m
 end
 
-local function draw_node_glow(s, hx, hy, scale, alpha, r, g, b)
-	local node_scale = math.min(scale, NODE_SCALE_MAX)
+local function draw_node_glow(s, hx, hy, scale, alpha, r, g, b, world_scaled)
+	local node_scale = world_scaled and scale or math.min(scale, MARKER.card_node_max)
 	local ns = 7 * node_scale
-	local nsx = math.max(2, math.floor(ns * UI_KX + 0.5))
+	local nsx = world_scaled and ns * UI_KX or math.max(2, math.floor(ns * UI_KX + 0.5))
 	s.node:SetWndSize(S(nsx, ns))
-	s.node:SetWndPos(P(math.floor(hx - nsx / 2), math.floor(hy - ns / 2)))
+	if world_scaled then
+		s.node:SetWndPos(P(hx - nsx / 2, hy - ns / 2))
+	else
+		s.node:SetWndPos(P(math.floor(hx - nsx / 2), math.floor(hy - ns / 2)))
+	end
 	s.node:SetTextureColor(GetARGB(alpha, r, g, b))
 	s.node:Show(true)
 
 	local gs = ns * 2.8
-	local gsx = math.max(2, math.floor(gs * UI_KX + 0.5))
+	local gsx = world_scaled and gs * UI_KX or math.max(2, math.floor(gs * UI_KX + 0.5))
 	s.glow:SetWndSize(S(gsx, gs))
-	s.glow:SetWndPos(P(math.floor(hx - gsx / 2), math.floor(hy - gs / 2)))
+	if world_scaled then
+		s.glow:SetWndPos(P(hx - gsx / 2, hy - gs / 2))
+	else
+		s.glow:SetWndPos(P(math.floor(hx - gsx / 2), math.floor(hy - gs / 2)))
+	end
 	s.glow:SetTextureColor(GetARGB(math.floor(alpha * 0.55), r, g, b))
 	s.glow:Show(true)
 end
@@ -4108,9 +4133,9 @@ function IiTags:draw_slot(
 		local show_dot = C.show_faction
 		local show_relsign = C.color_by_relation
 		if show_dot then
-			draw_node_glow(s, hx, hy, scale, alpha, fcol[1], fcol[2], fcol[3])
+			draw_node_glow(s, hx, hy, scale, alpha, fcol[1], fcol[2], fcol[3], C.mini_dist_scale)
 		elseif not show_relsign then
-			draw_node_glow(s, hx, hy, scale, alpha, COL_NEUTRAL[1], COL_NEUTRAL[2], COL_NEUTRAL[3])
+			draw_node_glow(s, hx, hy, scale, alpha, COL_NEUTRAL[1], COL_NEUTRAL[2], COL_NEUTRAL[3], C.mini_dist_scale)
 		else
 			s.node:Show(false)
 			s.glow:Show(false)
@@ -4118,6 +4143,22 @@ function IiTags:draw_slot(
 		if show_relsign then
 			draw_sign(s, hx, hy, alpha, sign)
 		end
+		return
+	end
+
+	-- Minimal 2 (style 7): a single bare DOT (no glow, no sign, no text) coloured by RELATION --
+	-- red enemy / green friend / tan neutral, always relation-based (SIGN_COLOR is accurate
+	-- regardless of color_by_relation). The most stripped-down "friend or foe" indicator.
+	if C.ui_style == 7 then
+		hide_card_widgets(s) -- also hides sign/sign_sh
+		s.glow:Show(false)
+		local rc = SIGN_COLOR[sign] or COL_NEUTRAL
+		local ns = 7 * scale
+		local nsx = ns * UI_KX
+		s.node:SetWndSize(S(nsx, ns))
+		s.node:SetWndPos(P(hx - nsx / 2, hy - ns / 2))
+		s.node:SetTextureColor(GetARGB(alpha, rc[1], rc[2], rc[3]))
+		s.node:Show(true)
 		return
 	end
 
@@ -4136,37 +4177,32 @@ function IiTags:draw_slot(
 				s.name_sh:SetText(name)
 				s.name:AdjustWidthToText()
 				s.name_sh:AdjustWidthToText()
-				s.simple_nw = s.name:GetWidth()
-			else
-				s.simple_nw = 0
 			end
 			s.simple_last_name = name
 		end
-		local name_w = has_name and (s.simple_nw or 0) or 0
 		local has_icon = icon_id and icon_id ~= ""
 
-		local node_scale = math.min(scale, NODE_SCALE_MAX)
-		local glow_w = math.max(2, math.floor(7 * node_scale * 2.8 * UI_KX + 0.5)) -- dot glow footprint
-		local icon_w = math.floor(16 * scale + 0.5)
-		local gap = math.floor(5 * scale + 0.5)
-		local row_y = hy - math.floor(14 * scale + 0.5) -- lift the strip above the head
+		local glow_w = 7 * scale * 2.8 * UI_KX
+		local icon_h = 16 * scale
+		local icon_w = icon_h * UI_KX
+		local gap = 5 * scale * UI_KX
+		local row_y = hy - 14 * scale
 
+		-- Native text has a fixed font size; exclude its width from the anchor
+		-- calculation so a long name cannot push the marker off the entity.
 		local total = glow_w
 		if has_icon then
 			total = total + gap + icon_w
 		end
-		if has_name then
-			total = total + gap + name_w
-		end
 		local cursor = hx - total / 2
 
-		draw_node_glow(s, cursor + glow_w / 2, row_y, scale, alpha, r, g, b)
+		draw_node_glow(s, cursor + glow_w / 2, row_y, scale, alpha, r, g, b, true)
 		cursor = cursor + glow_w
 
 		if has_icon then
 			cursor = cursor + gap
-			s.icon:SetWndPos(P(math.floor(cursor), math.floor(row_y - icon_w / 2)))
-			s.icon:SetWndSize(S(icon_w, icon_w))
+			s.icon:SetWndPos(P(cursor, row_y - icon_h / 2))
+			s.icon:SetWndSize(S(icon_w, icon_h))
 			s.icon:SetTextureColor(GetARGB(alpha, 255, 255, 255))
 			s.icon:Show(true)
 			cursor = cursor + icon_w
@@ -4179,8 +4215,8 @@ function IiTags:draw_slot(
 			draw_shadowed_text(
 				s.name,
 				s.name_sh,
-				math.floor(cursor),
-				math.floor(row_y - 9),
+				cursor,
+				row_y - 9,
 				alpha,
 				235,
 				230,
@@ -4291,11 +4327,11 @@ function IiTags:draw_slot(
 		local cd = 12 * sc -- circle diameter (also the row height driver)
 		local tw, th = 13 * sc, 11 * sc -- triangle width / height
 		local gap = 3 * sc -- gap between circle and triangle
-		local bh = math.max(2, 3 * sc) -- rank bar height
+		local bh = 3 * sc
 		local bgap = 3 * sc -- gap between the bar and the shapes
 		local kx = UI_KX
-		local cw = math.max(2, math.floor(cd * kx + 0.5)) -- circle screen width (kept round)
-		local twx = math.max(2, math.floor(tw * kx + 0.5)) -- triangle screen width
+		local cw = cd * kx
+		local twx = tw * kx
 		local gpx = gap * kx
 		local roww = cw + gpx + twx
 		local left = hx - roww / 2
@@ -4303,19 +4339,19 @@ function IiTags:draw_slot(
 		local cy = hy - rowh / 2 - 2 * sc -- sit the shapes just above the head anchor
 
 		s.s2_circle:SetWndSize(S(cw, cd))
-		s.s2_circle:SetWndPos(P(math.floor(left), math.floor(cy - cd / 2)))
+		s.s2_circle:SetWndPos(P(left, cy - cd / 2))
 		s.s2_circle:SetTextureColor(GetARGB(alpha, fcol[1], fcol[2], fcol[3]))
 		s.s2_circle:Show(true)
 
 		local rc = SIGN_COLOR[sign] or COL_NEUTRAL
 		s.s2_tri:SetWndSize(S(twx, th))
-		s.s2_tri:SetWndPos(P(math.floor(left + cw + gpx), math.floor(cy - th / 2)))
+		s.s2_tri:SetWndPos(P(left + cw + gpx, cy - th / 2))
 		s.s2_tri:SetTextureColor(GetARGB(alpha, rc[1], rc[2], rc[3]))
 		s.s2_tri:Show(true)
 
 		local rk = rank_col or { 150, 150, 150 }
-		s.s2_bar:SetWndSize(S(math.floor(roww), math.floor(bh)))
-		s.s2_bar:SetWndPos(P(math.floor(left), math.floor(cy - rowh / 2 - bgap - bh)))
+		s.s2_bar:SetWndSize(S(roww, bh))
+		s.s2_bar:SetWndPos(P(left, cy - rowh / 2 - bgap - bh))
 		s.s2_bar:SetTextureColor(GetARGB(alpha, rk[1], rk[2], rk[3]))
 		s.s2_bar:Show(true)
 		return
@@ -5184,7 +5220,7 @@ local function render(tg)
 				phase_alpha = 0 -- fade_ms 0: instant reveal + instant fade-out (no divide)
 			end
 
-			local pos = anchor_pos(obj)
+			local pos = ui_anchor_pos(obj)
 
 			-- Publish this revealed target as the "last identified" for external readouts (the
 			-- Promin OSD ident page + the Crooks HUD). Two triggers, both only once REVEALED:
@@ -5247,6 +5283,16 @@ local function render(tg)
 				local a = active_pool[active_n]
 				-- User X/Y nudge (virtual px) for all on-screen UI elements.
 				local off_x, off_y = C.ui_offset_x or 0, C.ui_offset_y or 0
+				local scaling_style = (C.ui_style == 2 and C.mini_dist_scale)
+					or C.ui_style == 4
+					or C.ui_style == 5
+					or C.ui_style == 7
+				local dscale = scaling_style and mini_dist_scale_factor(pos, sy) or 1
+				if scaling_style then
+					-- Offsets describe the billboard plane in reference units. Keep them
+					-- attached even when the near-camera size limit caps the graphics.
+					off_x, off_y = off_x * dscale * UI_KX, off_y * dscale
+				end
 				-- Distance-to-target readout (tier system's distance feature). LIVE (recomputed
 				-- each frame), appended to the name line so it needs no extra widget; rounded to
 				-- whole metres so the card's text-width cache only rebusts once per metre walked.
@@ -5259,17 +5305,8 @@ local function render(tg)
 				a.hx, a.hy, a.header, a.name = sx + off_x, sy + off_y, e.header, nm
 				a.a = math.floor(255 * phase_alpha + 0.5)
 				a.col, a.icon, a.scanning = e.col, e.icon, scanning
-				-- Minimal (dot, style 2, opt-in) and Simple 2 (style 4, always) scale with
-				-- distance so a far target's marker isn't oversized; other styles keep the
-				-- flat card_scale.
-				if (C.ui_style == 2 and C.mini_dist_scale) or C.ui_style == 4 or C.ui_style == 5 then
-					a.scale = C.card_scale * mini_dist_scale_factor(dist)
-					-- Pull the marker DOWN toward the head as the target gets far. Its size is
-					-- floored to stay visible while the head keeps shrinking, so without this
-					-- the floored marker floats high over the now-tiny head. Close range (raw
-					-- >= ~0.85, under ~24 m) is untouched.
-					local raw = 20 / math.max(dist, 1)
-					a.hy = a.hy + math.min(16, math.max(0, 0.85 - raw) * 20)
+				if scaling_style then
+					a.scale = C.card_scale * math.min(dscale, MARKER.max_scale)
 				else
 					a.scale = C.card_scale
 				end

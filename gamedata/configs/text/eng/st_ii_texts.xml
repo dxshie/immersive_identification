@@ -213,6 +213,11 @@
 	<string id="ui_mcm_ii_ui_offset_x_desc"><text>Horizontal nudge for the on-screen UI elements (card / dot / box), in virtual pixels. Negative = left.</text></string>
 	<string id="ui_mcm_ii_ui_offset_y"><text>UI offset Y (px)</text></string>
 	<string id="ui_mcm_ii_ui_offset_y_desc"><text>Vertical nudge for the on-screen UI elements (card / dot / box), in virtual pixels. Negative = up.</text></string>
+	<string id="ui_mcm_ii_anchor_basis"><text>Anchor position</text></string>
+	<string id="ui_mcm_ii_anchor_basis_desc"><text>Where on the target the tag / marker is drawn: Head (default), Torso, or Feet. Applies to the card and all dot styles (and the in-scope marker); the Bodycam box keeps its own Head/Body setting. Monsters without a skeleton fall back to the head anchor.</text></string>
+	<string id="ii_uistyle_general_anchor_basis_lst_head"><text>Head</text></string>
+	<string id="ii_uistyle_general_anchor_basis_lst_torso"><text>Torso</text></string>
+	<string id="ii_uistyle_general_anchor_basis_lst_feet"><text>Feet</text></string>
 
 	<string id="ui_mcm_ii_binoc_title"><text>Binoculars</text></string>
 	<string id="ui_mcm_ii_dist_penalty_title"><text>Distance Penalty</text></string>
@@ -296,6 +301,7 @@
 	<string id="ii_uistyle_general_ui_style_lst_simple2"><text>Simple 2</text></string>
 	<string id="ii_uistyle_general_ui_style_lst_simple"><text>Simple</text></string>
 	<string id="ii_uistyle_general_ui_style_lst_crooks"><text>Crooks</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_minimal2"><text>Minimal 2</text></string>
 	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_left"><text>Bottom left</text></string>
 	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_middle"><text>Bottom middle</text></string>
 	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_right"><text>Bottom right</text></string>

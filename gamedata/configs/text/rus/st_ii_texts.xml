@@ -213,6 +213,11 @@
 	<string id="ui_mcm_ii_ui_offset_x_desc"><text>Горизонтальное смещение экранных элементов интерфейса (карточка, точка, рамка) в виртуальных пикселях. Отрицательное значение = влево.</text></string>
 	<string id="ui_mcm_ii_ui_offset_y"><text>Смещение интерфейса по вертикали (пикс.)</text></string>
 	<string id="ui_mcm_ii_ui_offset_y_desc"><text>Вертикальное смещение экранных элементов интерфейса (карточка, точка, рамка) в виртуальных пикселях. Отрицательное значение = вверх.</text></string>
+	<string id="ui_mcm_ii_anchor_basis"><text>Точка привязки</text></string>
+	<string id="ui_mcm_ii_anchor_basis_desc"><text>Где на цели рисуется метка/маркер: голова (по умолчанию), торс или ноги. Применяется к карточке и всем стилям-точкам (а также к маркеру в прицеле); у рамки «Нагрудная камера» своя настройка «голова/тело». Существа без скелета откатываются к привязке по голове.</text></string>
+	<string id="ii_uistyle_general_anchor_basis_lst_head"><text>Голова</text></string>
+	<string id="ii_uistyle_general_anchor_basis_lst_torso"><text>Торс</text></string>
+	<string id="ii_uistyle_general_anchor_basis_lst_feet"><text>Ноги</text></string>
 
 	<string id="ui_mcm_ii_binoc_title"><text>Бинокль</text></string>
 	<string id="ui_mcm_ii_dist_penalty_title"><text>Штраф за расстояние</text></string>
@@ -295,6 +300,7 @@
 	<string id="ii_uistyle_general_ui_style_lst_simple2"><text>Простой 2</text></string>
 	<string id="ii_uistyle_general_ui_style_lst_simple"><text>Простой</text></string>
 	<string id="ii_uistyle_general_ui_style_lst_crooks"><text>Бандиты</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_minimal2"><text>Минимальный 2</text></string>
 	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_left"><text>Снизу слева</text></string>
 	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_middle"><text>Снизу по центру</text></string>
 	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_right"><text>Снизу справа</text></string>

@@ -16,6 +16,7 @@
 ---@field DEFAULTS table config defaults, keyed by MCM option id
 ---@field MODIFIER_LIST { dik: string?, alt_dik: string?, label: string }[]
 ---@field UI_STYLE_LIST { label: string }[]
+---@field ANCHOR_BASIS_LIST { label: string }[]
 ---@field CROOKS_POS_LIST { label: string }[]
 ---@field REDACT_STYLE_LIST { label: string }[]
 ---@field REDACT_AREA_LIST { label: string }[]

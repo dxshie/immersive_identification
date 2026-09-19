@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Fixed distance scaling for **Minimal**, **Minimal 2**, **Simple**, and **Simple 2**
+  marker graphics: sizes now follow camera depth and zoom, continue shrinking beyond
+  50 metres, and retain fractional pixels. Removed the downward distance nudge and
+  made configured offsets follow the same projection. A near-camera size cap remains.
+  Simple's name no longer shifts its graphical marker away from the entity; native
+  text sizes are unchanged. Minimal still honours its distance-scaling toggle.
+- New **"Anchor position"** setting (UI Style → General): choose where the tag / marker is drawn on
+  the target — **Head** (default), **Torso**, or **Feet**. Applies to the card and every dot style
+  (and the in-scope scope marker); the Bodycam box keeps its own Head/Body setting.
+- New **"Minimal 2"** UI style: the most stripped-down marker — a single bare **dot with no glow**,
+  coloured purely by **relationship** (red enemy / green friend / tan neutral). No sign, no text.
 - **Reverted the depth-aware Bodycam text** rendering — the name / faction / weapon lines now
   always draw as flat CUIStatic text (like the box already did), instead of the engine
   glyph-emitter overlay that occluded them behind walls / the viewmodel. (Mod side; the matching
