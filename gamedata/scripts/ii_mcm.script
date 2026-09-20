@@ -38,13 +38,6 @@ function on_mcm_load()
 		end
 	end
 
-	local redact_style_content = {}
-	if ii_identify and ii_identify.REDACT_STYLE_LIST then
-		for idx, e in ipairs(ii_identify.REDACT_STYLE_LIST) do
-			redact_style_content[#redact_style_content + 1] = { idx, e.label }
-		end
-	end
-
 	local redact_area_content = {}
 	if ii_identify and ii_identify.REDACT_AREA_LIST then
 		for idx, e in ipairs(ii_identify.REDACT_AREA_LIST) do
@@ -240,16 +233,7 @@ function on_mcm_load()
 			page("pip", {
 				opt_title("ui_mcm_ii_pip_title"),
 				opt_check("pip_markers"),
-				opt_check("pip_redact"),
 				opt_check("pip_hide_main"),
-			}),
-			page("faceredact", {
-				opt_title("ui_mcm_ii_faceredact_title"),
-				opt_check("redact_face"),
-				opt_list("redact_face_style", redact_style_content),
-				opt_track("redact_face_padding", 0, 1, 0.05, 2),
-				opt_track("redact_range", 10, 300, 10),
-				opt_track("redact_strength", 0.1, 1, 0.05, 2),
 			}),
 			page("scantime", {
 				opt_title("ui_mcm_ii_dist_penalty_title"),

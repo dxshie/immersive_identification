@@ -18,7 +18,6 @@
 ---@field UI_STYLE_LIST { label: string }[]
 ---@field ANCHOR_BASIS_LIST { label: string }[]
 ---@field CROOKS_POS_LIST { label: string }[]
----@field REDACT_STYLE_LIST { label: string }[]
 ---@field REDACT_AREA_LIST { label: string }[]
 ---@field BOX_COLOR_SOURCE_LIST { label: string }[]
 ---@field COLOR_DEFS { id: string, group: string, tbl: number[], def: number[] }[] configurable colours (MCM Colors section)

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Face redaction moved out of this mod.** The face-censoring post-process was never
+  part of identification -- no aiming, no keypress, its own range and its own sweep --
+  and its engine half already shipped in the **xray-monolith-bodycam** repo, so the
+  Lua driver, MCM page and strings now live there too
+  (`gamedata/scripts/bodycam_face_redaction.script`, settings under a new **Face
+  Redaction** MCM page). The two are independent: each works with the other absent.
+  Removed here: the **Face Redaction** page and every `redact_*` option, the
+  **Redaction in scope** toggle on the PiP page, their preset entries, and the now-unused
+  `bodycam_redaction.ps` shader. **If you used face redaction, enable it again in the
+  new page** -- the old settings do not carry over.
+
 - The **Crooks** preset now actually turns on **instant identify** and clears the
   per-mode instant exclusions (and sets scan time to 0), so hipfire, ADS, and binocular auto-identification
   all reveal immediately. It also turns on **Only show overlay while aimed**.
@@ -11,6 +22,9 @@
   without aiming. It no longer depends on **Identify all in assist radius** (which only
   governs the hipfire / ADS / binocular auto-triggers), and it skips targets behind the
   camera so they can't fill the tag slots.
+- The **Debug draw** FOV ring is now a real circle -- one anti-aliased `ii_ring`
+  outline stretched to `fov_radius` -- instead of 32 separate dots, so it reads cleanly
+  at any radius and leaves the whole dot pool for target bones.
 - Fixed a runtime error (`No such operator __eq defined in class game_object`) in the
   per-frame object cache.
 - Split configuration, frame caching, geometric visibility, tracking, and widget

@@ -10,7 +10,6 @@
 	<string id="ui_mcm_menu_binoc"><text>Binoculars</text></string>
 	<string id="ui_mcm_menu_ads"><text>Aim Down Sight</text></string>
 	<string id="ui_mcm_menu_pip"><text>PiP Scope</text></string>
-	<string id="ui_mcm_menu_faceredact"><text>Face Redaction</text></string>
 	<string id="ui_mcm_menu_scantime"><text>Scan Time</text></string>
 	<string id="ui_mcm_menu_debug"><text>Debug</text></string>
 	<string id="ui_mcm_menu_wdcompat"><text>Wearable Devices</text></string>
@@ -80,19 +79,6 @@
 	<string id="ui_mcm_ii_hipfire_max_dist"><text>Max identification distance (m)</text></string>
 	<string id="ui_mcm_ii_hipfire_max_dist_desc"><text>Hard cutoff on the effective identify range while hip-firing (not aiming down sight, not through binoculars). Caps the base identification distance after any scaling. 0 = no cap.</text></string>
 
-	<string id="ui_mcm_ii_faceredact_title"><text>Face Redaction</text></string>
-	<string id="ui_mcm_ii_redact_face"><text>Redact faces</text></string>
-	<string id="ui_mcm_ii_redact_face_desc"><text>Draw a distortion over just the FACE of every humanoid in range -- ALIVE or dead. Independent of identification -- no need to aim at or identify anyone. The box sits over the front of the head (the face). Requires the custom bodycam engine build; inert without it.</text></string>
-	<string id="ui_mcm_ii_redact_face_style"><text>Redaction style</text></string>
-	<string id="ui_mcm_ii_redact_face_style_desc"><text>How a face is redacted: a pixelated (mosaic) censor, or a solid black box.</text></string>
-	<string id="ii_faceredact_redact_face_style_lst_pixelate"><text>Pixelated</text></string>
-	<string id="ii_faceredact_redact_face_style_lst_black"><text>Black Box</text></string>
-	<string id="ui_mcm_ii_redact_face_padding"><text>Face redaction padding</text></string>
-	<string id="ui_mcm_ii_redact_face_padding_desc"><text>Extra margin around the face box, as a fraction of its size (0 = tight on the face, 0.15 = 15% larger each side).</text></string>
-	<string id="ui_mcm_ii_redact_range"><text>Redaction range (m)</text></string>
-	<string id="ui_mcm_ii_redact_range_desc"><text>How far face redaction reaches. Independent of the identify Max range -- redaction is passive, so it can reach further than you can aim-identify. A distant face still stops once it's under ~1px on screen.</text></string>
-	<string id="ui_mcm_ii_redact_strength"><text>Redaction strength</text></string>
-	<string id="ui_mcm_ii_redact_strength_desc"><text>Master intensity of the redaction effect.</text></string>
 
 	<string id="ui_mcm_ii_color_by_relation"><text>Colour by relation</text></string>
 	<string id="ui_mcm_ii_color_by_relation_desc"><text>Tint the tag by your relation to the target: red enemy, green friend, tan neutral. In Minimal style this also toggles the relation sign (-/+/o).</text></string>
@@ -188,17 +174,15 @@
 	<string id="ui_mcm_ii_ads_zoom_scaling"><text>Scale range by scope magnification</text></string>
 	<string id="ui_mcm_ii_ads_zoom_scaling_desc"><text>Multiply the ADS range by the scope's magnification (x2, x4, ...), so higher-power optics reach further. Works with PiP scopes and, on engines without PiP, from the aim FOV. Iron sights stay near the x1 base.</text></string>
 	<string id="ui_mcm_ii_ads_hide_main"><text>Hide main-view UI while aiming</text></string>
-	<string id="ui_mcm_ii_ads_hide_main_desc"><text>While aiming down sight, suppress all main-view drawing (identification tags and main-view redaction) for a clean sight picture. In-scope markers/redaction (if any) still draw.</text></string>
+	<string id="ui_mcm_ii_ads_hide_main_desc"><text>While aiming down sight, suppress all main-view identification tags for a clean sight picture. In-scope markers (if any) still draw.</text></string>
 	<string id="ui_mcm_ii_ads_max_dist"><text>Max identification distance (m)</text></string>
 	<string id="ui_mcm_ii_ads_max_dist_desc"><text>Hard cutoff on the effective identify range while aiming down sight. Caps the base identification distance after magnification/boost scaling. 0 = no cap.</text></string>
 
 	<string id="ui_mcm_ii_pip_title"><text>PiP Scope (in-scope UI)</text></string>
 	<string id="ui_mcm_ii_pip_markers"><text>Identification markers in scope</text></string>
 	<string id="ui_mcm_ii_pip_markers_desc"><text>Draw identification markers inside a Picture-in-Picture scope's lens. Needs a PiP-capable engine; when off, the mod behaves as if there were no PiP support (normal HUD, no in-scope markers).</text></string>
-	<string id="ui_mcm_ii_pip_redact"><text>Redaction in scope</text></string>
-	<string id="ui_mcm_ii_pip_redact_desc"><text>Draw the dead-body redaction effect inside a PiP scope's lens too. Independent of the markers toggle; the main-view redaction is unaffected either way.</text></string>
 	<string id="ui_mcm_ii_pip_hide_main"><text>Hide main-view UI when scope is up</text></string>
-	<string id="ui_mcm_ii_pip_hide_main_desc"><text>While a PiP scope is rendering, suppress all main-view drawing (identification tags and main-view redaction), leaving only the in-scope UI.</text></string>
+	<string id="ui_mcm_ii_pip_hide_main_desc"><text>While a PiP scope is rendering, suppress all main-view identification tags, leaving only the in-scope UI.</text></string>
 
 	<string id="ui_mcm_ii_distance_scaling_title"><text>Card Size</text></string>
 
@@ -285,7 +269,7 @@
 	<string id="ui_mcm_ii_debug_draw"><text>Debug draw</text></string>
 	<string id="ui_mcm_ii_debug_draw_desc"><text>On-screen visualiser for the FOV target-assist: a RED dot at the current aim point, a YELLOW ring showing the assist radius (fov_radius, with its value as text), and dots on the bones of every entity whose body falls inside the ring -- GREEN if within identify range, RED if the target is beyond max range -- each labelled with its distance in metres. Also shows the current scope magnification and the effective max range (base widened by the binocular/ADS boost). For tuning fov_radius / max range / diagnosing target acquisition. Leave off normally.</text></string>
 	<string id="ui_mcm_ii_debug_sim_stock"><text>Simulate stock engine (ignore custom bindings)</text></string>
-	<string id="ui_mcm_ii_debug_sim_stock_desc"><text>TESTING: makes the mod behave as if the custom engine bindings (bodycam free-aim / redaction / in-scope markers and the SVP/PiP magnification) were not compiled in, so it runs its stock-engine fallbacks. Lets you test on a stock exe without copying the custom one. Does not affect stock bindings (weapon trace, raycast). Leave off for normal play.</text></string>
+	<string id="ui_mcm_ii_debug_sim_stock_desc"><text>TESTING: makes the mod behave as if the custom engine bindings (bodycam free-aim / in-scope markers and the SVP/PiP magnification) were not compiled in, so it runs its stock-engine fallbacks. Lets you test on a stock exe without copying the custom one. Does not affect stock bindings (weapon trace, raycast). Leave off for normal play.</text></string>
 
 	<!-- List-content ids: MCM resolves each modifier_index dropdown entry as
 	     "<page>_<option>_lst_" + the bare label from ii_identify.MODIFIER_LIST,

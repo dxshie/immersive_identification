@@ -9,8 +9,10 @@ local MAX_TAGS = 12 -- most identifications tracked/drawn at once (raised from 5
 -- so the auto-identify option, which reveals every visible
 -- target at once, isn't constantly evicting the oldest tag)
 
-local DBG_DOTS = 96 -- debug-draw dot pool (FOV ring segments + in-ring entity bones)
-local DBG_RING_SEG = 32 -- dots forming the FOV ring outline
+local DBG_DOTS = 96 -- debug-draw dot pool (bones of the entities inside the FOV ring)
+-- FOV ring texture (ii_ring): its stroke centreline sits at 120/256 of the image
+-- width, so a widget sized 2*radius*span puts that centreline exactly on fov_radius.
+local DBG_RING = { span = 128 / 120 }
 local DBG_TEXTS = 16 -- per-candidate distance labels
 local DBG_INFO = 20 -- bottom-right info panel lines (perf + identify trace + aim/LOS state + FOV list)
 
@@ -93,7 +95,6 @@ MODIFIER_LIST = ii_config.MODIFIER_LIST
 UI_STYLE_LIST = ii_config.UI_STYLE_LIST
 ANCHOR_BASIS_LIST = ii_config.ANCHOR_BASIS_LIST
 CROOKS_POS_LIST = ii_config.CROOKS_POS_LIST
-REDACT_STYLE_LIST = ii_config.REDACT_STYLE_LIST
 REDACT_AREA_LIST = ii_config.REDACT_AREA_LIST
 BOX_COLOR_SOURCE_LIST = ii_config.BOX_COLOR_SOURCE_LIST
 
@@ -677,9 +678,8 @@ local function project_world(pos)
 end
 
 -- View-space depth (metres along the view axis) of a world point: the projection
--- of (pos - cam_pos) onto the camera forward. Matches the engine's s_position.z,
--- so the redaction shader can skip anything nearer than this (the viewmodel /
--- foreground) -- see redaction_submit + bodycam_redaction.ps. 0 (no test) if unavailable.
+-- of (pos - cam_pos) onto the camera forward. Matches the engine's s_position.z, so
+-- a depth-aware engine pass can reject anything nearer. 0 (no test) if unavailable.
 local function view_depth(pos)
 	local dev = _frame:camera()
 	local cp = dev and dev.cam_pos
@@ -775,90 +775,6 @@ local function screen_box(center, hw_m, hh_m)
 	end
 	return (minx + maxx) * 0.5, (miny + maxy) * 0.5, hw, hh, view_depth(center)
 end
-
--- Engine redaction post-process binding: distorts the real scene inside a LIST of
--- screen-space rectangles (one per visible dead body's head), added by the
--- custom bodycam exe (bodycam.redaction_begin/add/commit). Same guarded existence
--- pattern as the other optional bodycam bindings -- fully inert on a stock exe, so the box
--- still draws, just without distortion. Rects are NORMALISED [0,1] screen space
--- (top-left origin); the engine passes them straight to the shader as box UVs.
--- Our box extents are in world2ui's fixed 1024x768 virtual space, which maps
--- across the whole screen, so dividing by 1024/768 gives [0,1].
-local REDACTION_MAX = 16 -- must match BODYCAM_REDACTION_MAX in the engine + shader
-
-local function redaction_binding()
-	local bc = ext_bodycam()
-	if bc and bc.redaction_begin and bc.redaction_add and bc.redaction_commit then
-		return bc
-	end
-	return nil
-end
-
--- Submit a list of head boxes (each {cx,cy,hw,hh,depth} in 1024x768 virtual
--- space + metres) as one atomic frame. intensity 0 (or an empty list) clears the
--- effect. depth is the box's view-space depth; the engine skips pixels nearer
--- than it (the viewmodel / foreground) so the effect never covers the gun/hands.
--- main_off: suppress the MAIN-pass redaction (but keep the in-scope pass) by
--- submitting each box's main-camera rect off-screen -- the main redaction shader
--- finds no pixels in a rect outside [0,1], while the engine still reprojects the
--- WORLD box for the scope pass. Used by pip_hide_main / ads_hide_main.
-local function redaction_submit(boxes, n, intensity, main_off, style)
-	local bc = redaction_binding()
-	if not bc then
-		return
-	end
-	-- Redaction style (pixelate/black) -> 0-based engine mode. `style` is the face
-	-- style from feed_redaction; guarded so an older exe without this binding just
-	-- keeps mode 0 (pixelate).
-	if bc.redaction_set_mode then
-		pcall(bc.redaction_set_mode, ((style or C.redact_face_style or 1) - 1))
-	end
-	-- pip_redact (MCM) gates the in-scope redaction: when off, zero the world
-	-- extents so the engine's SVP pass skips it (main-pass redaction still uses
-	-- the screen rect above, unaffected).
-	local in_scope = C.pip_redact ~= false
-	pcall(bc.redaction_begin)
-	for i = 1, n do
-		local b = boxes[i]
-		-- Main-camera normalised rect + view depth (main pass), then the box's
-		-- WORLD centre + world half-extents (metres) which the engine reprojects
-		-- through the scope camera for the in-scope pass. redaction_add ignores the
-		-- world args on an older exe (5-arg binding) -- pcall + arg drop.
-		local mx0, my0, mx1, my1
-		if main_off then
-			mx0, my0, mx1, my1 = 2.0, 2.0, 2.001, 2.001 -- off-screen: no main-pass draw
-		else
-			mx0, my0 = (b.cx - b.hw) / 1024, (b.cy - b.hh) / 768
-			mx1, my1 = (b.cx + b.hw) / 1024, (b.cy + b.hh) / 768
-		end
-		pcall(
-			bc.redaction_add,
-			mx0,
-			my0,
-			mx1,
-			my1,
-			b.depth or 0,
-			in_scope and (b.wcx or 0) or 0,
-			in_scope and (b.wcy or 0) or 0,
-			in_scope and (b.wcz or 0) or 0,
-			in_scope and (b.whw or 0) or 0,
-			in_scope and (b.whh or 0) or 0
-		)
-	end
-	pcall(bc.redaction_commit, (n > 0) and intensity or 0.0)
-end
-
-local function redaction_clear()
-	local bc = redaction_binding()
-	if bc then
-		pcall(bc.redaction_begin)
-		pcall(bc.redaction_commit, 0.0)
-	end
-end
-
--- Tracks the redaction on/off edge so the debug log only fires on the transition
--- (not every frame) when debug_log is on. See feed_redaction().
-local _redaction_dbg_active = false
 
 -- Free-aim target-assist centre. On a normal engine the weapon points at the screen centre,
 -- so the FOV assist circle is centred on (512,384). On a bodycam / free-aim engine the aim
@@ -2861,7 +2777,7 @@ local draw_shadowed_text = _ui.draw_shadowed_text
 -- Target-assist debug visualiser (MCM "Debug draw"). Draws, in the 1024x768 virtual
 -- UI space that world2ui + fov_radius already live in:
 --   * the current aim point (aim_center) as a RED dot,
---   * the FOV target-assist ring (radius = fov_radius) as a circle of YELLOW dots,
+--   * the FOV target-assist ring (radius = fov_radius) as a YELLOW circle outline,
 --   * dots on every body bone of each NPC/creature whose nearest body point is inside
 --     the ring (a candidate) -- GREEN if within max_dist (would identify), RED if the
 --     target is OUTSIDE max range (rejected for distance),
@@ -2916,10 +2832,19 @@ function IiTags:draw_debug()
 	local max_dist = eff_max or (C.max_dist or 50)
 	local mag = scope_magnification()
 
-	-- FOV ring outline (yellow).
-	for i = 0, DBG_RING_SEG - 1 do
-		local ang = (i / DBG_RING_SEG) * 2 * math.pi
-		dot(cx + math.cos(ang) * radius, cy + math.sin(ang) * radius, 4, 210, 255, 220, 40)
+	-- FOV ring outline (yellow). Raw virtual px on BOTH axes -- no UI_KX: fov_radius is
+	-- Euclidean distance in the 1024x768 virtual space, so the true acceptance region
+	-- really is this screen ellipse on a non-4:3 display, and the ring must show that.
+	if d.ring then
+		local rs = math.floor(2 * radius * DBG_RING.span + 0.5)
+		if rs < 2 then -- fov_radius 0 (the MCM slider allows it): nothing to draw
+			show(d.ring, false)
+		else
+			d.ring:SetWndSize(S(rs, rs))
+			d.ring:SetWndPos(P(math.floor(cx - rs / 2), math.floor(cy - rs / 2)))
+			d.ring:SetTextureColor(GetARGB(210, 255, 220, 40))
+			show(d.ring, true)
+		end
 	end
 
 	-- Bones of every entity inside the ring: GREEN if within max_dist (a real
@@ -3274,27 +3199,12 @@ local STACK_STEP = 58
 -- one-frame ray flicker through a thin obstacle (see render's drop logic).
 local HIDE_GRACE_MS = 150
 
--- --------------------------------------------------------------------------
--- Face redaction feed (multi-rect engine pass). Fully independent of identification:
--- every frame it builds the list of face boxes for the visible humanoids in range
--- (membership refreshed on a throttle in update_redact_membership; boxes recomputed
--- here every frame so they track movement) and submits them in one atomic
--- begin/add/commit. Inert without the custom exe.
--- --------------------------------------------------------------------------
-local face_ids = {} -- cached humanoid-in-range ids (face redaction, alive OR dead)
-local redact_last_tg = 0
--- Membership refresh cadence: iterate_nearest + alive checks (no LOS raycasts), so a
--- newly-in-range face starts redacting promptly. The per-frame feed re-projects the
--- cached set every frame regardless.
-local REDACT_THROTTLE_MS = 150
-local _redaction_boxes = {} -- reused per-frame box list, avoids GC churn
-
 -- Head box (screen bbox, 1024x768 virtual space) as cx,cy,hw,hh, or nil if it
 -- doesn't project this frame. Head bone (lifted to the face centre) first, body
 -- anchor for monsters without a bip01_head.
 -- Returns the screen bbox (cx,cy,hw,hh,depth) PLUS the box's WORLD centre and
 -- world half-extents (metres) -- the engine reprojects the latter through the
--- scope camera for in-scope redaction (see redaction_submit).
+-- scope camera for the in-scope markers (a main-camera rect can't be reused there).
 local function head_box_for(obj)
 	local hc = head_center(obj) or anchor_pos(obj)
 	if not hc then
@@ -3446,137 +3356,6 @@ local function area_box_for(obj, area)
 	return head_box_for(obj)
 end
 
--- Face-only box, for FACE redaction (applies to living entities too, and covers just
--- the face). Tighter than the
--- head box, and nudged FORWARD along the entity's facing so it sits over the face
--- (the front of the head) rather than centred on the skull. Humanoids only --
--- head_center is nil for monsters/rigs without bip01_head, so they're skipped.
-local FACE_HALF_W = 0.12 -- the face is narrower/shorter than the whole head box
-local FACE_HALF_H = 0.15
-local FACE_FWD = 0.08 -- metres to push the box toward the face front, along facing
-local function face_box_for(obj)
-	local hc = head_center(obj)
-	if not hc then
-		return nil
-	end
-	local dir = safe_call(obj.direction, obj)
-	if dir then
-		hc = _v.face_c:set(hc.x + dir.x * FACE_FWD, hc.y + dir.y * FACE_FWD, hc.z + dir.z * FACE_FWD)
-	end
-	local cx, cy, hw, hh, depth = screen_box(hc, FACE_HALF_W, FACE_HALF_H)
-	if not cx then
-		return nil
-	end
-	-- NEGATE the depth to flag this as a FACE box: the redaction shader then uses a
-	-- tight, front-biased depth band (only the face front + sides, not the back of
-	-- the head). The engine passes the value through untouched, so no rebuild; the
-	-- world data below stays positive (the in-scope SVP pass reprojects it normally).
-	return cx, cy, hw, hh, -(depth or 0), hc.x, hc.y, hc.z, FACE_HALF_W, FACE_HALF_H
-end
-
--- Throttled: rebuild the set of dead NPCs/creatures in range. NO LOS check here
--- on purpose: the redaction shader is depth-aware (it rejects any pixel nearer
--- than the corpse, so a body behind a wall simply shows no redacted pixels), so
--- gating membership on db.actor:see was both redundant AND the cause of a pop-in
--- delay -- see() is smoothed/cached with a grace window, so a body you turn to
--- look at took a beat to start redacting. Dropping it makes it appear the instant
--- the box is on screen, and per-pixel depth occlusion is more accurate than a
--- whole-corpse LOS gate. Off-screen corpses cost nothing (their box won't
--- project). The per-frame feed re-projects each head from this membership.
--- Throttled sweep: face_ids = humanoids in range, alive or dead (face redaction).
-local function update_redact_membership(tg)
-	if not C.redact_face then
-		if #face_ids > 0 then
-			face_ids = {}
-		end
-		return
-	end
-	if tg - redact_last_tg < REDACT_THROTTLE_MS then
-		return
-	end
-	redact_last_tg = tg
-	if not db.actor or not level.iterate_nearest then
-		face_ids = {}
-		return
-	end
-	local apos = _frame:position(db.actor)
-	local actor_id = db.actor:id()
-	local fids, fn = {}, 0
-	-- Redaction has its OWN range, decoupled from the identification max_dist:
-	-- redaction is passive (no aiming), so it should reach as far as a face is
-	-- actually visible. (A distant face still stops naturally once its box projects
-	-- below ~1px, see screen_box.)
-	local redact_range = C.redact_range or C.max_dist or 50
-	pcall(level.iterate_nearest, apos, redact_range, function(obj)
-		-- Face redaction: humanoids only (they have a face), alive or dead.
-		if obj and obj:id() ~= actor_id and fn < REDACTION_MAX and safe_call(IsStalker, obj) then
-			fn = fn + 1
-			fids[fn] = obj:id()
-		end
-		return false -- keep scanning the whole set within range
-	end)
-	face_ids = fids
-end
-
--- box_fn(obj) -> the screen box + world data (face_box_for); padding is the loosen
--- fraction.
-local function add_redaction_box(boxes, n, obj, box_fn, padding)
-	local cx, cy, hw, hh, depth, wcx, wcy, wcz, whw, whh = box_fn(obj)
-	if not cx then
-		return n
-	end
-	-- Loosen the redacted region off the model (a fraction of its size, so it stays
-	-- proportional at any distance). Applied to both the main-screen rect and the
-	-- world half-extents.
-	local rp = 1 + (padding or 0)
-	n = n + 1
-	local b = boxes[n] or {}
-	b.cx, b.cy, b.hw, b.hh, b.depth = cx, cy, hw * rp, hh * rp, depth or 0
-	b.wcx, b.wcy, b.wcz = wcx or 0, wcy or 0, wcz or 0
-	b.whw, b.whh = (whw or 0) * rp, (whh or 0) * rp
-	boxes[n] = b
-	return n
-end
-
--- No longer skips when scoped: the engine runs the redaction in BOTH the main
--- pass (screen rects) and the SVP pass (world boxes reprojected through the scope
--- camera), so the same submission feeds both. The main-pass rects are simply
--- against the wrong picture inside the lens, but the lens only samples the SVP
--- pass's output, so there's no conflict.
-local function feed_redaction(suppress_main)
-	local bc = redaction_binding()
-	if not bc then
-		return
-	end -- stock exe: nothing to feed
-
-	-- Face redaction: humanoid faces (front-only band).
-	local boxes, n = _redaction_boxes, 0
-	if C.redact_face then
-		for _, id in ipairs(face_ids) do
-			if n >= REDACTION_MAX then
-				break
-			end
-			local obj = level.object_by_id(id)
-			if obj then
-				n = add_redaction_box(boxes, n, obj, face_box_for, C.redact_face_padding)
-			end
-		end
-	end
-
-	redaction_submit(boxes, n, C.redact_strength or 1.0, suppress_main, C.redact_face_style)
-
-	if C.debug_log then
-		local on = n > 0
-		if on ~= _redaction_dbg_active then
-			_redaction_dbg_active = on
-			dbg(
-				on and string.format("redact ON: %d face box(es) strength=%.2f", n, C.redact_strength or 1.0)
-					or "redact OFF"
-			)
-		end
-	end
-end
-
 -- Crooks style (ui_style 6): the single static "FACTION | NAME" readout of the LAST
 -- identified stalker, anchored to a screen corner (crooks_pos) and nudged by crooks_x/
 -- crooks_y. Called every frame from render(); self-gates on the style + a valid _last_id.
@@ -3696,16 +3475,14 @@ local function render(tg)
 	-- as if there were no PiP support (normal HUD, no in-scope markers).
 	local pip_scope = PIP_AVAILABLE and not C.debug_sim_stock and is_svp_active()
 	local pip_active = C.pip_markers and pip_scope
-	-- Suppress ALL main-view drawing (HUD tags + main-pass redaction) while aiming
-	-- down sight (ads_hide_main) or while a scope is up (pip_hide_main). The
-	-- in-scope UI is unaffected -- markers still publish and scope redaction still
-	-- draws. (pip_active already hides the main HUD on its own; this also covers
-	-- the ADS-without-PiP and pip_markers-off cases, plus the main-pass redaction.)
+	-- Suppress ALL main-view tag drawing while aiming down sight (ads_hide_main) or
+	-- while a scope is up (pip_hide_main). The in-scope UI is unaffected -- markers
+	-- still publish. (pip_active already hides the main HUD on its own; this also
+	-- covers the ADS-without-PiP and pip_markers-off cases.)
 	local suppress_main = (C.ads_hide_main and is_ads_active()) or (C.pip_hide_main and pip_scope)
 	-- OSD scanner mode: identification still runs (tracked/_last_id populated for the Promin
 	-- ident page), but NO identification UI draws on entities -- neither the main-view tags
-	-- nor the in-scope PiP markers. Face redaction is intentionally NOT gated on this (it's a
-	-- separate censoring feature, driven by feed_redaction/suppress_main, not identity reveal).
+	-- nor the in-scope PiP markers.
 	local osd_only = _tier ~= nil and _tier.active == true and _tier.osd_only == true
 	-- Unconditional on PIP_AVAILABLE (not pip_active): runs every frame the
 	-- engine supports it, scoped or not, so lowering the scope mid-reveal
@@ -3949,11 +3726,6 @@ local function render(tg)
 		svp_ui_markers_commit()
 	end
 
-	-- Drive the engine redaction pass with every in-range face box (custom bodycam exe
-	-- only; inert otherwise). Submits every frame -- an empty set clears the pass -- and
-	-- feeds both the main pass and the SVP pass (see feed_redaction's own comment).
-	feed_redaction(suppress_main)
-
 	if pip_active or suppress_main or osd_only then
 		TAGS:hide_crooks()
 		for i = 1, MAX_TAGS do
@@ -3988,8 +3760,8 @@ local function render(tg)
 	TAGS:draw_crooks()
 end
 
--- Tear down every UI element the mod has drawn: hide all tag slots, drop the
--- active reveals, forget cached corpses, and clear the engine redaction pass.
+-- Tear down every UI element the mod has drawn: hide all tag slots and drop the
+-- active reveals.
 local function teardown_ui()
 	if TAGS then
 		for i = 1, MAX_TAGS do
@@ -3999,8 +3771,6 @@ local function teardown_ui()
 		TAGS:hide_crooks()
 	end
 	_tracks:clear()
-	face_ids = {}
-	redaction_clear()
 end
 
 -- When the ADS range boost ends (you zoom out / lower the sight), the effective
@@ -4062,7 +3832,7 @@ local function actor_on_update()
 		_tier = nil
 	end
 
-	-- Actor death: clear everything we drew so no tag/box/redaction lingers on
+	-- Actor death: clear everything we drew so no tag or box lingers on
 	-- the death screen. Polled here (idempotent); also fires if the actor object
 	-- is momentarily absent.
 	if not db.actor or not safe_call(db.actor.alive, db.actor) then
@@ -4080,7 +3850,6 @@ local function actor_on_update()
 			TAGS:hide_crooks()
 		end
 		reset_steady()
-		redaction_clear()
 		_frame:finish()
 		return
 	end
@@ -4092,7 +3861,6 @@ local function actor_on_update()
 	update_binocular_scan(tg)
 	update_auto_identify(tg)
 	update_ads_range_cull()
-	update_redact_membership(tg)
 	update_loot_xp()
 	render(tg)
 	_frame:finish()

@@ -8,7 +8,7 @@
 ;
 ; NOTE: a path is ii/<page>/<opt>, or ii/uistyle/<sub>/<opt> for the nested UI Style
 ; sub-pages (general / bodycam / crooks). Pages: general, uistyle/general, uistyle/bodycam,
-; uistyle/crooks, targeting, hipfire, binoc, ads, pip, faceredact, scantime, debug, colors.
+; uistyle/crooks, targeting, hipfire, binoc, ads, pip, scantime, debug, colors.
 ; Keep in sync with the page an option lives on in ii_mcm.script (+ MCM_PAGES in
 ; ii_identify.script), or the preset writes a dead path and silently does nothing.
 
@@ -86,14 +86,7 @@ ii/ads/instant_exclude_ads    = false
 ii/ads/ads_max_dist           = 0
 
 ii/pip/pip_markers            = true
-ii/pip/pip_redact             = true
 ii/pip/pip_hide_main          = false
-
-ii/faceredact/redact_face            = false
-ii/faceredact/redact_face_style      = 1
-ii/faceredact/redact_face_padding    = 0.15
-ii/faceredact/redact_range           = 100
-ii/faceredact/redact_strength        = 1.0
 
 ii/scantime/dist_penalty           = true
 ii/scantime/dist_penalty_max       = 5.0
@@ -145,13 +138,11 @@ ii/general/instant_identify   = false
 ii/general/scan_time          = 0.35
 ii/general/hold_time          = 4.0
 ii/targeting/auto_identify    = false
-ii/faceredact/redact_face     = false
 
 [ii_minimal]
 ii/uistyle/general/ui_style           = 2
 ii/general/instant_identify   = false
 ii/targeting/auto_identify    = false
-ii/faceredact/redact_face     = false
 
 [ii_bodycam]
 ii/uistyle/general/ui_style           = 3
@@ -168,8 +159,6 @@ ii/general/instant_identify   = true
 ii/general/hide_unseen        = true
 ii/targeting/auto_identify    = true
 ii/targeting/hide_off_aim     = false
-ii/faceredact/redact_face     = true
-ii/faceredact/redact_strength = 1.0
 
 [ii_crooks]
 ii/uistyle/general/ui_style           = 6
@@ -201,4 +190,3 @@ ii/targeting/auto_identify    = false
 ii/scantime/dist_penalty      = true
 ii/scantime/rank_penalty      = true
 ii/scantime/night_penalty     = true
-ii/faceredact/redact_face     = false

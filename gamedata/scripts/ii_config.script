@@ -8,7 +8,7 @@ DEFAULTS = {
 	crooks_pos = 1, -- Crooks style: screen-corner preset, index into CROOKS_POS_LIST (1=BL, 2=BM, 3=BR)
 	crooks_x = 0, -- Crooks style: X offset from the preset anchor (virtual px, + = right)
 	crooks_y = 0, -- Crooks style: Y offset from the preset anchor (virtual px, + = up)
-	box_area = 1, -- bodycam style: index into REDACT_AREA_LIST (1 = head/face box,
+	box_area = 1, -- bodycam style: index into REDACT_AREA_LIST (1 = head box,
 	-- 2 = full-body box) for the outline rectangle
 	box_color_source = 1, -- bodycam box colour: index into BOX_COLOR_SOURCE_LIST
 	-- (1 = faction colour, 2 = relationship colour red/green/grey)
@@ -20,17 +20,6 @@ DEFAULTS = {
 	auto_identify = false, -- continuously identify every visible target in range without a
 	-- keypress (LOS-gated). Off by default; pairs well with the
 	-- bodycam head-box style but works with any style
-	-- Face redaction: an engine post-process drawn over the FACE of every visible
-	-- humanoid in range (alive or dead). Independent of identification -- no need to
-	-- aim at or identify anyone. Needs the custom bodycam exe's multi-rect redaction
-	-- binding; fully inert on a stock exe.
-	redact_range = 100, -- metres: redaction reach, independent of the identify max_dist --
-	-- redaction is passive, so it reaches as far as a face is visible
-	redact_strength = 1.0, -- master intensity 0..1 of the redaction effect
-	redact_face = false, -- FACE redaction master toggle: redact the FACE of humanoids in range,
-	-- ALIVE or dead (only the face, nudged to the face front)
-	redact_face_style = 1, -- face redaction style, index into REDACT_STYLE_LIST (1 = pixelate, 2 = black)
-	redact_face_padding = 0.15, -- face redaction: margin fraction around the face box
 	color_by_relation = true, -- tint the tag by relation to the actor instead of a flat colour
 	show_name = true, -- show the target's name line (all text styles: card + bodycam)
 	show_faction = true, -- show the target's faction line (all text styles: card + bodycam)
@@ -74,12 +63,10 @@ DEFAULTS = {
 	-- it reappears if the target comes back into view within the reveal window
 	pip_markers = true, -- draw identification markers INSIDE a PiP scope (needs a PiP engine); off =
 	-- behave as if there were no PiP support (normal HUD, no in-scope markers)
-	pip_redact = true, -- draw the dead-body redaction INSIDE a PiP scope (independent of pip_markers;
-	-- the main-view redaction is unaffected either way)
-	pip_hide_main = false, -- while a PiP scope is up, suppress ALL main-view drawing (HUD tags +
-	-- main-pass redaction), leaving only the in-scope UI
-	ads_hide_main = false, -- while aiming down sight, suppress ALL main-view drawing (HUD tags +
-	-- main-pass redaction) -- e.g. a clean sight picture; in-scope UI (if any) still draws
+	pip_hide_main = false, -- while a PiP scope is up, suppress ALL main-view tag drawing,
+	-- leaving only the in-scope UI
+	ads_hide_main = false, -- while aiming down sight, suppress ALL main-view tag drawing --
+	-- e.g. a clean sight picture; in-scope UI (if any) still draws
 	binocular_mode = false, -- auto-trigger identify on a steady aim through raised binoculars,
 	-- in addition to (not instead of) the normal key
 	require_binoculars = false, -- the key (and auto-trigger) only work while actively looking
@@ -207,17 +194,9 @@ CROOKS_POS_LIST = {
 	{ label = "bottom_right" },
 }
 
--- Which distortion the redaction draws. Index order IS the engine mode passed to
--- the redaction shader (list index - 1): 0 pixelate, 1 black. (Glitch was removed.)
--- Referenced as ii_identify.REDACT_STYLE_LIST from ii_mcm.script, same cross-file
--- pattern as MODIFIER_LIST / UI_STYLE_LIST.
-REDACT_STYLE_LIST = {
-	{ label = "pixelate" },
-	{ label = "black" },
-}
-
--- Which region of a dead body the redaction covers. Referenced as
--- ii_identify.REDACT_AREA_LIST from ii_mcm.script.
+-- Which region of an entity the bodycam outline box covers (box_area). Referenced
+-- as ii_identify.REDACT_AREA_LIST from ii_mcm.script, same cross-file pattern as
+-- MODIFIER_LIST / UI_STYLE_LIST.
 REDACT_AREA_LIST = {
 	{ label = "head" },
 	{ label = "body" },
@@ -243,7 +222,6 @@ MCM_PAGES = {
 	"binoc",
 	"ads",
 	"pip",
-	"faceredact",
 	"scantime",
 	"debug",
 	"wdcompat",

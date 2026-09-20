@@ -97,10 +97,13 @@ function install(IiTags, context)
 			self:hide_slot(i)
 		end
 	
-		-- Debug-draw pool (MCM "Debug draw"): round dots for the FOV ring + in-ring
-		-- entity bones, one text line for the radius, and a dedicated aim dot created
-		-- LAST so it draws on top. All start hidden; only shown when debug_draw is on.
-		self.dbg = { dots = {}, texts = {}, info = {}, text = nil, aim = nil }
+		-- Debug-draw pool (MCM "Debug draw"): the FOV-radius ring (one stretched circle
+		-- outline, created FIRST so everything else sits on top of it), round dots for
+		-- in-ring entity bones, one text line for the radius, and a dedicated aim dot
+		-- created LAST so it draws on top. All start hidden; shown only when debug_draw is on.
+		self.dbg = { ring = nil, dots = {}, texts = {}, info = {}, text = nil, aim = nil }
+		self.dbg.ring = self.xml:InitStatic("dbg_ring", self)
+		show(self.dbg.ring, false)
 		for i = 1, DBG_DOTS do
 			local d = self.xml:InitStatic("dbg_dot", self)
 			show(d, false)
@@ -209,8 +212,8 @@ function install(IiTags, context)
 		show(s.spinner, false)
 	end
 	
-	-- Hide every debug-draw widget (the FOV-ring/bone dot pool, the radius text, and
-	-- the aim dot). Called when debug_draw is off / on teardown.
+	-- Hide every debug-draw widget (the FOV ring, the bone dot pool, the radius text,
+	-- and the aim dot). Called when debug_draw is off / on teardown.
 	function IiTags:hide_debug()
 		local d = self.dbg
 		if not d then
@@ -239,6 +242,9 @@ function install(IiTags, context)
 		end
 		if d.aim then
 			show(d.aim, false)
+		end
+		if d.ring then
+			show(d.ring, false)
 		end
 	end
 	

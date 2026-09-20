@@ -41,6 +41,13 @@
 	<file name="ui\ii_shadow">
 		<texture id="ii_shadow" x="0" y="0" width="64" height="64" />
 	</file>
+	<!-- Anti-aliased circle OUTLINE (stroke centred at 120/128 of the half-width),
+	     white RGB with the shape in alpha: the Debug-draw FOV target-assist ring,
+	     stretched to the current fov_radius. -->
+	<file name="ui\ii_ring">
+		<texture id="ii_ring" x="0" y="0" width="256" height="256" />
+	</file>
+
 	<!-- Up-pointing solid triangle, shape in the alpha channel (white RGB), tinted at
 	     runtime; used by the Simple 2 style's relationship marker. -->
 	<file name="ui\ii_tri">

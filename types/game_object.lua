@@ -31,13 +31,6 @@ game_object = {}
 ---@return integer
 function game_object:id() end
 
---- Bodycam engine (redaction-stencil): flag this object so the engine tags its
---- g-buffer pixels with the redaction stencil bit, making the redaction post-pass
---- hug the exact silhouette. nil on a stock exe -- callers guard with
---- `obj.set_bodycam_redact`. See docs/engine-redaction-stencil-patch.md.
----@param on boolean
-function game_object:set_bodycam_redact(on) end
-
 --- Exception-safe (SAFE_WRAP): false rather than an error on a dead/invalid
 --- object. script_game_object_script2.cpp:121.
 ---@return boolean
