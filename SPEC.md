@@ -66,10 +66,13 @@ Five visual styles:
   at the projected anchor plus the configured offset, without a distance-based nudge.
 
 Optionally, **Auto-identify** (`auto_identify`, default off) continuously reveals
-every visible target in range without a keypress. The target directly under the crosshair
-identifies **immediately** (a cheap per-frame direct-hit pick), while the rest of the visible
-scene is swept on a ~250 ms throttle (`level.iterate_nearest` → `identify_target`); both require
-LOS. When `hide_off_aim` is on, the sweep is aim-scoped (only targets inside `fov_radius`).
+every target in the player's view and in range, without a keypress or aiming. The target
+directly under the crosshair identifies **immediately** (a cheap per-frame direct-hit pick), while
+the rest of the scene is swept on a ~250 ms throttle (`level.iterate_nearest` → `identify_target`).
+A swept target must be **on screen** (`in_view`: head anchor or feet projects inside the viewport,
+so targets behind the camera never take tag slots) and have LOS. The sweep is independent of
+`fov_identify_all`. When `hide_off_aim` is on, the sweep is aim-scoped (only targets inside
+`fov_radius`).
 Line of sight is always required for it. Works with any style.
 
 Identification difficulty is expressed **entirely as reveal delay** (scan time),
@@ -84,7 +87,12 @@ familiarity only speed up or slow down how long the scan takes.
 ```
 gamedata/
   scripts/
-    ii_identify.script          Core runtime (~4400 lines): logic + UI
+    ii_identify.script          Coordinator: modes, target selection, callbacks
+    ii_config.script            Defaults, menu lists, live configuration loading
+    ii_frame.script             Reusable per-update camera/object/bone/query cache
+    ii_visibility.script        Transparency-aware geometric LOS and ray scratch
+    ii_tracking.script          Admission, stable slots, refresh and reveal phases
+    ii_ui.script                Widget pool, measurement, placement, drawing
     ii_mcm.script               MCM settings-menu definition (~207 lines)
   configs/
     text/eng/st_ii_texts.xml    String table (windows-1251)
@@ -109,6 +117,20 @@ neither edits a host mod's files.
 ---
 
 ## 3. Runtime architecture (`ii_identify.script`)
+
+`ii_identify` remains the public entry point for MCM and compatibility components.
+It re-exports `ii_config`'s defaults and menu lists, owns the callbacks and external
+readouts, and wires the helper modules together with explicit references. Helpers
+register no callbacks and do not depend back on the coordinator.
+
+`ii_frame` starts one cache epoch per `actor_on_update`, ending it on every return
+path. Camera, active-item and aim-mode queries are shared within that update;
+key callbacks outside it read live state. Object records and bone-sample tables
+are pooled, with results invalidated each update. Missing bone IDs are rejected
+before `bone_position` can silently substitute the root bone. Cached vectors are
+read-only; lifted anchors use separate scratch vectors. Body-to-aim distance and
+geometric LOS results are shared by acquisition and rendering within the update.
+LOS is still refreshed every frame; no extra cross-frame visibility delay is added.
 
 ### 3.1 Lifecycle / entry points
 
@@ -147,11 +169,19 @@ neither edits a host mod's files.
 
 ### 3.2 State machine
 
-Central table `tracked`: `[obj_id] = { t0, last_seen_tg, col, fcol, sign, header, name,
+Central table `tracked` (owned by `ii_tracking`): `[obj_id] = { slot, t0, last_seen_tg, col, fcol, sign, header, name,
 icon, rank, rank_col, weap, scan_ms, max_dist, fade_ms, hold_ms }`, capped at
-`MAX_TAGS = 12`. When full, the oldest entry (lowest `t0`) is evicted before insert (in
-`identify_target`). (There is no distance-based fade — the `fade_dist` property was removed; tags
+`MAX_TAGS = 12`. Each entry owns a stable widget slot until removal. Scene sweeps
+refresh existing entries and fill free slots in nearest-first order, without evicting
+active scans when a crowd exceeds capacity. Manual picks and directly aimed targets
+may replace the oldest entry (lowest `t0`, ties resolved by slot order). Capacity and
+continuous-refresh checks precede scan-penalty computation, so an ordinary refresh
+does not repeat rank, weight, foliage, night, or skill work. (There is no distance-based fade — the `fade_dist` property was removed; tags
 stay full-opacity to the range cutoff.)
+
+`hide_unseen` removes a tracked entry after 150 ms of continuous geometric
+occlusion; it does not merely hide the widgets while retaining the reveal timer.
+An identification trigger must acquire the target again after removal.
 
 Each entry runs a **time-based state machine** keyed on
 `elapsed = time_global() - t0`, evaluated every frame in `render()` (3969).
@@ -315,9 +345,8 @@ community, and is within `eff_max_dist`.
 **`fov_identify_all`** (default on) governs the automatic paths' all-vs-nearest choice: the
 hipfire/ADS/binocular dwell sweeps (`sweep_identify_in_fov`, all in the assist ring) run only when
 it's on **and** the relevant `fov_assist*` is on — otherwise they identify the single nearest to
-the aim (`try_identify(true)`). Auto-identify keeps its per-frame direct hit either way, but its
-throttled full-scene sweep is skipped when it's off. The manual keypress always identifies the
-nearest (unaffected).
+the aim (`try_identify(true)`). Auto-identify is **not** affected (it sweeps everything in view
+regardless). The manual keypress always identifies the nearest (unaffected).
 
 ### 3.5b Aim Down Sight (ADS)
 
@@ -397,11 +426,21 @@ state (independent of `pip_markers`), so this also covers `pip_markers`-off.
 
 ### 3.6 UI rendering
 
-`IiTags : CUIScriptWnd` (`__init` 2529), rect 1024×768, parses `ii_tags.xml` via
-`CScriptXmlInit`. `InitControls` (2534) builds `MAX_TAGS` slots of widgets in draw
+`IiTags : CUIScriptWnd`, rect 1024×768, is declared by the coordinator; `ii_ui.install`
+supplies its widget methods. It parses `ii_tags.xml` via `CScriptXmlInit`.
+`InitControls` builds `MAX_TAGS` slots of widgets in draw
 order (shadow → line → plate → accent → icon → text → node/glow → spinner →
 bodycam box edges → Simple 2 circle/triangle/bar), plus the debug dot/text pool.
 
+- **Rendering data flow:** the coordinator fills a reused render record in each
+  tracked entry's stable slot, then calls `draw_slot(slot, record, time)`. Card
+  measurement is cached separately from placement and widget updates. Style/scan
+  transitions reset the slot's widget set; unchanged text and visibility do not
+  repeat native setter calls. Bodycam's missing lines/boxes still hide immediately.
+  Distance-label strings are rebuilt only when the rounded distance changes.
+- **Suppressed views:** PiP-only, hidden-main, OSD-only, and Crooks modes skip
+  unused per-entity HUD layout. Identification phases and external readout snapshots
+  continue, and face redaction retains its independent update path.
 - **World-to-screen:** `anchor_pos(obj)` picks the first of `ANCHOR_BONES`
   (`bip01_head`, `bip01_spine2/1`, `bip01_spine`) within 3m and lifts by
   `ANCHOR_LIFT = 0.12`; monsters fall back to `position().y + 1.3`. `project_world`
@@ -494,9 +533,11 @@ defaults, the modifier dropdown, and the UI-style dropdown are read from
 default is resolved here (not in `DEFAULTS`) because `DIK_keys` isn't populated
 when `ii_identify.script` is first parsed (27-31).
 
-**Presets:** the General leaf page carries a `presets = { "ii_card", "ii_minimal",
-"ii_bodycam", "ii_immersive" }` list, which makes MCM show a preset dropdown (it
-applies across all pages, not just General). Names resolve from `ui_mcm_prst_<id>`
+**Presets:** the General leaf page carries a `presets = { "ii_default", "ii_card",
+"ii_minimal", "ii_bodycam", "ii_immersive", "ii_crooks" }` list, which makes MCM show a
+preset dropdown (it applies across all pages, not just General). `ii_crooks` is the
+Crooks readout with instant identify (and `scan_time = 0` as a fallback) and zero-dwell auto-trigger in all three modes
+(hipfire, ADS, binoculars), with no per-mode instant exclusions. Names resolve from `ui_mcm_prst_<id>`
 strings; **values live in LTX**, not Lua — MCM reads `configs/presets/includes.ltx`
 (which we ship with a wildcard `#include "presets_*.ltx"` so other mods coexist) →
 `presets_ii.ltx`, whose `[<preset_id>]` sections key options by their storage path
@@ -568,13 +609,13 @@ Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `
 | `fov_assist` | check | true | — | master FOV target-assist; off = direct-hit aim only |
 | `freeaim_assist` | check | false | — | bodycam/free-aim: aim from the weapon barrel/first-eye ray |
 | `fov_radius` | track | **35** | 0, 90, 5 | target-assist **screen radius** (virtual px; 0 = off) |
-| `fov_identify_all` | check | true | — | auto-ID reveals ALL targets in the assist radius; off = only the one nearest the aim (manual key always nearest) |
+| `fov_identify_all` | check | true | — | hipfire/ADS/binocular auto-triggers reveal ALL targets in the assist radius; off = only the one nearest the aim (manual key always nearest; Auto-identify unaffected) |
 | `require_los` | check | true | — | require line of sight |
 | `los_block_seethrough` | check | false | — | LOS: treat see-through surfaces (fences/glass/foliage/clip) as opaque — no ID through them |
 | `los_block_foliage` | check | false | — | LOS: block ID through foliage only (best-effort by material name) |
 | `exclude_hostile` | check | false | — | never target an entity actively hostile + engaging you (in combat / pulled aggro) |
 | `hide_off_aim` | check | false | — | only track the aimed target (membership gate: drop on aim-away, re-scan on aim-back) |
-| `auto_identify` | check | false | — | continuously identify visible in-range targets, no keypress (LOS always required) |
+| `auto_identify` | check | false | — | continuously identify every in-view, in-range target, no keypress or aiming (LOS always required) |
 | **Hipfire** | | | | |
 | `hipfire_mode` | check | false | — | **Auto Identification** — dwell auto-identify while hip-firing |
 | `hipfire_hold_time` | track | 1.0 | 0, 3, 0.1, 1 | dwell time before auto-ID (s; 0 = instant) |

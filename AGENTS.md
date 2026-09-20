@@ -20,7 +20,13 @@ add-ons. Start there before changing anything.
 
 ## Layout at a glance
 
-- `gamedata/scripts/ii_identify.script` — core runtime: all logic **and** UI.
+- `gamedata/scripts/ii_identify.script` — coordinator: callbacks, modes, target selection,
+  and the public interface used by MCM and compatibility components.
+- `gamedata/scripts/ii_config.script` — defaults, menu lists, and configuration loading.
+- `gamedata/scripts/ii_frame.script` — per-update caches for engine queries and geometry.
+- `gamedata/scripts/ii_visibility.script` — geometric LOS and reusable ray state.
+- `gamedata/scripts/ii_tracking.script` — admission, stable slots, and reveal lifecycle.
+- `gamedata/scripts/ii_ui.script` — widget creation, measurement, placement, and drawing.
 - `gamedata/scripts/ii_mcm.script` — MCM settings menu (reads defaults/lists from
   `ii_identify.script` as the single source of truth).
 - `gamedata/configs/` — string table (`text/`), UI widget templates (`ui/ii_tags.xml`),

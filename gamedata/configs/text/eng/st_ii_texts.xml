@@ -72,7 +72,7 @@
 	<string id="ui_mcm_ii_box_opacity_desc"><text>Bodycam style: opacity of the outline rectangle (1 = solid, lower = more transparent). The name/faction/weapon text is unaffected.</text></string>
 
 	<string id="ui_mcm_ii_auto_identify"><text>Auto-identify visible targets</text></string>
-	<string id="ui_mcm_ii_auto_identify_desc"><text>Continuously identify every visible target in range without pressing the key. Line of sight is always required. Pairs well with the Bodycam style.</text></string>
+	<string id="ui_mcm_ii_auto_identify_desc"><text>Continuously identify every target in your view and within range, without pressing the key or aiming at them. Line of sight is always required. Pairs well with the Bodycam style. (If Only show overlay while aimed is on, only aimed targets are kept.)</text></string>
 	<string id="ui_mcm_ii_hipfire_mode"><text>Auto Identification</text></string>
 	<string id="ui_mcm_ii_hipfire_mode_desc"><text>Auto-identify while hip-firing (not aiming down sight, not through binoculars) once a target has been held on your aim (or inside the FOV assist range, if that's on) for the hold time below. For players who'd rather not press the key and still identify from the hip. You can track a moving target; aiming at empty air does nothing.</text></string>
 	<string id="ui_mcm_ii_hipfire_hold_time"><text>Hipfire hold time (s)</text></string>
@@ -133,7 +133,7 @@
 	<string id="ui_mcm_ii_fov_radius"><text>Target-assist radius (px)</text></string>
 	<string id="ui_mcm_ii_fov_radius_desc"><text>Aim tolerance for picking a target without a direct hit. Measured as an angle from where you aim, so it works the same whether hip-firing or scoped at any magnification (0 = direct hit only).</text></string>
 	<string id="ui_mcm_ii_fov_identify_all"><text>Identify all in assist radius</text></string>
-	<string id="ui_mcm_ii_fov_identify_all_desc"><text>For automatic identification (Auto-identify and the hipfire / ADS / binocular auto-triggers): reveal EVERY eligible target inside the target-assist radius, so a cluster of stacked stalkers all get identified at once. Turn off to identify only the single target nearest your aim point. (A manual keypress always identifies the nearest one.) On by default.</text></string>
+	<string id="ui_mcm_ii_fov_identify_all_desc"><text>For the hipfire / ADS / binocular auto-triggers: reveal EVERY eligible target inside the target-assist radius, so a cluster of stacked stalkers all get identified at once. Turn off to identify only the single target nearest your aim point. (A manual keypress always identifies the nearest one. Auto-identify visible targets is not affected.) On by default.</text></string>
 
 	<string id="ui_mcm_ii_require_los"><text>Require line of sight</text></string>
 	<string id="ui_mcm_ii_require_los_desc"><text>Only pick targets you can actually see.</text></string>

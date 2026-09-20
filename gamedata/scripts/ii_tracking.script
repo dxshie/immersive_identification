@@ -1,0 +1,98 @@
+local Tracking = {}
+Tracking.__index = Tracking
+
+function new(capacity, reidentify_gap)
+	return setmetatable({ capacity = capacity, gap = reidentify_gap, entries = {}, slots = {}, count = 0 }, Tracking)
+end
+
+function Tracking:remove(id)
+	local entry = self.entries[id]
+	if not entry then
+		return
+	end
+	self.slots[entry.slot] = nil
+	self.entries[id] = nil
+	self.count = self.count - 1
+end
+
+function Tracking:clear()
+	for id in pairs(self.entries) do
+		self:remove(id)
+	end
+end
+
+function Tracking:has_room(id)
+	return self.entries[id] ~= nil or self.count < self.capacity
+end
+
+function Tracking:refresh(id, tg, fade_ms, hold_ms)
+	local entry = self.entries[id]
+	if not entry or tg - (entry.last_seen_tg or entry.t0) >= self.gap then
+		return false
+	end
+	entry.last_seen_tg = tg
+	local scan_ms = entry.scan_ms or 0
+	local revealed = scan_ms + (entry.fade_ms or fade_ms)
+	local hold_end = revealed + (entry.hold_ms or hold_ms)
+	local elapsed = tg - entry.t0
+	if elapsed >= hold_end then
+		entry.t0 = tg - scan_ms
+	elseif elapsed >= revealed then
+		entry.t0 = tg - revealed
+	end
+	return true
+end
+
+function Tracking:claim(id, priority)
+	local entry = self.entries[id]
+	if entry then
+		return entry.slot
+	end
+	if self.count >= self.capacity then
+		if not priority then
+			return nil
+		end
+		local oldest_id, oldest_t
+		for slot = 1, self.capacity do
+			local candidate_id = self.slots[slot]
+			local candidate = candidate_id and self.entries[candidate_id]
+			if candidate and (not oldest_t or candidate.t0 < oldest_t) then
+				oldest_id, oldest_t = candidate_id, candidate.t0
+			end
+		end
+		if oldest_id then
+			self:remove(oldest_id)
+		end
+	end
+	for slot = 1, self.capacity do
+		if not self.slots[slot] then
+			return slot
+		end
+	end
+end
+
+function Tracking:put(id, entry, slot)
+	if not self.entries[id] then
+		self.count = self.count + 1
+	end
+	entry.slot = slot
+	self.entries[id] = entry
+	self.slots[slot] = id
+end
+
+function Tracking:phase(entry, tg, scan_ms, fade_ms, hold_ms)
+	local elapsed = tg - entry.t0
+	if elapsed < scan_ms then
+		return 0, true, scan_ms > 0 and elapsed / scan_ms or 1
+	end
+	if fade_ms > 0 and elapsed < scan_ms + fade_ms then
+		return (elapsed - scan_ms) / fade_ms, false
+	end
+	if elapsed < scan_ms + fade_ms + hold_ms then
+		return 1, false
+	end
+	if fade_ms > 0 then
+		return math.max(0, 1 - (elapsed - scan_ms - fade_ms - hold_ms) / fade_ms), false
+	end
+	return 0, false
+end

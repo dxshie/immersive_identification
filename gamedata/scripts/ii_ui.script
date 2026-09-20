@@ -1,0 +1,999 @@
+function install(IiTags, context)
+	local C, P, S = context.config, context.position, context.size
+	local MAX_TAGS, DBG_DOTS, DBG_TEXTS, DBG_INFO = context.max_tags, context.debug_dots, context.debug_texts, context.debug_info
+	local CROOKS, MARKER = context.crooks, context.marker
+	local COL_NEUTRAL, SIGN_COLOR = context.neutral, context.sign_colors
+	local CARD_OFF_X, CARD_OFF_Y = 60, 34
+	local RANK_FALLBACK = { 150, 150, 150 }
+	local visibility, text = {}, {}
+	local function show(widget, value)
+		if visibility[widget] ~= value then
+			widget:Show(value)
+			visibility[widget] = value
+		end
+	end
+	local function set_text(widget, value)
+		if text[widget] ~= value then
+			widget:SetText(value)
+			text[widget] = value
+		end
+	end
+
+	function IiTags:InitControls()
+		self:SetWndRect(Frect():set(0, 0, 1024, 768))
+		self:SetAutoDelete(true)
+	
+		self.xml = CScriptXmlInit()
+		self.xml:ParseFile("ii_tags.xml")
+	
+		self.slots = {}
+		for i = 1, MAX_TAGS do
+			-- Creation order = draw order (later draws on top): shadow, leader
+			-- line (behind the plate, so the plate's edge draws over its end for
+			-- a flush join), plate, accent bar, icon, then the header/name/rank
+			-- text (parented to `self`, not the plate, so they draw on top of
+			-- it), and finally the glow/node at the body anchor.
+			local shadow = self.xml:InitStatic("tag_shadow", self)
+			local line_sh = self.xml:InitStatic("tag_line_sh", self)
+			local line = self.xml:InitStatic("tag_line", self)
+			local plate = self.xml:InitStatic("tag_plate", self)
+			local accent = self.xml:InitStatic("tag_accent", self)
+			local icon = self.xml:InitStatic("tag_icon", self)
+			local head_sh = self.xml:InitTextWnd("tag_head_sh:text", self)
+			local head = self.xml:InitTextWnd("tag_head:text", self)
+			local name_sh = self.xml:InitTextWnd("tag_name_sh:text", self)
+			local name = self.xml:InitTextWnd("tag_name:text", self)
+			local rank_sh = self.xml:InitTextWnd("tag_rank_sh:text", self)
+			local rank = self.xml:InitTextWnd("tag_rank:text", self)
+			local weap_sh = self.xml:InitTextWnd("tag_weap_sh:text", self)
+			local weap = self.xml:InitTextWnd("tag_weap:text", self)
+			local sign_sh = self.xml:InitTextWnd("tag_sign_sh:text", self)
+			local sign = self.xml:InitTextWnd("tag_sign:text", self)
+			local glow = self.xml:InitStatic("tag_glow", self)
+			local node = self.xml:InitStatic("tag_node", self)
+			local spinner = self.xml:InitStatic("tag_spinner", self)
+			spinner:EnableHeading(true)
+			-- Bodycam-style head-outline edges (created last = drawn on top).
+			local box_top = self.xml:InitStatic("tag_box_top", self)
+			local box_bottom = self.xml:InitStatic("tag_box_bottom", self)
+			local box_left = self.xml:InitStatic("tag_box_left", self)
+			local box_right = self.xml:InitStatic("tag_box_right", self)
+			-- Simple 2 style shapes.
+			local s2_circle = self.xml:InitStatic("tag_s2_circle", self)
+			local s2_tri = self.xml:InitStatic("tag_s2_tri", self)
+			local s2_bar = self.xml:InitStatic("tag_s2_bar", self)
+			self.slots[i] = {
+				shadow = shadow,
+				line_sh = line_sh,
+				line = line,
+				plate = plate,
+				accent = accent,
+				icon = icon,
+				head_sh = head_sh,
+				head = head,
+				name_sh = name_sh,
+				name = name,
+				rank_sh = rank_sh,
+				rank = rank,
+				weap_sh = weap_sh,
+				weap = weap,
+				sign_sh = sign_sh,
+				sign = sign,
+				glow = glow,
+				node = node,
+				spinner = spinner,
+				box_top = box_top,
+				box_bottom = box_bottom,
+				box_left = box_left,
+				box_right = box_right,
+				s2_circle = s2_circle,
+				s2_tri = s2_tri,
+				s2_bar = s2_bar,
+			}
+			-- hidden starts unset (falsy) so this first hide_slot() call actually
+			-- runs the Show(false) calls below, instead of short-circuiting on its
+			-- own "already hidden" guard and leaving all widgets at their XML
+			-- default position (0,0 -- top-left) permanently visible.
+			self:hide_slot(i)
+		end
+	
+		-- Debug-draw pool (MCM "Debug draw"): round dots for the FOV ring + in-ring
+		-- entity bones, one text line for the radius, and a dedicated aim dot created
+		-- LAST so it draws on top. All start hidden; only shown when debug_draw is on.
+		self.dbg = { dots = {}, texts = {}, info = {}, text = nil, aim = nil }
+		for i = 1, DBG_DOTS do
+			local d = self.xml:InitStatic("dbg_dot", self)
+			show(d, false)
+			self.dbg.dots[i] = d
+		end
+		for i = 1, DBG_TEXTS do
+			local t = self.xml:InitTextWnd("dbg_text:text", self)
+			show(t, false)
+			self.dbg.texts[i] = t
+		end
+		self.dbg.text = self.xml:InitTextWnd("dbg_text:text", self)
+		show(self.dbg.text, false)
+		self.dbg.status = self.xml:InitTextWnd("dbg_status:text", self)
+		show(self.dbg.status, false)
+		-- Bottom-right info-panel lines (aim/LOS state + list of targets in the FOV radius).
+		for i = 1, DBG_INFO do
+			local t = self.xml:InitTextWnd("dbg_status:text", self)
+			show(t, false)
+			self.dbg.info[i] = t
+		end
+		self.dbg.aim = self.xml:InitStatic("dbg_dot", self)
+		show(self.dbg.aim, false)
+	
+		-- Crooks style (ui_style 6): one static "[faction logo]  NAME" readout of the LAST
+		-- identified stalker -- the faction EMBLEM (reusing the tag_icon static) + the name (bright,
+		-- with a 1px shadow, reusing the tag_name text template). Created LAST so it draws on top of
+		-- everything. `last` caches the content so the width/texture are refreshed only on change.
+		self.crooks = {
+			icon = self.xml:InitStatic("tag_icon", self),
+			name_sh = self.xml:InitTextWnd("tag_name_sh:text", self),
+			name = self.xml:InitTextWnd("tag_name:text", self),
+			rank_sh = self.xml:InitTextWnd("tag_rank_sh:text", self),
+			rank = self.xml:InitTextWnd("tag_rank:text", self),
+			last = nil,
+		}
+		show(self.crooks.icon, false)
+		show(self.crooks.name, false)
+		show(self.crooks.name_sh, false)
+		show(self.crooks.rank, false)
+		show(self.crooks.rank_sh, false)
+	end
+	
+	-- The plate/accent/icon/text widgets, shared by hide_slot and draw_slot's
+	-- scanning/mini/minimal branches -- glow/node/spinner are deliberately
+	-- excluded since each caller shows or hides those three differently. sign/
+	-- sign_sh are card-style-irrelevant like the rest of this list (hidden
+	-- together with it); the minimal-style branch shows them back explicitly,
+	-- same pattern as mini-mode already does for glow/node below.
+	local CARD_WIDGET_KEYS = {
+		"shadow",
+		"line_sh",
+		"line",
+		"plate",
+		"accent",
+		"icon",
+		"head_sh",
+		"head",
+		"name_sh",
+		"name",
+		"rank_sh",
+		"rank",
+		"weap_sh",
+		"weap",
+		"sign_sh",
+		"sign",
+	}
+	
+	local function hide_card_widgets(s)
+		for _, k in ipairs(CARD_WIDGET_KEYS) do
+			show(s[k], false)
+		end
+	end
+	
+	-- Bodycam box edges: hidden every frame by default (see draw_slot), only shown
+	-- by the bodycam reveal branch, so switching away from bodycam or into a
+	-- scanning/other-style frame leaves no stale edges behind. Kept out of
+	-- CARD_WIDGET_KEYS deliberately -- the card path shows its widgets one-by-one
+	-- and never calls hide_card_widgets, so a shared list wouldn't cover it.
+	local BOX_WIDGET_KEYS = { "box_top", "box_bottom", "box_left", "box_right" }
+	
+	local function hide_box_widgets(s)
+		for _, k in ipairs(BOX_WIDGET_KEYS) do
+			show(s[k], false)
+		end
+	end
+	
+	-- Simple 2 style shapes (circle, triangle, rank bar). Hidden every frame at the top of
+	-- draw_slot; only the simple2 branch re-shows them.
+	local function hide_s2_widgets(s)
+		show(s.s2_circle, false)
+		show(s.s2_tri, false)
+		show(s.s2_bar, false)
+	end
+	
+	function IiTags:hide_slot(i)
+		local s = self.slots[i]
+		if not s or s.hidden then
+			return
+		end
+		s.hidden = true
+		hide_card_widgets(s)
+		hide_box_widgets(s)
+		hide_s2_widgets(s)
+		show(s.glow, false)
+		show(s.node, false)
+		show(s.spinner, false)
+	end
+	
+	-- Hide every debug-draw widget (the FOV-ring/bone dot pool, the radius text, and
+	-- the aim dot). Called when debug_draw is off / on teardown.
+	function IiTags:hide_debug()
+		local d = self.dbg
+		if not d then
+			return
+		end
+		if d._active == false then
+			return
+		end
+		d._active = false
+		for i = 1, DBG_DOTS do
+			show(d.dots[i], false)
+		end
+		for i = 1, DBG_TEXTS do
+			show(d.texts[i], false)
+		end
+		if d.info then
+			for i = 1, DBG_INFO do
+				show(d.info[i], false)
+			end
+		end
+		if d.text then
+			show(d.text, false)
+		end
+		if d.status then
+			show(d.status, false)
+		end
+		if d.aim then
+			show(d.aim, false)
+		end
+	end
+	
+	-- Bodycam style: gap (px) from the box's right edge to the name/weapon text, and
+	-- the vertical step between the name and weapon lines.
+	local BODYCAM_TEXT_PAD = 8
+	local BODYCAM_LINE_H = 19
+	
+	-- Draws an unfilled rectangle outline (four thin strips) centred on (cx,cy)
+	-- with the given screen-space half-width/half-height, in the fixed 1024x768
+	-- virtual space. hw/hh already come from a world2ui projection of the head's
+	-- real-world extents (see screen_box), so they're in the correct virtual units
+	-- and need NO C._ui_kx squeeze -- the engine's virtual->screen stretch maps
+	-- position and size together, landing each edge exactly on the projected point.
+	--
+	-- Thickness is the fixed C.box_thickness (virtual px), not distance-scaled, so
+	-- the outline stays a predictable weight the player sets. The vertical edges'
+	-- WIDTH is pre-divided by C._ui_kx so they render the same on-screen thickness as
+	-- the horizontal edges (a raw px width is stretched differently on the X axis --
+	-- see C._ui_kx). Edges butt at the corners with NO overlap: top/bottom span the
+	-- full width, left/right fill only the gap between them -- so a thick outline
+	-- no longer double-draws (and darkens) at the corners.
+	local function draw_head_box(s, cx, cy, hw, hh, alpha, r, g, b, wx, wy, wz)
+		local t = C.box_thickness or 2
+		if t < 1 then
+			t = 1
+		end
+		local tw = math.max(1, t * C._ui_kx) -- vertical-edge width, aspect-corrected
+		local a = math.floor(alpha * (C.box_opacity or 1))
+		local x0, y0 = cx - hw, cy - hh
+		local w, h = hw * 2, hh * 2
+		local vh = math.max(1, h - 2 * t) -- vertical edges fill between top & bottom
+	
+		-- Flat CUIStatic edges (the depth-aware world-anchored overlay path for the box was
+		-- removed). wx/wy/wz are unused now but kept in the signature for the caller.
+		local col = GetARGB(a, r, g, b)
+		s.box_top:SetWndSize(S(w, t))
+		s.box_top:SetWndPos(P(x0, y0))
+		s.box_top:SetTextureColor(col)
+		show(s.box_top, true)
+	
+		s.box_bottom:SetWndSize(S(w, t))
+		s.box_bottom:SetWndPos(P(x0, y0 + h - t))
+		s.box_bottom:SetTextureColor(col)
+		show(s.box_bottom, true)
+	
+		s.box_left:SetWndSize(S(tw, vh))
+		s.box_left:SetWndPos(P(x0, y0 + t))
+		s.box_left:SetTextureColor(col)
+		show(s.box_left, true)
+	
+		s.box_right:SetWndSize(S(tw, vh))
+		s.box_right:SetWndPos(P(x0 + w - tw, y0 + t))
+		s.box_right:SetTextureColor(col)
+		show(s.box_right, true)
+	end
+	
+	local SPIN_D = 20 -- spinner diameter, px, at scale 1
+	local SPIN_PERIOD_MS = 900 -- one full rotation
+	
+	local function draw_node_glow(s, hx, hy, scale, alpha, r, g, b, world_scaled)
+		local node_scale = world_scaled and scale or math.min(scale, MARKER.card_node_max)
+		local ns = 7 * node_scale
+		local nsx = world_scaled and ns * C._ui_kx or math.max(2, math.floor(ns * C._ui_kx + 0.5))
+		s.node:SetWndSize(S(nsx, ns))
+		if world_scaled then
+			s.node:SetWndPos(P(hx - nsx / 2, hy - ns / 2))
+		else
+			s.node:SetWndPos(P(math.floor(hx - nsx / 2), math.floor(hy - ns / 2)))
+		end
+		s.node:SetTextureColor(GetARGB(alpha, r, g, b))
+		show(s.node, true)
+	
+		local gs = ns * 2.8
+		local gsx = world_scaled and gs * C._ui_kx or math.max(2, math.floor(gs * C._ui_kx + 0.5))
+		s.glow:SetWndSize(S(gsx, gs))
+		if world_scaled then
+			s.glow:SetWndPos(P(hx - gsx / 2, hy - gs / 2))
+		else
+			s.glow:SetWndPos(P(math.floor(hx - gsx / 2), math.floor(hy - gs / 2)))
+		end
+		s.glow:SetTextureColor(GetARGB(math.floor(alpha * 0.55), r, g, b))
+		show(s.glow, true)
+	end
+	
+	-- Positions/tints/shows one text line plus its 1px-offset shadow copy.
+	local function draw_shadowed_text(main, sh, x, y, alpha, r, g, b, shadow_a)
+		sh:SetWndPos(P(x + 1, y + 1))
+		sh:SetTextColor(GetARGB(shadow_a, 0, 0, 0))
+		show(sh, true)
+		main:SetWndPos(P(x, y))
+		main:SetTextColor(GetARGB(alpha, r, g, b))
+		show(main, true)
+	end
+	
+	-- Draw one bodycam text line as flat CUIStatic shadowed text. (The depth-aware engine
+	-- glyph-emitter path was reverted; this is the sole path now.) main_w/sh_w are the widget +
+	-- its shadow copy. wx/wy/wz (the world anchor) are unused now but kept in the signature so the
+	-- callers don't change.
+	local function draw_bodycam_line(main_w, sh_w, str, x, y, alpha, r, g, b, shadow_a, wx, wy, wz)
+		set_text(main_w, str)
+		set_text(sh_w, str)
+		draw_shadowed_text(main_w, sh_w, x, y, alpha, r, g, b, shadow_a)
+	end
+	
+	-- Minimal-style relation sign (-/+/o), centred on the same anchor point as
+	-- the node dot. Text size is fixed, like head/name/rank in the card style --
+	-- this engine only has 3 discrete font sizes (no continuous scaling), so
+	-- only its position tracks hx,hy, not its size.
+	local SIGN_W, SIGN_H = 20, 18
+	
+	local function draw_sign(s, hx, hy, alpha, sign_char)
+		local col = SIGN_COLOR[sign_char] or COL_NEUTRAL
+		set_text(s.sign, sign_char)
+		set_text(s.sign_sh, sign_char)
+		local shadow_a = math.floor(180 * alpha / 255)
+		draw_shadowed_text(
+			s.sign,
+			s.sign_sh,
+			math.floor(hx - SIGN_W / 2),
+			math.floor(hy - SIGN_H / 2),
+			alpha,
+			col[1],
+			col[2],
+			col[3],
+			shadow_a
+		)
+	end
+	
+	-- Render records and widget slots are reused for the lifetime of a tracked target.
+	local function measure_card(s, a)
+		local m = s.measurement
+		if not m then
+			m = {}
+			s.measurement = m
+		end
+		if m.ready and m.header_key == a.header and m.name_key == a.name
+			and m.rank_key == a.rank and m.weap_key == a.weap and m.scale == a.scale then
+			return m
+		end
+		local header, name, rank, weap = a.header, a.name, a.rank, a.weap
+		local scale = a.scale or 1
+		-- Which lines this style shows. Presence of each field already encodes its show
+		-- decision (folded in at snapshot time: the C.show_* toggles, or the tier feature
+		-- gates under WD compat -- see identify_target). So here it's pure field-presence.
+		local has_head = header and header ~= ""
+		local has_name = name and name ~= ""
+		local has_rank = rank and rank ~= ""
+		local has_weap = weap and weap ~= ""
+		local pad, accent_w = 8, 3
+		local iw = 16 * scale
+		local lead = 5 * scale
+		local ispan = iw + 4 * scale
+	
+		-- Text width: re-measured only when the strings OR which lines are shown
+		-- change (AdjustWidthToText/GetWidth per change, not per frame). `or 0` guards the
+		-- degenerate first-draw case where every line is empty (e.g. a Card for a target with no
+		-- name/faction/rank/weapon): the invalidation check below is all nil~=nil = false, so the
+		-- recompute is skipped and the cache (s.text_w) is still nil -- 0 = a plate with just the icon.
+		local text_w = s.text_w or 0
+		if
+			header ~= s.last_head
+			or name ~= s.last_name
+			or rank ~= s.last_rank
+			or weap ~= s.last_weap
+			or has_head ~= s.last_hhead
+			or has_name ~= s.last_hname
+			or has_weap ~= s.last_hweap
+		then
+			text_w = 0
+			if has_head then
+				set_text(s.head, header)
+				set_text(s.head_sh, header)
+				s.head:AdjustWidthToText()
+				s.head_sh:AdjustWidthToText()
+				text_w = math.max(text_w, s.head:GetWidth())
+			end
+			if has_name then
+				set_text(s.name, name)
+				set_text(s.name_sh, name)
+				s.name:AdjustWidthToText()
+				s.name_sh:AdjustWidthToText()
+				text_w = math.max(text_w, s.name:GetWidth())
+			end
+			if has_rank then
+				set_text(s.rank, rank)
+				set_text(s.rank_sh, rank)
+				s.rank:AdjustWidthToText()
+				s.rank_sh:AdjustWidthToText()
+				text_w = math.max(text_w, s.rank:GetWidth())
+			end
+			if has_weap then
+				set_text(s.weap, weap)
+				set_text(s.weap_sh, weap)
+				s.weap:AdjustWidthToText()
+				s.weap_sh:AdjustWidthToText()
+				text_w = math.max(text_w, s.weap:GetWidth())
+			end
+			s.text_w, s.last_head, s.last_name, s.last_rank, s.last_weap = text_w, header, name, rank, weap
+			s.last_hhead, s.last_hname, s.last_hweap = has_head, has_name, has_weap
+		end
+	
+		local cw = math.floor(accent_w + lead + ispan + text_w + pad + 0.5)
+	
+		-- Vertical layout: PAD_TOP, each present line separated by GAP, then
+		-- PAD_BOTTOM. Fixed line heights matching each widget's font (letterica16 for
+		-- header/rank/weap, letterica18 for name). Computed generically since any line
+		-- can be toggled off (header/name are no longer assumed present).
+		local PAD_TOP, PAD_BOTTOM, GAP = 7, 7, 4
+		local head_h, name_h, rank_h, weap_h = 16, 18, 16, 16
+		local ch, nlines = PAD_TOP, 0
+		if has_head then
+			ch = ch + head_h
+			nlines = nlines + 1
+		end
+		if has_name then
+			if nlines > 0 then
+				ch = ch + GAP
+			end
+			ch = ch + name_h
+			nlines = nlines + 1
+		end
+		if has_rank then
+			if nlines > 0 then
+				ch = ch + GAP
+			end
+			ch = ch + rank_h
+			nlines = nlines + 1
+		end
+		if has_weap then
+			if nlines > 0 then
+				ch = ch + GAP
+			end
+			ch = ch + weap_h
+			nlines = nlines + 1
+		end
+		ch = ch + PAD_BOTTOM
+	
+		m.header_key, m.name_key, m.rank_key, m.weap_key = header, name, rank, weap
+		m.head, m.name, m.rank, m.weap = has_head, has_name, has_rank, has_weap
+		m.width, m.height = cw, ch
+		m.accent, m.lead, m.ispan, m.icon = accent_w, lead, ispan, iw
+		m.scale, m.ready = a.scale, true
+		return m
+	end
+	
+	local function place_card(a, measured)
+		local hx, hy, scale = a.hx, a.hy, a.scale or 1
+		local cw, ch = measured.width, measured.height
+		local stack_offset = a.stack_offset or 0
+		-- place the card up and to one side of the anchor; flip to the left near
+		-- the right edge of the (1024-wide virtual) screen. stack_offset (see
+		-- render()'s overlap-avoidance pass) pushes it further up still when
+		-- another card's anchor is close enough to plausibly collide -- the
+		-- leader line below just extends to reach it, which is what visually
+		-- stacks the two instead of them landing flush on top of each other.
+		local off_x, off_y = CARD_OFF_X * scale, CARD_OFF_Y * scale + stack_offset
+		local right = (hx + off_x + cw) <= 1014
+		local cx = right and (hx + off_x) or (hx - off_x - cw)
+		if cx < 4 then
+			cx = 4
+		end
+		local cy = hy - off_y - ch
+		if cy < 4 then
+			cy = 4
+		end
+	
+		return cx, cy, right
+	end
+	
+	function IiTags:draw_slot(i, a, tg)
+		local hx, hy = a.hx, a.hy
+		local header, name, rank, weap = a.header, a.name, a.rank, a.weap
+		local alpha, col, icon_id = a.a, a.col, a.icon
+		local scanning, scale, stack_offset = a.scanning, a.scale or 1, a.stack_offset or 0
+		local fcol, sign, rank_col = a.fcol, a.sign, a.rank_col
+		local box_cx, box_cy, box_hw, box_hh = a.box_cx, a.box_cy, a.box_hw, a.box_hh
+		local box_wx, box_wy, box_wz = a.box_wx, a.box_wy, a.box_wz
+		local s = self.slots[i]
+		if not s then
+			return
+		end
+		local mode = scanning and 0 or C.ui_style
+		if mode == 1 and scale < C.mini_scale_cutoff then
+			mode = 8
+		end
+		if s.mode ~= mode then
+			self:hide_slot(i)
+			s.mode = mode
+			s.last_head, s.last_name, s.last_rank, s.last_weap = false, false, false, false
+			s.simple_last_name = nil
+			if s.measurement then
+				s.measurement.ready = false
+			end
+		end
+		s.hidden = false
+	
+		-- Crooks style draws NO per-entity UI -- just the one static screen readout (draw_crooks,
+		-- from render()). Hide everything on this slot and bail before the scanning/style branches.
+		if C.ui_style == CROOKS.style then
+			show(s.glow, false)
+			show(s.node, false)
+			show(s.spinner, false)
+			return
+		end
+	
+		local r, g, b = col[1], col[2], col[3]
+		scale = scale or 1
+		stack_offset = stack_offset or 0
+		alpha = math.floor(alpha)
+		if alpha > 255 then
+			alpha = 255
+		end
+	
+		if scanning then
+			-- scanning only: a rotating spinner on the body, nothing revealed yet.
+			-- Always plain white -- relation isn't known/shown as a colour cue
+			-- until the tag actually reveals. Branches on the `scanning` flag
+			-- itself, not `alpha <= 1`: a revealed tag's alpha also drops during its
+			-- fade-out, which could hit alpha<=1 too and wrongly flip back to the spinner.
+			-- NOT width-squeezed by C._ui_kx like the static node/glow/line: those
+			-- are pre-distorted so the engine's anisotropic virtual-to-screen
+			-- stretch turns them back into circles, but that trick only holds
+			-- for a shape at a fixed orientation. SetHeading() below rotates
+			-- this widget in virtual space *before* that stretch is applied, and
+			-- rotation doesn't commute with a non-uniform scale -- a squeezed
+			-- rectangle rotated first comes out elliptical at every angle rather
+			-- than circular, so this stays square instead.
+			local spin_d = SPIN_D * scale
+			local spin_angle = (tg % SPIN_PERIOD_MS) / SPIN_PERIOD_MS * (2 * math.pi)
+			s.spinner:SetWndSize(S(spin_d, spin_d))
+			s.spinner:SetWndPos(P(hx - spin_d / 2, hy - spin_d / 2))
+			s.spinner:SetTextureColor(GetARGB(230, 255, 255, 255))
+			s.spinner:SetHeading(spin_angle)
+			show(s.spinner, true)
+	
+			show(s.glow, false)
+			show(s.node, false)
+			return
+		end
+	
+		show(s.spinner, false)
+	
+		-- Minimal style: always just the faction-coloured dot + a relation sign,
+		-- regardless of scale -- a distinct, user-selected visual language, not
+		-- just Card style's own too-small-to-fit fallback below.
+		if C.ui_style == 2 then
+			-- Minimal reuses the existing content toggles: the faction-coloured dot honours
+			-- `show_faction`, the relation sign honours `color_by_relation`. If BOTH are off, keep a
+			-- neutral locator dot so the tag doesn't vanish entirely.
+			local show_dot = C.show_faction
+			local show_relsign = C.color_by_relation
+			if show_dot then
+				draw_node_glow(s, hx, hy, scale, alpha, fcol[1], fcol[2], fcol[3], C.mini_dist_scale)
+			elseif not show_relsign then
+				draw_node_glow(s, hx, hy, scale, alpha, COL_NEUTRAL[1], COL_NEUTRAL[2], COL_NEUTRAL[3], C.mini_dist_scale)
+			else
+				show(s.node, false)
+				show(s.glow, false)
+			end
+			if show_relsign then
+				draw_sign(s, hx, hy, alpha, sign)
+			else
+				show(s.sign, false)
+				show(s.sign_sh, false)
+			end
+			return
+		end
+	
+		-- Minimal 2 (style 7): a single bare DOT (no glow, no sign, no text) coloured by RELATION --
+		-- red enemy / green friend / tan neutral, always relation-based (SIGN_COLOR is accurate
+		-- regardless of color_by_relation). The most stripped-down "friend or foe" indicator.
+		if C.ui_style == 7 then
+			show(s.glow, false)
+			local rc = SIGN_COLOR[sign] or COL_NEUTRAL
+			local ns = 7 * scale
+			local nsx = ns * C._ui_kx
+			s.node:SetWndSize(S(nsx, ns))
+			s.node:SetWndPos(P(hx - nsx / 2, hy - ns / 2))
+			s.node:SetTextureColor(GetARGB(alpha, rc[1], rc[2], rc[3]))
+			show(s.node, true)
+			return
+		end
+	
+		-- Simple style: a compact horizontal strip above the head -- the Card style's
+		-- relation-coloured dot + glow, then the faction logo, then the name.
+		if C.ui_style == 5 then
+			if s.icon_key ~= icon_id then
+				pcall(s.icon.InitTexture, s.icon, icon_id)
+				s.icon_key = icon_id
+			end
+			local has_name = name and name ~= ""
+			if name ~= s.simple_last_name then
+				if has_name then
+					set_text(s.name, name)
+					set_text(s.name_sh, name)
+					s.name:AdjustWidthToText()
+					s.name_sh:AdjustWidthToText()
+				end
+				s.simple_last_name = name
+			end
+			local has_icon = icon_id and icon_id ~= ""
+	
+			local glow_w = 7 * scale * 2.8 * C._ui_kx
+			local icon_h = 16 * scale
+			local icon_w = icon_h * C._ui_kx
+			local gap = 5 * scale * C._ui_kx
+			local row_y = hy - 14 * scale
+	
+			-- Native text has a fixed font size; exclude its width from the anchor
+			-- calculation so a long name cannot push the marker off the entity.
+			local total = glow_w
+			if has_icon then
+				total = total + gap + icon_w
+			end
+			local cursor = hx - total / 2
+	
+			draw_node_glow(s, cursor + glow_w / 2, row_y, scale, alpha, r, g, b, true)
+			cursor = cursor + glow_w
+	
+			if has_icon then
+				cursor = cursor + gap
+				s.icon:SetWndPos(P(cursor, row_y - icon_h / 2))
+				s.icon:SetWndSize(S(icon_w, icon_h))
+				s.icon:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+				show(s.icon, true)
+				cursor = cursor + icon_w
+			else
+				show(s.icon, false)
+			end
+	
+			if has_name then
+				cursor = cursor + gap
+				draw_shadowed_text(
+					s.name,
+					s.name_sh,
+					cursor,
+					row_y - 9,
+					alpha,
+					235,
+					230,
+					220,
+					math.floor(180 * alpha / 255)
+				)
+			else
+				show(s.name, false)
+				show(s.name_sh, false)
+			end
+			return
+		end
+	
+		-- Bodycam style: an unfilled, faction-coloured outline box locked to the
+		-- head bone and auto-scaled so it stays a constant real-world size around
+		-- the head -- no plate, dot, or sign, just the frame. box_hw/box_hh are nil
+		-- when the head doesn't project this frame (off-screen / no camera vectors),
+		-- in which case nothing is drawn (box already hidden at the top).
+		if C.ui_style == 3 then
+			if not (box_hw and box_hh) then
+				hide_box_widgets(s)
+				hide_card_widgets(s)
+				return
+			end
+			show(s.name, name ~= nil and name ~= "")
+			show(s.name_sh, name ~= nil and name ~= "")
+			show(s.head, header ~= nil and header ~= "")
+			show(s.head_sh, header ~= nil and header ~= "")
+			show(s.weap, weap ~= nil and weap ~= "")
+			show(s.weap_sh, weap ~= nil and weap ~= "")
+			show(s.glow, false)
+			show(s.node, false)
+			if box_hw and box_hh then
+				-- Box colour source: faction colour, or the relationship colour
+				-- (red/green/grey) keyed off the relation sign -- which stays accurate
+				-- regardless of color_by_relation, unlike the relation-tinted `col`.
+				local bcol = fcol
+				if C.box_color_source == 2 then
+					bcol = SIGN_COLOR[sign] or COL_NEUTRAL
+				end
+				draw_head_box(s, box_cx, box_cy, box_hw, box_hh, alpha, bcol[1], bcol[2], bcol[3], box_wx, box_wy, box_wz)
+	
+				-- Name / faction / weapon+caliber, stacked just to the right of the box
+				-- and tracking it every frame, each gated by its generic show toggle.
+				-- Reuse the card's text widgets (hidden above by hide_card_widgets,
+				-- re-shown per present line). Weapon skipped for the unarmed/monsters.
+				local tx = math.floor(box_cx + box_hw + BODYCAM_TEXT_PAD)
+				local ty = math.floor(box_cy - box_hh)
+				local shadow_a = math.floor(180 * alpha / 255)
+				if name and name ~= "" then
+					draw_bodycam_line(
+						s.name,
+						s.name_sh,
+						name,
+						tx,
+						ty,
+						alpha,
+						236,
+						230,
+						218,
+						shadow_a,
+						box_wx,
+						box_wy,
+						box_wz
+					)
+					ty = ty + BODYCAM_LINE_H
+				end
+				if header and header ~= "" then
+					draw_bodycam_line(
+						s.head,
+						s.head_sh,
+						header,
+						tx,
+						ty,
+						alpha,
+						fcol[1],
+						fcol[2],
+						fcol[3],
+						shadow_a,
+						box_wx,
+						box_wy,
+						box_wz
+					)
+					ty = ty + BODYCAM_LINE_H
+				end
+				if weap and weap ~= "" then
+					draw_bodycam_line(
+						s.weap,
+						s.weap_sh,
+						weap,
+						tx,
+						ty,
+						alpha,
+						172,
+						178,
+						188,
+						shadow_a,
+						box_wx,
+						box_wy,
+						box_wz
+					)
+				end
+			end
+			return
+		end
+	
+		-- Simple 2 style: over the head -- a faction-coloured circle and a relation-coloured
+		-- (red enemy / green friendly / grey neutral) triangle side by side, with a thin
+		-- rank-coloured bar spanning them above. Distance-scaled (scale) and anchored at the
+		-- head like the PiP markers. Shape WIDTHS are C._ui_kx-corrected so the circle/triangle
+		-- stay round/undistorted on wide screens (the virtual->screen stretch, same trick as
+		-- the node dot); heights aren't.
+		if C.ui_style == 4 then
+			show(s.glow, false)
+			show(s.node, false)
+			local sc = scale
+			local cd = 12 * sc -- circle diameter (also the row height driver)
+			local tw, th = 13 * sc, 11 * sc -- triangle width / height
+			local gap = 3 * sc -- gap between circle and triangle
+			local bh = 3 * sc
+			local bgap = 3 * sc -- gap between the bar and the shapes
+			local kx = C._ui_kx
+			local cw = cd * kx
+			local twx = tw * kx
+			local gpx = gap * kx
+			local roww = cw + gpx + twx
+			local left = hx - roww / 2
+			local rowh = math.max(cd, th)
+			local cy = hy - rowh / 2 - 2 * sc -- sit the shapes just above the head anchor
+	
+			s.s2_circle:SetWndSize(S(cw, cd))
+			s.s2_circle:SetWndPos(P(left, cy - cd / 2))
+			s.s2_circle:SetTextureColor(GetARGB(alpha, fcol[1], fcol[2], fcol[3]))
+			show(s.s2_circle, true)
+	
+			local rc = SIGN_COLOR[sign] or COL_NEUTRAL
+			s.s2_tri:SetWndSize(S(twx, th))
+			s.s2_tri:SetWndPos(P(left + cw + gpx, cy - th / 2))
+			s.s2_tri:SetTextureColor(GetARGB(alpha, rc[1], rc[2], rc[3]))
+			show(s.s2_tri, true)
+	
+			local rk = rank_col or RANK_FALLBACK
+			s.s2_bar:SetWndSize(S(roww, bh))
+			s.s2_bar:SetWndPos(P(left, cy - rowh / 2 - bgap - bh))
+			s.s2_bar:SetTextureColor(GetARGB(alpha, rk[1], rk[2], rk[3]))
+			show(s.s2_bar, true)
+			return
+		end
+	
+		-- Mini fallback: below the cutoff, the card doesn't fit any more, so just
+		-- show the relation dot -- the same node the leader line would otherwise
+		-- connect to a card, minus the card. `scale` is a single flat MCM value
+		-- shared by every card (not distance-derived), so this is a global
+		-- on/off rather than a per-target one -- no hysteresis needed, since it
+		-- only ever changes when the player edits the slider, not per frame.
+		if scale < C.mini_scale_cutoff then
+			draw_node_glow(s, hx, hy, scale, alpha, r, g, b)
+			return
+		end
+	
+		if s.icon_key ~= icon_id then
+			pcall(s.icon.InitTexture, s.icon, icon_id)
+			s.icon_key = icon_id
+		end
+	
+		local measured = measure_card(s, a)
+		local has_head, has_name, has_rank, has_weap = measured.head, measured.name, measured.rank, measured.weap
+		local cw, ch = measured.width, measured.height
+		local accent_w, lead, ispan, iw = measured.accent, measured.lead, measured.ispan, measured.icon
+		local PAD_TOP, GAP = 7, 4
+		local head_h, name_h, rank_h, weap_h = 16, 18, 16, 16
+	
+		local cx, cy, right = place_card(a, measured)
+	
+		-- soft drop shadow (ii_shadow, feathered -- see its texture comment),
+		-- larger and offset down-right of the plate, so the card reads as lifted
+		-- off the world instead of pasted flat on it. Margin needs real room for
+		-- the feather band to show past the plate's edge, not just a couple of
+		-- px -- 5 read as another hard rectangle peeking out from behind the
+		-- plate rather than a soft shadow.
+		local sh_m = 9 * scale
+		s.shadow:SetWndPos(P(cx - sh_m + 3, cy - sh_m + 4))
+		s.shadow:SetWndSize(S(cw + sh_m * 2, ch + sh_m * 2))
+		s.shadow:SetTextureColor(GetARGB(math.floor(160 * alpha / 255), 0, 0, 0))
+		show(s.shadow, true)
+	
+		s.plate:SetWndPos(P(cx, cy))
+		s.plate:SetWndSize(S(cw, ch))
+		s.plate:SetTextureColor(GetARGB(math.floor(185 * alpha / 255), 24, 22, 19))
+		show(s.plate, true)
+	
+		local acc_in = 6 * scale
+		s.accent:SetWndPos(P(cx, cy + acc_in))
+		s.accent:SetWndSize(S(accent_w, ch - acc_in * 2))
+		s.accent:SetTextureColor(GetARGB(alpha, r, g, b))
+		show(s.accent, true)
+	
+		s.icon:SetWndPos(P(cx + accent_w + lead, cy + math.floor((ch - iw) * 0.5)))
+		s.icon:SetWndSize(S(iw, iw))
+		s.icon:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+		show(s.icon, true)
+	
+		-- Stack the present lines past the accent bar + icon: faction (relation-
+		-- tinted), name (brighter), then muted rank + weapon. A running cursor walks
+		-- down, so any toggled-off line simply contributes nothing and the ones below
+		-- close up under it -- matching the ch calc above. Hidden lines are Show(false).
+		local txo = cx + accent_w + lead + ispan
+		local shadow_a = math.floor(180 * alpha / 255)
+		local y = math.floor(cy + PAD_TOP)
+		local placed = 0
+	
+		if has_head then
+			draw_shadowed_text(s.head, s.head_sh, txo, y, alpha, r, g, b, shadow_a)
+			y = y + head_h
+			placed = placed + 1
+		else
+			show(s.head, false)
+			show(s.head_sh, false)
+		end
+	
+		if has_name then
+			if placed > 0 then
+				y = y + GAP
+			end
+			draw_shadowed_text(s.name, s.name_sh, txo, y, alpha, 235, 230, 220, shadow_a)
+			y = y + name_h
+			placed = placed + 1
+		else
+			show(s.name, false)
+			show(s.name_sh, false)
+		end
+	
+		if has_rank then
+			if placed > 0 then
+				y = y + GAP
+			end
+			-- muted: secondary to the name, so its own (lower) alpha
+			draw_shadowed_text(
+				s.rank,
+				s.rank_sh,
+				txo,
+				math.floor(y),
+				math.floor(200 * alpha / 255),
+				210,
+				205,
+				195,
+				shadow_a
+			)
+			y = y + rank_h
+			placed = placed + 1
+		else
+			show(s.rank, false)
+			show(s.rank_sh, false)
+		end
+	
+		if has_weap then
+			if placed > 0 then
+				y = y + GAP
+			end
+			-- steel-grey, dimmer still: an equipment note, not competing with the name
+			draw_shadowed_text(
+				s.weap,
+				s.weap_sh,
+				txo,
+				math.floor(y),
+				math.floor(185 * alpha / 255),
+				165,
+				180,
+				195,
+				shadow_a
+			)
+			y = y + weap_h
+			placed = placed + 1
+		else
+			show(s.weap, false)
+			show(s.weap_sh, false)
+		end
+	
+		-- node + its glow halo at the anchor point on the body (shared with the
+		-- mini-mode branch above -- see draw_node_glow's comment).
+		draw_node_glow(s, hx, hy, scale, alpha, r, g, b)
+	
+		-- leader line: node -> nearest bottom corner of the card, extended
+		-- slightly past the corner so its end tucks under the plate (drawn over
+		-- it), giving a flush join at any aspect ratio. The engine's heading
+		-- rotation multiplies the strip's X by C._ui_kx, so dx is pre-divided by it
+		-- here to land exactly on both endpoints (see C._ui_kx's declaration).
+		local corner_x = right and cx or (cx + cw)
+		local corner_y = cy + ch
+		local dx, dy = corner_x - hx, corner_y - hy
+		local seglen = math.sqrt(dx * dx + dy * dy)
+		if seglen > 0.001 then
+			local over = 6
+			dx = dx + dx / seglen * over
+			dy = dy + dy / seglen * over
+			corner_x, corner_y = hx + dx, hy + dy
+		end
+		local dxk = dx / C._ui_kx
+		local len = math.sqrt(dxk * dxk + dy * dy)
+		local ang = math.atan2(-dy, dxk)
+		local mx, my = (hx + corner_x) * 0.5, (hy + corner_y) * 0.5
+		local thick = 2 * scale
+	
+		s.line_sh:SetWndSize(S(len, thick + 2))
+		s.line_sh:SetWndPos(P(mx - len * 0.5, my - (thick + 2) * 0.5))
+		s.line_sh:EnableHeading(true)
+		s.line_sh:SetHeading(ang)
+		s.line_sh:SetTextureColor(GetARGB(math.floor(alpha * 0.5), 0, 0, 0))
+		show(s.line_sh, true)
+	
+		s.line:SetWndSize(S(len, thick))
+		s.line:SetWndPos(P(mx - len * 0.5, my - thick * 0.5))
+		s.line:EnableHeading(true)
+		s.line:SetHeading(ang)
+		s.line:SetTextureColor(GetARGB(math.floor(alpha * 0.8), r, g, b))
+		show(s.line, true)
+	end
+	
+	return { show = show, set_text = set_text, draw_shadowed_text = draw_shadowed_text }
+end

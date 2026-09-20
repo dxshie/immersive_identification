@@ -1,0 +1,201 @@
+function new(C, _frame, anchor_pos)
+	local RAY_LOS_TOL = 0.3 -- metres: stop short of the camera
+	local RQT_STATIC = (rq_target and rq_target.rqtStatic) or 2 -- collide::rqtStatic
+	-- LOS scratch + tunables bundled into ONE local (ray handle, scratch vectors, and the
+	-- see-through march params) to stay under Lua 5.1's 200-local-per-chunk limit.
+	--   seethrough: a hit whose material is at least this see-through (fVisTransparencyFactor,
+	--     0=opaque..1=fully transparent-to-sight) is NOT a real occluder -- chain-link fences,
+	--     foliage, glass, and the wider invisible CLIP meshes that were false-blocking a clearly
+	--     visible target. The march skips past such hits; only an OPAQUE surface blocks LOS.
+	--   march_steps: cap on see-through hits skipped before giving up (-> treat as clear).
+	--   foliage: lowercased substring tokens matched against a hit's material_name to classify it as
+	--     FOLIAGE (for the los_block_foliage toggle). Best-effort -- material names vary by modpack;
+	--     tune this list if plants aren't recognised. "wood" is intentionally excluded (crates/planks).
+	local _los = {
+		material_foliage = {},
+		ray = nil,
+		dir = vector(),
+		pt = vector(),
+		march = vector(),
+		seethrough = 0.5,
+		march_steps = 6,
+		foliage = {
+			"flora",
+			"tree",
+			"bush",
+			"grass",
+			"leaf",
+			"leav",
+			"branch",
+			"foliage",
+			"nettle",
+			"reed",
+			"fluff",
+			"weed",
+			"plant",
+		},
+		saw_foliage = false, -- set by _los_point_clear's march when the ray crosses a foliage material (read by foliage_scan_mult for the through-foliage scan penalty)
+	}
+	
+	-- Body bones sampled for the multi-point LOS check (below), spread head-to-toe so ANY exposed
+	-- part counts as visible -- a target is only "occluded" when EVERY one is blocked by static
+	-- geometry. Head + shoulders first (and included, not a separate lifted anchor) so a target
+	-- PEEKING with just its head/shoulder over cover passes, and so the head sample is the REAL head
+	-- bone rather than a lifted point that can clip into a ceiling.
+	local LOS_BONES = {
+		"bip01_head",
+		"bip01_spine2",
+		"bip01_l_upperarm",
+		"bip01_r_upperarm",
+		"bip01_spine",
+		"bip01_pelvis",
+		"bip01_l_calf",
+		"bip01_r_calf",
+	}
+	
+	-- Cast a static-geometry ray from `origin` toward the camera, stopping RAY_LOS_TOL short so
+	-- near-eye geometry can't false-trigger. See-through hits (fences/foliage/glass/wide clip meshes,
+	-- per the material's fVisTransparencyFactor) are skipped and the ray continues from just past
+	-- them -- so only an OPAQUE surface blocks. This mirrors the engine's own bullet/visibility
+	-- pick that accumulates transparency instead of stopping at the first collision. Returns:
+	-- true = clear, false = blocked by something opaque, nil = point-blank / API absent (fail-open).
+	-- Multi-point line-of-sight backstop: clear if the head anchor OR any sampled body
+	-- bone has an unobstructed ray to the camera. So a target whose head is behind cover
+	-- but whose torso/legs are exposed still counts as visible (was head-anchor only,
+	-- which vetoed any target with just its head occluded). A target FULLY behind static
+	-- geometry has every point blocked -> occluded, preserving the "behind a wall" guard.
+	-- Head first so the common fully-visible case early-outs on the first ray.
+	local function march(origin, dir, total)
+		if not _los.ray then
+			_los.ray = ray_pick()
+		end
+		local dx, dy, dz = dir.x, dir.y, dir.z
+		local advanced = 0
+		for _ = 1, _los.march_steps do
+			local remaining = (total - RAY_LOS_TOL) - advanced
+			if remaining <= 0 then
+				return true -- reached the camera side with no opaque hit
+			end
+			_los.ray:set_flags(RQT_STATIC)
+			_los.ray:set_position(
+				_los.march:set(origin.x + dx * advanced, origin.y + dy * advanced, origin.z + dz * advanced)
+			)
+			_los.ray:set_direction(dir)
+			_los.ray:set_range(remaining)
+			if not _los.ray:query() then
+				return true -- nothing more in the way -> clear
+			end
+			-- Hit something. Opaque = blocked. See-through (fence/glass/foliage/clip) is normally
+			-- skipped, UNLESS the user opted to block it: los_block_seethrough blocks ALL see-through
+			-- surfaces; los_block_foliage blocks only ones whose material_name looks like a plant.
+			local transp, matname = 0, nil
+			if _los.ray.get_result then
+				local rr = _los.ray:get_result()
+				if rr then
+					transp = rr.material_vis_transparency_factor or 0
+					matname = rr.material_name
+				end
+			end
+			if transp < _los.seethrough then
+				return false -- opaque surface -> genuinely blocked
+			end
+			-- See-through hit. Classify foliage ONCE -- it drives both the foliage block and the
+			-- through-foliage scan penalty (saw_foliage, read by foliage_scan_mult after a march).
+			local is_fol = false
+			if matname then
+				is_fol = _los.material_foliage[matname]
+				if is_fol == nil then
+					is_fol = false
+					local lower = string.lower(matname)
+					for i = 1, #_los.foliage do
+						if lower:find(_los.foliage[i], 1, true) then
+							is_fol = true
+							break
+						end
+					end
+					_los.material_foliage[matname] = is_fol
+				end
+			end
+			if is_fol then
+				_los.saw_foliage = true
+			end
+			if C.los_block_seethrough then
+				return false -- user blocks all see-through surfaces
+			end
+			if C.los_block_foliage and is_fol then
+				return false -- a plant material -> blocked
+			end
+			local hitd = (_los.ray.get_distance and _los.ray:get_distance()) or 0
+			if hitd <= 0 then
+				return true -- degenerate hit distance -> fail open toward visible
+			end
+			advanced = advanced + hitd + 0.05 -- step just past the transparent surface
+		end
+		return true -- exhausted the step budget still in see-through material -> treat as clear
+	end
+	
+	local function _los_point_clear(origin, cam_pos)
+		local dir = _los.dir:set(cam_pos):sub(origin) -- cam - origin
+		local total = dir:magnitude()
+		if total <= RAY_LOS_TOL then
+			return nil -- essentially point-blank -> fail open
+		end
+		dir:normalize()
+		if not rawget(_G, "ray_pick") then
+			return nil
+		end
+		local ok, clear = pcall(march, origin, dir, total)
+		if not ok or clear == nil then
+			return nil -- API absent / errored -> fail open
+		end
+		return clear
+	end
+	
+	local function compute_clear_ray(target_obj)
+		local dev = _frame:camera()
+		if not dev or not dev.cam_pos then
+			return true
+		end -- fail open
+		local cam = dev.cam_pos
+	
+		-- Sample the real body bones (head/shoulders first for the peek + common cases); ANY clear
+		-- ray = visible. Early-outs on the first exposed point.
+		local base = _frame:position(target_obj)
+		local any_bone = false
+		if base then
+			for _, bone in ipairs(LOS_BONES) do
+				local p = _frame:bone(target_obj, bone)
+				if p and p:distance_to_sqr(base) < 25 then -- sane bone (within 5 m of origin)
+					any_bone = true
+					local clear = _los_point_clear(_los.pt:set(p), cam)
+					if clear ~= false then
+						return true -- a body part is exposed (or fail-open)
+					end
+				end
+			end
+		end
+	
+		-- Monster / non-bip01 rig (no usable bones): fall back to the lifted anchor point.
+		if not any_bone then
+			local origin = anchor_pos(target_obj)
+			if origin and _los_point_clear(origin, cam) ~= false then
+				return true
+			end
+		end
+	
+		return false -- every sampled point blocked -> occluded
+	end
+	
+	local function has_clear_ray(obj)
+		local record = _frame:record(obj)
+		if record and record.los_ready then
+			return record.los
+		end
+		local clear = compute_clear_ray(obj)
+		if record then
+			record.los, record.los_ready = clear, true
+		end
+		return clear
+	end
+	return { state = _los, point_clear = _los_point_clear, has_clear_ray = has_clear_ray }
+end

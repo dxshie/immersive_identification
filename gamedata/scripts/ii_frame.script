@@ -1,0 +1,134 @@
+local Frame = {}
+Frame.__index = Frame
+
+local function call(fn, ...)
+	if not fn then
+		return nil
+	end
+	local ok, value = pcall(fn, ...)
+	if ok then
+		return value
+	end
+end
+
+function new()
+	return setmetatable({ active = false, serial = 0, used = 0, records = {}, by_id = {} }, Frame)
+end
+
+function Frame:begin(tg)
+	for i = 1, self.used do
+		local record = self.records[i]
+		self.by_id[record.id] = nil
+		record.obj = nil
+	end
+	self.used = 0
+	self.serial = self.serial + 1
+	self.tg = tg
+	self.active = true
+	self.dev = device and device()
+	self.item_ready = false
+end
+
+function Frame:finish()
+	self.active = false
+	self.dev = nil
+	self.item = nil
+end
+
+function Frame:record(obj)
+	if not self.active or not obj then
+		return nil
+	end
+	local id = obj:id()
+	local record = self.by_id[id]
+	if record then
+		return record
+	end
+	self.used = self.used + 1
+	record = self.records[self.used]
+	if not record then
+		record = { bones = {} }
+		self.records[self.used] = record
+	end
+	record.id, record.obj = id, obj
+	record.position_ready = false
+	record.los_ready = false
+	record.body_ready = false
+	self.by_id[id] = record
+	return record
+end
+
+function Frame:position(obj)
+	if not obj then
+		return nil
+	end
+	local record = self:record(obj)
+	if not record then
+		return call(obj.position, obj)
+	end
+	if not record.position_ready then
+		record.pos = call(obj.position, obj)
+		record.position_ready = true
+	end
+	return record.pos
+end
+
+-- Bone samples are read-only. Callers that lift an anchor must copy the sample
+-- into their own scratch vector. IDs expire each frame, including visual changes.
+function Frame:bone(obj, name)
+	local record = self:record(obj)
+	local sample = record and record.bones[name]
+	if sample and sample.serial == self.serial then
+		return sample.pos
+	end
+	local id = name
+	if obj.bone_id then
+		id = call(obj.bone_id, obj, name)
+		if not id or id == 65535 then
+			id = nil
+		end
+	end
+	local pos = id and call(obj.bone_position, obj, id) or nil
+	if record then
+		if not sample then
+			sample = {}
+			record.bones[name] = sample
+		end
+		sample.serial, sample.pos = self.serial, pos
+	end
+	return pos
+end
+
+function Frame:camera()
+	if self.active then
+		return self.dev
+	end
+	return device and device()
+end
+
+function Frame:active_item()
+	if not self.active then
+		return db.actor and call(db.actor.active_item, db.actor)
+	end
+	if not self.item_ready then
+		self.item = db.actor and call(db.actor.active_item, db.actor)
+		self.item_ready = true
+	end
+	return self.item
+end
+
+-- Only single-result, argument-free queries use this wrapper. Key callbacks
+-- outside actor_on_update always read live state instead of reusing a frame.
+function Frame:memoize(fn)
+	local serial, value
+	return function()
+		if not self.active then
+			return fn()
+		end
+		if serial ~= self.serial then
+			value = fn()
+			serial = self.serial
+		end
+		return value
+	end
+end

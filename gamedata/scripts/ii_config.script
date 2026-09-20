@@ -1,0 +1,308 @@
+-- Public defaults and menu lists are re-exported by ii_identify for compatibility.
+
+DEFAULTS = {
+	enabled = true,
+	key_dik = 0, -- captured DIK code; 0/nil means "unset, use DEFAULT_KEY_NAME"
+	modifier_index = 1, -- index into MODIFIER_LIST (1 = none)
+	ui_style = 1, -- index into UI_STYLE_LIST (1=card 2=minimal 3=bodycam 4=simple2 5=simple 6=crooks 7=minimal2)
+	crooks_pos = 1, -- Crooks style: screen-corner preset, index into CROOKS_POS_LIST (1=BL, 2=BM, 3=BR)
+	crooks_x = 0, -- Crooks style: X offset from the preset anchor (virtual px, + = right)
+	crooks_y = 0, -- Crooks style: Y offset from the preset anchor (virtual px, + = up)
+	box_area = 1, -- bodycam style: index into REDACT_AREA_LIST (1 = head/face box,
+	-- 2 = full-body box) for the outline rectangle
+	box_color_source = 1, -- bodycam box colour: index into BOX_COLOR_SOURCE_LIST
+	-- (1 = faction colour, 2 = relationship colour red/green/grey)
+	box_thickness = 2, -- bodycam outline edge thickness in virtual px (not distance-scaled)
+	box_padding = 0.2, -- bodycam outline: extra margin around the model as a fraction of the
+	-- box size (0 = tight, 0.2 = 20% larger each side), distance-independent
+	box_opacity = 1.0, -- bodycam outline rectangle opacity 0..1 (multiplies the fade alpha;
+	-- the name/faction/weapon text is unaffected)
+	auto_identify = false, -- continuously identify every visible target in range without a
+	-- keypress (LOS-gated). Off by default; pairs well with the
+	-- bodycam head-box style but works with any style
+	-- Face redaction: an engine post-process drawn over the FACE of every visible
+	-- humanoid in range (alive or dead). Independent of identification -- no need to
+	-- aim at or identify anyone. Needs the custom bodycam exe's multi-rect redaction
+	-- binding; fully inert on a stock exe.
+	redact_range = 100, -- metres: redaction reach, independent of the identify max_dist --
+	-- redaction is passive, so it reaches as far as a face is visible
+	redact_strength = 1.0, -- master intensity 0..1 of the redaction effect
+	redact_face = false, -- FACE redaction master toggle: redact the FACE of humanoids in range,
+	-- ALIVE or dead (only the face, nudged to the face front)
+	redact_face_style = 1, -- face redaction style, index into REDACT_STYLE_LIST (1 = pixelate, 2 = black)
+	redact_face_padding = 0.15, -- face redaction: margin fraction around the face box
+	color_by_relation = true, -- tint the tag by relation to the actor instead of a flat colour
+	show_name = true, -- show the target's name line (all text styles: card + bodycam)
+	show_faction = true, -- show the target's faction line (all text styles: card + bodycam)
+	show_rank = true, -- show the target's rank line (card + bodycam, and the Crooks readout)
+	instant_identify = false, -- skip the scan wait/spinner entirely: the tag reveals immediately on
+	-- identify (bypasses scan_time and all the scan-time multipliers)
+	instant_exclude_hipfire = false, -- when instant_identify is on, keep the normal scan wait while HIP-firing
+	instant_exclude_ads = false, -- when instant_identify is on, keep the normal scan wait while aiming down sight
+	instant_exclude_binoc = false, -- when instant_identify is on, keep the normal scan wait through binoculars
+	scan_time = 0.35, -- seconds: "scanning" pulse before the tag reveals
+	fade_time = 0.45, -- seconds: fade in / fade out
+	hold_time = 4.0, -- seconds: tag stays fully visible
+	max_dist = 50, -- metres: BASE identification distance -- the starting range, before it's scaled
+	-- up (binocular/ADS magnification, range boosts) or down (distance/penalty systems). The
+	-- per-mode caps below are the true hard cutoffs. (Internal key kept as max_dist for save/preset
+	-- compatibility; shown in MCM as "Base identification distance".)
+	hipfire_max_dist = 0, -- metres: hard cap on the effective identify distance while hip-firing (0 = no cap)
+	ads_max_dist = 0, -- metres: hard cap on the effective identify distance while aiming down sight (0 = no cap)
+	binoc_max_dist = 0, -- metres: hard cap on the effective identify distance through binoculars (0 = no cap)
+	fov_assist = true, -- master target-assist: when you don't land a direct hit, identify the
+	-- nearest eligible target within the on-screen FOV circle. Off = you must
+	-- aim directly at the target (direct raycast hit only), no circle fallback
+	fov_assist_binoc = true, -- whether FOV target-assist also applies while looking through raised
+	-- binoculars; independent of the master toggle for the binocular case
+	freeaim_assist = false, -- bodycam / free-aim engines: centre the FOV target-assist on where the
+	-- weapon actually points (the global ETraceTarget.Weapon engine trace) instead of the fixed
+	-- screen centre. Inert / harmless on an engine without that weapon trace.
+	fov_radius = 35, -- virtual-space px (1024-wide, 768-tall): target-assist radius (MCM range 0-90).
+	-- A straight screen-pixel ring around the aim point (screen_dist_to_body); a target whose
+	-- nearest body point projects within this many px of the crosshair is a candidate.
+	fov_identify_all = true, -- auto-triggers (hipfire/ADS/binocular; not auto_identify): reveal EVERY eligible target inside the FOV-assist radius (a cluster of stacked NPCs all get IDd). Off = only the single target nearest the aim point. (Manual keypress always identifies the nearest.)
+	require_los = true, -- target-assist fallback only picks targets with clear line of sight
+	los_block_seethrough = false, -- LOS: treat SEE-THROUGH surfaces (fences, glass, foliage, and invisible clip meshes) as OPAQUE, so identification is blocked through them (default off = see through them)
+	los_block_foliage = false, -- LOS: block identification through FOLIAGE specifically (best-effort by material name); subset of los_block_seethrough for when you only want plants to block
+	exclude_hostile = false, -- don't allow an entity that is actively hostile toward you AND aware of you (in combat / pulled aggro) to be an identification target
+	hide_off_aim = false, -- only track the target you're aiming at / near (nearest body point
+	-- within fov_radius, or the direct model hit). MEMBERSHIP gate: aiming away DROPS it, so
+	-- aiming back re-runs the whole scan (not an instant reappear). Off by default.
+	hide_unseen = true, -- hide an active tag/card/box while its target is out of sight (occluded
+	-- or off-screen), instead of leaving it floating until its timer expires;
+	-- it reappears if the target comes back into view within the reveal window
+	pip_markers = true, -- draw identification markers INSIDE a PiP scope (needs a PiP engine); off =
+	-- behave as if there were no PiP support (normal HUD, no in-scope markers)
+	pip_redact = true, -- draw the dead-body redaction INSIDE a PiP scope (independent of pip_markers;
+	-- the main-view redaction is unaffected either way)
+	pip_hide_main = false, -- while a PiP scope is up, suppress ALL main-view drawing (HUD tags +
+	-- main-pass redaction), leaving only the in-scope UI
+	ads_hide_main = false, -- while aiming down sight, suppress ALL main-view drawing (HUD tags +
+	-- main-pass redaction) -- e.g. a clean sight picture; in-scope UI (if any) still draws
+	binocular_mode = false, -- auto-trigger identify on a steady aim through raised binoculars,
+	-- in addition to (not instead of) the normal key
+	require_binoculars = false, -- the key (and auto-trigger) only work while actively looking
+	-- through raised binoculars -- independent of binocular_mode
+	steady_time = 0.6, -- seconds: how long the aim must hold still (binocular mode) before auto-identifying
+	card_scale = 1.0, -- flat size multiplier for the whole card (manual, not distance-based)
+	mini_scale_cutoff = 0.4, -- below this scale, show just the relation dot instead of the full card
+	ui_offset_x = 0, -- virtual-px (1024-wide) horizontal nudge for the on-screen UI elements
+	ui_offset_y = 0, -- virtual-px (768-tall) vertical nudge for the on-screen UI elements
+	anchor_basis = 1, -- where the tag/marker anchors on the target: index into ANCHOR_BASIS_LIST (1 head, 2 torso, 3 feet). Does NOT affect the Bodycam box (its own box_area) or LOS geometry.
+	mini_dist_scale = true, -- Minimal (dot) style: scale the dot with distance so a far target's dot
+	-- isn't oversized (near = bigger, far = smaller); off = flat card_scale like the other styles
+	binoc_boost = true, -- binoculars speed up + extend identify range, independent of binocular_mode
+	binoc_scan_mult = 0.4, -- scan_time multiplier while binoculars are raised (lower = faster reveal)
+	binoc_range_mult = 4.4, -- max_dist multiplier while binoculars are raised, when
+	-- binoc_zoom_scaling is OFF (the flat "max-distance multiplier")
+	binoc_zoom_scaling = false, -- ON: scale the range by the binocular's REAL CURRENT magnification
+	-- (live, from scope_magnification -> SVP/PiP binding's true value, else the camera-FOV ratio;
+	-- a future bodycam.binoc_magnification wins if present) instead of the flat binoc_range_mult
+	-- angular zoom (~19.6x), not the intended range factor (~4.4x), so it over-inflated the range.
+	ads_mode = false, -- auto-trigger identify while aiming down sight, once a target has been held
+	-- under the aim (or inside the FOV assist range when that's on) for ads_hold_time seconds
+	ads_hold_time = 0.6, -- seconds: how long a target must stay on-aim / in FOV-assist range while
+	-- ADS before auto-identifying (ADS mode). Dwell-on-target, distinct from binocular steady_time
+	hipfire_mode = false, -- auto-trigger identify while HIP-FIRING (not ADS, not binoculars), once a
+	-- target has been held under the aim for hipfire_hold_time -- for players who don't want the key
+	hipfire_hold_time = 1.0, -- seconds: how long a target must stay on-aim / in FOV-assist range while
+	-- hip-firing before auto-identifying (hipfire mode). Dwell-on-target, like ADS mode
+	ads_boost = true, -- aiming down sight speeds up + extends identify range, independent of ads_mode
+	ads_scan_mult = 0.6, -- scan_time multiplier while aiming down sight (gentler than binoculars)
+	ads_range_mult = 1.0, -- max_dist multiplier while aiming down sight (the x1 base)
+	ads_zoom_scaling = true, -- scale the ADS range multiplier by the scope's magnification (x2/x4/...),
+	-- so a higher-power optic reaches further. Works on PiP (engine magnification binding) and
+	-- non-PiP engines (recovered from the main-camera FOV) -- see scope_magnification()
+	dist_penalty = true, -- further targets take longer to scan/identify (binoc_range_mult mitigates
+	-- this for free -- see distance_scan_mult()'s comment)
+	dist_penalty_max = 5.0, -- scan time multiplier right at the (current, possibly boosted) max range
+	perception_compat = true, -- soft-integrate with the Skill System mod's "perception" skill, if present
+	perception_scan_mult = 0.04, -- scan time reduction per perception level (0.04 = 4% faster per level)
+	perception_xp = 20, -- perception XP granted per successful identify (skill-system side)
+	perception_loot_xp = 20, -- bonus perception XP granted the first time you loot a corpse you'd
+	-- already identified (skill-system side)
+	rank_penalty = true, -- higher-ranked stalkers take longer to identify (novice = baseline, legend = slowest)
+	rank_penalty_max = 3.0, -- scan time multiplier for the highest rank (legend), relative to a rookie
+	familiarity_boost = true, -- once you've identified a stalker before, re-identifying them later is faster
+	familiarity_scan_mult = 0.6, -- scan time multiplier for a previously-identified target
+	night_penalty = true, -- identification is slower in the dark, ramping up over dusk and peaking across midnight (0:00)
+	night_penalty_max = 2.0, -- scan time multiplier at the darkest point of the night
+	weight_penalty = false, -- the heavier the item you're HOLDING, the longer identification takes (a heavy weapon is harder to hold steady enough to read a target). Off by default.
+	weight_penalty_max = 2.0, -- scan time multiplier at (or above) the reference weight
+	weight_penalty_ref = 6.0, -- kg: held-item weight at which the penalty is maxed; lighter items ramp linearly down to 1x at 0
+	foliage_penalty = false, -- identifying THROUGH foliage (bushes/trees/grass on the sightline) takes longer -- a soft alternative to los_block_foliage (which refuses it outright). Off by default.
+	foliage_penalty_max = 2.5, -- scan time multiplier when the sightline to the target crosses a foliage material
+	show_weapon = true, -- show the target's currently-wielded weapon + caliber line (card + bodycam)
+	debug_log = false, -- write aim/trace diagnostics to the game log on each identify attempt
+	debug_draw = false, -- on-screen target-assist visualiser: aim dot, FOV ring, in-ring bone dots
+	debug_sim_stock = false, -- TESTING: pretend the custom engine bindings (bodycam.* + SVP/PiP) are
+	-- absent, so the mod runs its stock-engine fallbacks -- lets you test on a stock exe without
+	-- copying the custom one. Does NOT touch stock bindings (ETraceTarget, ray_pick).
+
+	-- st-wearable-devices compatibility (tier system). Only take effect when the optional
+	-- WD compat component is installed AND drives ii_identify.tier_provider (via
+	-- get_wd_tier_cfg below); completely inert otherwise. Retune every default tier here.
+	wd_ignore = false, -- master toggle: ignore the WD compat component entirely (identify as if WD isn't installed)
+	wd_require_kit = true, -- block identification entirely unless the full scanner kit is worn/assembled
+	wd_proc_t1 = 1.5, -- process-module tier 1/2/3 base scan time (seconds)
+	wd_proc_t2 = 1.0,
+	wd_proc_t3 = 0.5,
+	wd_scan_t1 = 10, -- scanner tier 1/2/3 identify range (metres)
+	wd_scan_t2 = 20,
+	wd_scan_t3 = 30,
+	wd_feat_faction = 1, -- process tier that unlocks each DISPLAY feature (1..3)
+	wd_feat_distance = 1,
+	wd_feat_relationship = 2,
+	wd_feat_rank = 2,
+	wd_feat_weapon = 3,
+	wd_scanner_ads = 2, -- scanner tier that unlocks scope/ADS support (1..3)
+	wd_scanner_binoc = 1, -- scanner tier that unlocks binocular identification (1..3; extends range x binoc_range_mult)
+	wd_scanner_mag = 2, -- scanner tier that unlocks the magnification range boost (1..3)
+	wd_scanner_nonight = 3, -- scanner tier that removes the night penalty (1..3)
+}
+
+DEFAULT_KEY_NAME = "DIK_X"
+
+-- Single-select modifier for the identify key (replaces three independent
+-- Ctrl/Shift/Alt checkboxes with one choice, since combining them added
+-- little and cluttered the menu). Referenced as ii_identify.MODIFIER_LIST
+-- from ii_mcm.script. `label` is the bare suffix MCM appends to
+-- "<page>_<option>_lst_" for each dropdown entry when it resolves the
+-- display string (confirmed in-game: a full string-table id here shows up
+-- literally, doubled with that prefix, instead of resolving).
+MODIFIER_LIST = {
+	{ label = "none" },
+	{ dik = "DIK_LCONTROL", alt_dik = "DIK_RCONTROL", label = "ctrl" },
+	{ dik = "DIK_LSHIFT", alt_dik = "DIK_RSHIFT", label = "shift" },
+	{ dik = "DIK_LMENU", alt_dik = "DIK_RMENU", label = "alt" },
+}
+
+-- Which visual language the tag uses. Referenced as ii_identify.UI_STYLE_LIST
+-- from ii_mcm.script, same cross-file pattern as MODIFIER_LIST above.
+UI_STYLE_LIST = {
+	{ label = "card" },
+	{ label = "minimal" },
+	{ label = "bodycam" },
+	{ label = "simple2" },
+	{ label = "simple" },
+	{ label = "crooks" },
+	{ label = "minimal2" },
+}
+
+-- Where the tag/marker anchors on the target's body (anchor_basis). Index order IS the stored
+-- value. Referenced as ii_identify.ANCHOR_BASIS_LIST from ii_mcm.script, same cross-file pattern
+-- as UI_STYLE_LIST.
+ANCHOR_BASIS_LIST = {
+	{ label = "head" },
+	{ label = "torso" },
+	{ label = "feet" },
+}
+
+-- Screen-corner presets for the Crooks style's static HUD element (crooks_pos). Referenced
+-- as ii_identify.CROOKS_POS_LIST from ii_mcm.script, same cross-file pattern as UI_STYLE_LIST.
+CROOKS_POS_LIST = {
+	{ label = "bottom_left" },
+	{ label = "bottom_middle" },
+	{ label = "bottom_right" },
+}
+
+-- Which distortion the redaction draws. Index order IS the engine mode passed to
+-- the redaction shader (list index - 1): 0 pixelate, 1 black. (Glitch was removed.)
+-- Referenced as ii_identify.REDACT_STYLE_LIST from ii_mcm.script, same cross-file
+-- pattern as MODIFIER_LIST / UI_STYLE_LIST.
+REDACT_STYLE_LIST = {
+	{ label = "pixelate" },
+	{ label = "black" },
+}
+
+-- Which region of a dead body the redaction covers. Referenced as
+-- ii_identify.REDACT_AREA_LIST from ii_mcm.script.
+REDACT_AREA_LIST = {
+	{ label = "head" },
+	{ label = "body" },
+}
+
+-- What the bodycam outline box's colour represents. 1 = faction colour (who they
+-- are), 2 = relationship colour (red enemy / green friendly / grey neutral).
+-- Referenced as ii_identify.BOX_COLOR_SOURCE_LIST from ii_mcm.script.
+BOX_COLOR_SOURCE_LIST = {
+	{ label = "faction" },
+	{ label = "relation" },
+}
+
+MCM_PAGES = {
+	"general",
+	-- UI Style is a nested container: its options live in sub-pages, so paths are
+	-- ii/uistyle/<sub>/<key> (see ii_mcm.script). List each sub-page's path prefix here.
+	"uistyle/general",
+	"uistyle/bodycam",
+	"uistyle/crooks",
+	"targeting",
+	"hipfire",
+	"binoc",
+	"ads",
+	"pip",
+	"faceredact",
+	"scantime",
+	"debug",
+	"wdcompat",
+	"colors",
+}
+
+function read(C, COLOR_DEFS)
+	for key, default in pairs(DEFAULTS) do
+		local v = default
+		if ui_mcm and ui_mcm.get then
+			-- The menu is split into per-section leaf PAGES (ii_mcm.script), so each option
+			-- stores under "ii/<page>/<key>". Rather than track which page owns which key,
+			-- try each page and take the first hit: every option id is unique and lives on
+			-- exactly one page, and get() returns nil for a path with no option there. Only
+			-- runs on load / option-change, so the extra lookups cost nothing per frame.
+			for _, pg in ipairs(MCM_PAGES) do
+				local got = ui_mcm.get("ii/" .. pg .. "/" .. key)
+				if got ~= nil then
+					v = got
+					break
+				end
+			end
+		end
+		-- MCM/engine can marshal a checkbox as a NUMBER (0/1) rather than a Lua boolean,
+		-- and `0` is truthy under plain `if` -- so a *disabled* check would read as enabled.
+		-- This bit the WD "require kit" toggle (disabling it still blocked identification).
+		-- Coerce any boolean-default option to a real boolean so every checkbox is safe.
+		if type(default) == "boolean" and type(v) == "number" then
+			v = v ~= 0
+		end
+		C[key] = v
+	end
+	local SCAN_MS = math.floor((C.scan_time or 0.35) * 1000)
+	local FADE_MS = math.floor((C.fade_time or 0.45) * 1000)
+	local HOLD_MS = math.floor((C.hold_time or 4.0) * 1000)
+
+	-- kx = (h/w) / (UI_BASE_HEIGHT/UI_BASE_WIDTH) = (h/w) / (768/1024). See UI_KX's
+	-- declaration for why the leader line needs this.
+	local dev = device and device()
+	local w = dev and dev.width or 0
+	local h = dev and dev.height or 0
+	local UI_KX = (w > 0 and h > 0) and ((h / w) / (768 / 1024)) or 1
+
+	-- Apply the "Colors" section: mutate each live colour table IN PLACE (never
+	-- reassign -- SIGN_COLOR and tracked tags alias these refs). custom_colors off
+	-- restores the built-in default so toggling it needs no relaunch. Global lookup,
+	-- so it works regardless of this file's source order (COLOR_DEFS is defined below).
+	if COLOR_DEFS then
+		local on = C.custom_colors
+		for _, cd in ipairs(COLOR_DEFS) do
+			local d = cd.def
+			if on then
+				cd.tbl[1] = C["col_" .. cd.id .. "_r"] or d[1]
+				cd.tbl[2] = C["col_" .. cd.id .. "_g"] or d[2]
+				cd.tbl[3] = C["col_" .. cd.id .. "_b"] or d[3]
+			else
+				cd.tbl[1], cd.tbl[2], cd.tbl[3] = d[1], d[2], d[3]
+			end
+		end
+	end
+	return SCAN_MS, FADE_MS, HOLD_MS, UI_KX
+end

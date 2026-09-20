@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- The **Crooks** preset now actually turns on **instant identify** and clears the
+  per-mode instant exclusions (and sets scan time to 0), so hipfire, ADS, and binocular auto-identification
+  all reveal immediately. It also turns on **Only show overlay while aimed**.
+- The **Bodycam** preset resets the tag X/Y offsets to 0 and turns off
+  **Only show overlay while aimed**.
+- **Auto-identify visible targets** now identifies every target in your view and in range
+  without aiming. It no longer depends on **Identify all in assist radius** (which only
+  governs the hipfire / ADS / binocular auto-triggers), and it skips targets behind the
+  camera so they can't fill the tag slots.
+- Fixed a runtime error (`No such operator __eq defined in class game_object`) in the
+  per-frame object cache.
+- Split configuration, frame caching, geometric visibility, tracking, and widget
+  rendering into focused scripts while keeping `ii_identify`'s public interface.
+- Continuous tag refreshes skip scan-penalty calculations. Acquisition rejects
+  ineligible/out-of-radius candidates before LOS; geometry and aim-mode queries
+  are reused within each update, without adding visibility delay.
+- Targets retain stable widget slots. Automatic scene sweeps fill available slots
+  without repeatedly evicting active scans in crowds; direct aiming can still replace
+  an older target. Card measurements, text, visibility, and rounded distance labels
+  update only when needed, and suppressed HUD modes skip unused layout work.
+- Missing humanoid bones are checked by ID before sampling, allowing the intended
+  creature anchor fallbacks instead of silently accepting the model's root bone.
 - Fixed distance scaling for **Minimal**, **Minimal 2**, **Simple**, and **Simple 2**
   marker graphics: sizes now follow camera depth and zoom, continue shrinking beyond
   50 metres, and retain fractional pixels. Removed the downward distance nudge and
