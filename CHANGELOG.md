@@ -12,7 +12,6 @@
   **Redaction in scope** toggle on the PiP page, their preset entries, and the now-unused
   `bodycam_redaction.ps` shader. **If you used face redaction, enable it again in the
   new page** -- the old settings do not carry over.
-
 - The **Crooks** preset now actually turns on **instant identify** and clears the
   per-mode instant exclusions (and sets scan time to 0), so hipfire, ADS, and binocular auto-identification
   all reveal immediately. It also turns on **Only show overlay while aimed**.
@@ -25,8 +24,6 @@
 - The **Debug draw** FOV ring is now a real circle -- one anti-aliased `ii_ring`
   outline stretched to `fov_radius` -- instead of 32 separate dots, so it reads cleanly
   at any radius and leaves the whole dot pool for target bones.
-- Fixed a runtime error (`No such operator __eq defined in class game_object`) in the
-  per-frame object cache.
 - Split configuration, frame caching, geometric visibility, tracking, and widget
   rendering into focused scripts while keeping `ii_identify`'s public interface.
 - Continuous tag refreshes skip scan-penalty calculations. Acquisition rejects
