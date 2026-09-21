@@ -22,6 +22,8 @@ add-ons. Start there before changing anything.
 
 - `gamedata/scripts/ii_identify.script` — coordinator: callbacks, modes, target selection,
   and the public interface used by MCM and compatibility components.
+- `gamedata/scripts/ii_api.script` — PUBLIC add-on API: third-party UI style registration
+  (see SPEC.md §8). Treat its hook signatures as a stable contract.
 - `gamedata/scripts/ii_config.script` — defaults, menu lists, and configuration loading.
 - `gamedata/scripts/ii_frame.script` — per-update caches for engine queries and geometry.
 - `gamedata/scripts/ii_visibility.script` — geometric LOS and reusable ray state.
@@ -31,6 +33,8 @@ add-ons. Start there before changing anything.
   `ii_identify.script` as the single source of truth).
 - `gamedata/configs/` — string table (`text/`), UI widget templates (`ui/ii_tags.xml`),
   texture registration (`ui/textures_descr/`).
+- `MODDERS.md` + `examples/` — the PUBLIC add-on API guide and two example add-on mods.
+  Keep them in sync with `ii_api.script` and SPEC.md §8 when the API changes.
 - `fomod/` — installer; base mod plus optional **FactionID Neutralized** and
   **Perception Skill Integration** components.
 - `types/` — EmmyLua engine stubs for the LSP.

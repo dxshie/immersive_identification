@@ -1,0 +1,136 @@
+-- ======================================================================
+--  Example add-on: "Example Frame" UI style for Immersive Identification
+-- ======================================================================
+--  A four-strip outline rectangle locked to the target's head (or full body,
+--  per the player's Bodycam box-area setting), with the name beside it.
+--
+--  Demonstrates the parts the simpler ii_example_bar leaves out:
+--    * want_box -- getting the target's projected box extents, which drawing
+--      code cannot compute itself (it has no world access),
+--    * shipping your OWN widget XML instead of reusing the host mod's,
+--    * text widgets and their drop-shadow twins,
+--    * caching so a per-frame hook stays cheap.
+--
+--  See MODDERS.md in the host mod's repo. Install like any Anomaly mod, then
+--  pick it in MCM -> Immersive Identification -> UI Style -> General.
+-- ======================================================================
+
+local EDGE = 2 -- outline thickness in virtual px (not distance-scaled, like Bodycam's)
+local TEXT_PAD = 8 -- gap from the box's right edge to the name
+
+-- Parsed once for the whole session, not per slot: CScriptXmlInit():ParseFile() is
+-- expensive and the templates it yields are identical for every slot.
+local xml = nil
+local function templates()
+	if not xml then
+		xml = CScriptXmlInit()
+		xml:ParseFile("ii_example_frame.xml")
+	end
+	return xml
+end
+
+local function on_create(state, ctx)
+	local x = templates()
+	state.top = x:InitStatic("iiex_edge_h", ctx.parent)
+	state.bottom = x:InitStatic("iiex_edge_h", ctx.parent)
+	state.left = x:InitStatic("iiex_edge_v", ctx.parent)
+	state.right = x:InitStatic("iiex_edge_v", ctx.parent)
+	-- Created last = drawn last = on top of the frame.
+	state.name_sh = ctx.xml:InitTextWnd("tag_name_sh:text", ctx.parent)
+	state.name = ctx.xml:InitTextWnd("tag_name:text", ctx.parent)
+end
+
+local function on_hide(state, ctx)
+	ctx.show(state.top, false)
+	ctx.show(state.bottom, false)
+	ctx.show(state.left, false)
+	ctx.show(state.right, false)
+	ctx.show(state.name, false)
+	ctx.show(state.name_sh, false)
+end
+
+local function on_draw(state, a, ctx)
+	-- box_* is nil whenever the target does not project this frame (off screen, behind
+	-- the camera). Always check before using any of the four.
+	if not (a.box_hw and a.box_hh) then
+		on_hide(state, ctx)
+		return
+	end
+
+	local kx = ctx.config._ui_kx
+	local x0, y0 = a.box_cx - a.box_hw, a.box_cy - a.box_hh
+	local w, h = a.box_hw * 2, a.box_hh * 2
+
+	-- Vertical edges: correct the WIDTH only, so both pairs render the same on-screen
+	-- thickness (a raw px width is stretched differently on the X axis). The box
+	-- extents themselves need no correction -- they come from a world projection that
+	-- already accounts for it.
+	local tw = math.max(1, EDGE * kx)
+	-- Sides fill only the gap between top and bottom, so the corners butt instead of
+	-- overlapping. Overlapping corners double-draw and visibly darken.
+	local vh = math.max(1, h - 2 * EDGE)
+
+	local col = a.sign and ctx.sign_colors[a.sign] or a.fcol
+	local argb = GetARGB(a.a, col[1], col[2], col[3])
+
+	state.top:SetWndSize(ctx.size(w, EDGE))
+	state.top:SetWndPos(ctx.position(x0, y0))
+	state.top:SetTextureColor(argb)
+	ctx.show(state.top, true)
+
+	state.bottom:SetWndSize(ctx.size(w, EDGE))
+	state.bottom:SetWndPos(ctx.position(x0, y0 + h - EDGE))
+	state.bottom:SetTextureColor(argb)
+	ctx.show(state.bottom, true)
+
+	state.left:SetWndSize(ctx.size(tw, vh))
+	state.left:SetWndPos(ctx.position(x0, y0 + EDGE))
+	state.left:SetTextureColor(argb)
+	ctx.show(state.left, true)
+
+	state.right:SetWndSize(ctx.size(tw, vh))
+	state.right:SetWndPos(ctx.position(x0 + w - tw, y0 + EDGE))
+	state.right:SetTextureColor(argb)
+	ctx.show(state.right, true)
+
+	-- a.name is nil when the player turned "Show name" off.
+	if a.name then
+		-- ctx.set_text skips the native SetText when the string has not changed, which
+		-- is most frames -- the name only moves, it rarely differs.
+		ctx.set_text(state.name, a.name)
+		ctx.set_text(state.name_sh, a.name)
+		ctx.draw_shadowed_text(
+			state.name,
+			state.name_sh,
+			a.box_cx + a.box_hw + TEXT_PAD,
+			a.box_cy - a.box_hh,
+			a.a,
+			236,
+			230,
+			218,
+			math.floor(180 * a.a / 255)
+		)
+	else
+		ctx.show(state.name, false)
+		ctx.show(state.name_sh, false)
+	end
+end
+
+function on_game_start()
+	if not ii_api then
+		return
+	end
+	local ok, err = ii_api.register_style({
+		id = "ii_example_frame",
+		on_create = on_create,
+		on_draw = on_draw,
+		on_hide = on_hide,
+		-- Ask for the projected box extents. Deliberately NO dist_scale: the extents
+		-- already come from a world projection, so the frame shrinks with distance on
+		-- its own -- scaling it again would compound.
+		want_box = true,
+	})
+	if not ok then
+		printf("!![ii_example_frame] could not register: %s", tostring(err))
+	end
+end

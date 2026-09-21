@@ -107,6 +107,7 @@ familiarity only speed up or slow down how long the scan takes.
 gamedata/
   scripts/
     ii_identify.script          Coordinator: modes, target selection, callbacks
+    ii_api.script               PUBLIC add-on API: third-party UI style registration
     ii_config.script            Defaults, menu lists, live configuration loading
     ii_frame.script             Reusable per-update camera/object/bone/query cache
     ii_visibility.script        Transparency-aware geometric LOS and ray scratch
@@ -125,6 +126,7 @@ fomod/
   ModuleConfig.xml              Installer: base + 2 optional components
 FactionID Neutralized/          Optional: no-op override of FactionID's HUD script
 Perception Skill Integration/   Optional: adds a "perception" skill to Skill System
+examples/                       Two complete example add-on mods (see MODDERS.md)
 types/                          EmmyLua engine stubs for the LSP
 flake.nix, .luarc.json          Nix dev tooling (xmllint / LuaLS / packaging)
 ```
@@ -980,7 +982,115 @@ need in-game tuning. None affects the tier **logic**.
 
 ---
 
-## 8. Dev tooling
+## 8. Public add-on API (`ii_api.script`)
+
+> Modder-facing guide: **[MODDERS.md](./MODDERS.md)**. Two complete example add-ons:
+> **[examples/](./examples)**. This section is the terse contract.
+
+Third-party mods add their own UI styles without editing this mod. Anomaly makes every
+`<name>.script` a global table, so `ii_api.script` **is** the public object — no require, no
+shared state, no patching.
+
+**Register from a function, never a script's top level** — at top level the load order of the
+two scripts decides whether `ii_api` exists yet. `on_game_start` runs before MCM builds its menu
+and before the tag widgets are created, so it is visible to both.
+
+`ii_api.API_VERSION` is `1`. It bumps only when a hook's signature or contract *changes*; new
+optional `def` fields and new `ctx` members are additive and do not bump it.
+
+### 8.1 `ii_api.register_style(def)` → `true`, or `false, reason`
+
+| field | | meaning |
+|---|---|---|
+| `id` | **required** | unique, `[a-z0-9_]`. Also the MCM dropdown's string-table suffix — ship `ii_uistyle_general_ui_style_lst_<id>` in your own string table or the menu shows the raw id. |
+| `on_draw` | **required** | `function(state, a, ctx, slot)` — every frame, per visible target, while your style is selected. |
+| `on_create` | optional | `function(state, ctx, slot)` — once per slot, lazily, just before its first `on_draw`. Create widgets here. |
+| `on_hide` | optional | `function(state, ctx, slot)` — when the slot stops drawing (target lost, style switched away). Hide your widgets; anything left shown stays on screen. |
+| `dist_scale` | optional | `true` = `a.scale` follows camera depth/zoom like Minimal / Simple, instead of the flat `card_scale`. |
+| `want_box` | optional | `true` = also fill `a.box_*` with head/body box extents (the Bodycam geometry). Draw code cannot derive these itself — it has no world access. |
+
+`state` is a per-slot scratch table, yours to keep widgets in. Other queries: `ii_api.get(id)`,
+`ii_api.registered()` (stable sorted array — same table each call, safe per-frame),
+`ii_api.count()`.
+
+### 8.2 The render record (`a`)
+
+`hx`, `hy` (anchor, virtual px) · `a` (alpha 0-255) · `scale` · `scanning` · `header` (faction
+label) · `name` · `rank` · `weap` · `icon` (faction emblem texture id) · `col` (relation-tinted
+colour) · `fcol` (faction colour) · `rank_col` · `sign` (`"-"`/`"+"`/`"o"`, **`nil` when
+`show_relation` is off** — see §3's relation gating) · `stack_offset` · and, with `want_box`,
+`box_cx` / `box_cy` / `box_hw` / `box_hh` (nil when the target does not project this frame).
+
+Text fields are `nil` when their `show_*` toggle is off, so presence *is* the show decision —
+the same idiom the built-in styles use. Honour them and your style inherits the content toggles
+for free.
+
+### 8.3 The context (`ctx`)
+
+`config` (the **live** config table — `_ui_kx` for aspect correction, and every setting) ·
+`position(x, y)` / `size(w, h)` (the reused `vector2` helpers — do **not** cache their return) ·
+`show(w, bool)` and `set_text(w, str)` (change-guarded: they skip the native call when nothing
+changed, which is why the built-in styles are cheap — use them instead of raw `Show`/`SetText`) ·
+`draw_shadowed_text(main, sh, x, y, alpha, r, g, b, shadow_a)` · `xml` (this mod's parsed
+`ii_tags.xml`, so you can reuse `tag_icon`, `tag_node`, `tag_box_*`, …) · `parent` (the `IiTags`
+window to parent widgets to) · `neutral` · `sign_colors` · `api_version`.
+
+### 8.4 What the mod still does for you
+
+The scanning spinner (your `on_draw` only ever sees revealed targets), target acquisition, LOS,
+range and relation gating, fade/hold timing, slot assignment, and hiding on style switch. Hooks
+run behind `pcall` — a style that throws is logged **once** and skipped for that slot rather
+than taking the HUD down.
+
+### 8.5 Index stability
+
+`ui_style` stores an **index**. Built-ins hold 1..`ii_config.BUILTIN_STYLE_COUNT` (8) and are
+never affected. Add-on styles occupy the range above that, sorted by `id`, so a given set of
+installed add-ons always yields the same indices regardless of script load order. Installing or
+removing an add-on does reshuffle that range — unavoidable while the option stores a number. An
+index pointing past the end (an add-on the player removed) falls through to the Card style.
+
+### 8.6 Worked example
+
+```lua
+-- gamedata/scripts/my_ii_style.script -- a faction-coloured bar under the target.
+local function on_create(state, ctx)
+    state.bar = ctx.xml:InitStatic("tag_s2_bar", ctx.parent) -- reuse a built-in template
+end
+
+local function on_draw(state, a, ctx)
+    local w, h = 30 * a.scale * ctx.config._ui_kx, 4 * a.scale
+    state.bar:SetWndSize(ctx.size(w, h))
+    state.bar:SetWndPos(ctx.position(a.hx - w / 2, a.hy + 10 * a.scale))
+    local c = a.sign and ctx.sign_colors[a.sign] or a.fcol -- nil sign = Show relation is off
+    state.bar:SetTextureColor(GetARGB(a.a, c[1], c[2], c[3]))
+    ctx.show(state.bar, true)
+end
+
+local function on_hide(state, ctx)
+    ctx.show(state.bar, false)
+end
+
+function on_game_start()
+    ii_api.register_style({
+        id = "my_bar",
+        on_create = on_create,
+        on_draw = on_draw,
+        on_hide = on_hide,
+        dist_scale = true,
+    })
+end
+```
+
+Plus, in the add-on's own string table:
+
+```xml
+<string id="ii_uistyle_general_ui_style_lst_my_bar"><text>My Bar</text></string>
+```
+
+---
+
+## 9. Dev tooling
 
 - **`flake.nix`** — `devShells.default` provides `xmllint` (libxml2),
   `lua-language-server`, `lua5_1`, `stylua`, `p7zip`. Apps: **`check-xml`** runs
@@ -998,7 +1108,7 @@ need in-game tuning. None affects the tier **logic**.
 
 ---
 
-## 9. Design principles (cross-cutting)
+## 10. Design principles (cross-cutting)
 
 - **No RNG — difficulty is reveal delay.** Every "penalty" is a scan-time
   multiplier; identification always succeeds if the target is valid and in range.
@@ -1019,7 +1129,7 @@ need in-game tuning. None affects the tier **logic**.
 
 ---
 
-## 10. Free-aim support (bodycam engine)
+## 11. Free-aim support (bodycam engine)
 
 The `freeaim_assist` setting makes the FOV target-assist circle follow where the
 weapon actually points on a free-aim / bodycam engine
@@ -1056,7 +1166,7 @@ available, so it's safe on every engine. Net: **firearms** work everywhere (stoc
 Verify with `debug_log` on: the aim-debug dump should show `ETraceTarget` **found**, and the
 assist should track a target while free-aiming with a knife or raised binoculars.
 
-## 11. Face redaction — moved out
+## 12. Face redaction — moved out
 
 Face redaction (an engine post-process that censors the face of every humanoid in
 range with a pixelated or black box) **used to live in this mod**. It never depended
@@ -1077,7 +1187,7 @@ remains in its MCM or presets. The two repos are independent: face redaction wor
 with this mod absent, and this mod works with it absent. The in-scope (SVP) redaction
 pass described in §12 is likewise driven from there now.
 
-## 12. In-scope (SVP/PiP) identification markers (engine)
+## 13. In-scope (SVP/PiP) identification markers (engine)
 
 The mod's `svp_ui_markers_begin/add/commit` + `is_svp_active` calls (gated by
 `PIP_AVAILABLE`, a `rawget` existence check) draw identification markers **inside a
@@ -1115,7 +1225,7 @@ samples the scope scene. The Lua that feeds those world boxes now lives in the b
 repo (§11); this mod's `head_box_for`/`body_box_for` still return a world centre +
 world half-extents, used for the in-scope **markers**.
 
-## 13. Notes on this document
+## 14. Notes on this document
 
 - This spec was reconciled against the tree at **v2.55.1**. Line-number citations
   point into `ii_identify.script` at that revision — treat them as "near here",

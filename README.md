@@ -137,6 +137,23 @@ number. Toggle it and tune the speed bonus per level / XP per identify / XP
 per loot in MCM, under "Skill System (Perception)". No effect (and no XP
 grind) without both the Skill System mod and this component installed.
 
+## Add your own UI style
+
+Other mods can register their own tag style through this mod's `ii_api` global — it then appears
+in the **UI style** dropdown alongside the built-in ones, and this mod keeps doing target
+acquisition, line of sight, range and relation gating, scan timing and slot management for it:
+
+```lua
+function on_game_start()
+    ii_api.register_style({ id = "my_bar", on_draw = my_draw, dist_scale = true })
+end
+```
+
+- **[MODDERS.md](./MODDERS.md)** — the guide: hooks, the render record, widgets, the gotchas.
+- **[examples/](./examples)** — two complete, installable example add-ons.
+
+Nothing in this mod needs editing or overwriting.
+
 ## Development
 
 `nix develop` gives you `xmllint`, `lua-language-server`, Lua 5.1

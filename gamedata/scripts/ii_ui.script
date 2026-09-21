@@ -19,12 +19,60 @@ function install(IiTags, context)
 		end
 	end
 
+	-- Handed to every ii_api style hook. Built once and reused: `config` is the LIVE config
+	-- table (so C._ui_kx and every setting read current values), and the helpers are the same
+	-- ones the built-in styles use, so an add-on gets identical widget handling for free.
+	-- `xml` / `parent` are filled in by InitControls, which always runs before any draw.
+	local API_CTX = {
+		api_version = 1,
+		config = C,
+		position = P,
+		size = S,
+		show = show,
+		set_text = set_text,
+		draw_shadowed_text = draw_shadowed_text,
+		neutral = COL_NEUTRAL,
+		sign_colors = SIGN_COLOR,
+	}
+
+	-- Add-on hooks run behind a pcall: this is third-party code on the per-frame render path,
+	-- and an error escaping here would take the whole HUD down with it. A style that throws is
+	-- logged ONCE and then skipped for that slot rather than spamming the log every frame --
+	-- `state` doubles as the latch. Split in two because the signatures genuinely differ:
+	-- on_draw needs the render record, the lifecycle hooks have none to give.
+	local function api_guard(def, state, ok, err)
+		if not ok then
+			state._ii_broken = true
+			printf("!![ii_api] style '%s' errored, disabling it for this slot: %s", def.id, tostring(err))
+		end
+	end
+
+	-- on_create(state, ctx, slot) / on_hide(state, ctx, slot)
+	local function api_lifecycle(def, hook, state, i)
+		if not hook or state._ii_broken then
+			return
+		end
+		api_guard(def, state, pcall(hook, state, API_CTX, i))
+	end
+
+	-- on_draw(state, a, ctx, slot)
+	local function api_draw(def, state, i, a)
+		if state._ii_broken then
+			return
+		end
+		api_guard(def, state, pcall(def.on_draw, state, a, API_CTX, i))
+	end
 	function IiTags:InitControls()
 		self:SetWndRect(Frect():set(0, 0, 1024, 768))
 		self:SetAutoDelete(true)
 	
 		self.xml = CScriptXmlInit()
 		self.xml:ParseFile("ii_tags.xml")
+
+		-- Add-on styles may reuse the built-in widget templates (tag_icon, tag_node, ...) through
+		-- ctx.xml, or parse their own XML and parent the widgets to ctx.parent.
+		API_CTX.xml = self.xml
+		API_CTX.parent = self
 	
 		self.slots = {}
 		for i = 1, MAX_TAGS do
@@ -89,6 +137,9 @@ function install(IiTags, context)
 				s2_circle = s2_circle,
 				s2_tri = s2_tri,
 				s2_bar = s2_bar,
+				-- Per-slot scratch for ii_api styles: id -> the state table that style owns.
+				-- Filled lazily on first draw, so a style registered after InitControls still works.
+				custom = {},
 			}
 			-- hidden starts unset (falsy) so this first hide_slot() call actually
 			-- runs the Show(false) calls below, instead of short-circuiting on its
@@ -210,6 +261,14 @@ function install(IiTags, context)
 		show(s.glow, false)
 		show(s.node, false)
 		show(s.spinner, false)
+		-- Add-on styles own their widgets, so only they can hide them. Guarded by the slot's
+		-- `hidden` latch above, so this runs on the transition, not every frame.
+		for id, state in pairs(s.custom) do
+			local def = ii_api and ii_api.get(id)
+			if def then
+				api_lifecycle(def, def.on_hide, state, i)
+			end
+		end
 	end
 	
 	-- Hide every debug-draw widget (the FOV ring, the bone dot pool, the radius text,
@@ -589,6 +648,23 @@ function install(IiTags, context)
 		end
 	
 		show(s.spinner, false)
+	
+		-- Add-on styles (ii_api): any ui_style past the built-in range dispatches here. Placed
+		-- AFTER the scanning branch above, so a custom style inherits the standard scan spinner
+		-- and only ever draws revealed targets -- one less thing every add-on has to reimplement.
+		-- Must also come before the mini-fallback/card tail below, which is the unmatched-style
+		-- catch-all and would otherwise draw a card over the add-on's own graphics.
+		local api_def = ii_config.custom_style(C.ui_style)
+		if api_def then
+			local state = s.custom[api_def.id]
+			if not state then
+				state = {}
+				s.custom[api_def.id] = state
+				api_lifecycle(api_def, api_def.on_create, state, i)
+			end
+			api_draw(api_def, state, i, a)
+			return
+		end
 	
 		-- Minimal style: always just the faction-coloured dot + a relation sign,
 		-- regardless of scale -- a distinct, user-selected visual language, not

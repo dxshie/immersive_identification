@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **Modder documentation for the add-on API.** `MODDERS.md` is a full guide to writing your own
+  UI style -- the hooks, every field of the render record, making widgets, the coordinate system
+  and aspect correction, honouring the player's settings, performance rules, debugging and a
+  gotcha checklist. `examples/` has two complete, installable example add-ons: a minimal one and
+  one using the projected head-box geometry plus its own widget XML. The repo's XML, Lua,
+  formatting and string-table checks now cover `examples/` too, so they cannot rot.
+- **Add-on API: other mods can now add their own UI styles.** A new `ii_api` global takes a
+  style registration and the style shows up in the UI style dropdown like any built-in -- no
+  edits to this mod, no patching, no shared files:
+
+      function on_game_start()
+          ii_api.register_style({ id = "my_bar", on_draw = ..., dist_scale = true })
+      end
+
+  The mod keeps doing the hard parts for the add-on: target acquisition, line of sight, range
+  and relation gating, the scanning spinner, fade/hold timing, slot assignment and cleanup on
+  style switch. Add-ons get the same change-guarded widget helpers the built-in styles use, can
+  reuse the built-in widget templates, and can opt into distance scaling or head-box geometry.
+  A style that errors is logged once and skipped rather than taking the HUD down.
+  See SPEC.md section 8 for the full contract and a worked example.
 - **Tags now clear when the target falls outside your identify range.** Previously each tag kept
   the range it was identified at for its whole life, so losing magnification -- lowering a scope
   or binoculars, which cuts the effective range by the entire zoom factor -- left distant tags

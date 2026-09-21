@@ -3638,6 +3638,10 @@ local function render(tg)
 	-- The LIVE effective identify range for this frame (base, plus whatever binocular / ADS /
 	-- magnification boost applies right now). Drives the out-of-range drop below; per-instance
 	-- e.max_dist stays the identify-time snapshot for everything else.
+	-- The add-on style selected this frame, if any (nil for a built-in). Hoisted out of the
+	-- per-target loop below: it feeds the distance-scaling and box-geometry opt-ins, both of
+	-- which are per-target decisions driven by one per-frame fact.
+	local api_def = ii_config.custom_style(C.ui_style)
 	local _, _, _, live_max = boost_params()
 	live_max = live_max or C.max_dist or 50
 
@@ -3800,6 +3804,7 @@ local function render(tg)
 						or C.ui_style == 5
 						or C.ui_style == 7
 						or C.ui_style == 8
+						or (api_def ~= nil and api_def.dist_scale == true)
 					local dscale = scaling_style and mini_dist_scale_factor(pos, sy) or 1
 					if scaling_style then
 						-- Offsets describe the billboard plane in reference units. Keep them
@@ -3833,11 +3838,11 @@ local function render(tg)
 					a.fcol, a.sign = e.fcol, e.sign
 					a.weap = e.weap
 	
-					-- Bodycam style: precompute the outline box's screen centre and
-					-- distance-scaled half-extents here (draw_slot has no world access),
-					-- head-only or full-body per box_area. Cleared otherwise, since
-					-- active_pool entries are reused and would carry stale extents.
-					if C.ui_style == 3 then
+					-- Bodycam style, and any add-on style opting in with want_box: precompute the
+					-- outline box's screen centre and distance-scaled half-extents here (draw_slot
+					-- has no world access), head-only or full-body per box_area. Cleared otherwise,
+					-- since active_pool entries are reused and would carry stale extents.
+					if C.ui_style == 3 or (api_def and api_def.want_box) then
 						local bcx, bcy, bhw, bhh, _, bwx, bwy, bwz = area_box_for(obj, C.box_area or 1)
 						if bcx then
 							-- Loosen the box off the model by box_padding (a fraction of

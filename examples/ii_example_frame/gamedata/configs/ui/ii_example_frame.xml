@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<w>
+	<!-- Widget templates for the "Example Frame" Immersive Identification style.
+	     Two thin strips, sized and tinted per frame from script.
+
+	     stretch="1" is LOAD-BEARING, not cosmetic. stretch="0" is the engine's
+	     tmNative mode, which ignores every SetWndSize() call and always draws the
+	     texture at its native pixel size. That is the classic "my widget is
+	     enormous and ignores my code" bug.
+
+	     NOTE: a bare double hyphen is illegal inside an XML comment and this
+	     engine's loader CRASHES on it rather than reporting an error. Validate
+	     with xmllint (the repo's `nix run .#check-xml` does).
+
+	     ii_white is registered by Immersive Identification itself (its
+	     configs/ui/textures_descr/ii_textures.xml), which this add-on requires
+	     anyway, so there is no .dds to ship here. -->
+	<iiex_edge_h width="64" height="2" stretch="1">
+		<texture r="255" g="255" b="255" a="255">ii_white</texture>
+	</iiex_edge_h>
+	<iiex_edge_v width="2" height="64" stretch="1">
+		<texture r="255" g="255" b="255" a="255">ii_white</texture>
+	</iiex_edge_v>
+</w>

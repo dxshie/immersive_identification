@@ -190,6 +190,37 @@ UI_STYLE_LIST = {
 	{ label = "patch" },
 }
 
+-- Built-in styles occupy indices 1..BUILTIN_STYLE_COUNT; anything past that is a
+-- third-party style registered through ii_api (see that file for the ordering rules).
+-- Kept here rather than in ii_api so the registry stays a pure list and this file remains
+-- the single source of truth for what a stored ui_style value MEANS.
+BUILTIN_STYLE_COUNT = #UI_STYLE_LIST
+
+-- The full dropdown: built-ins followed by registered add-on styles. Allocates, so it is
+-- for menu building (ii_mcm) only -- the per-frame path uses custom_style() below.
+function style_list()
+	local list = {}
+	for i = 1, #UI_STYLE_LIST do
+		list[i] = UI_STYLE_LIST[i]
+	end
+	if ii_api then
+		for _, def in ipairs(ii_api.registered()) do
+			list[#list + 1] = { label = def.id, custom = def }
+		end
+	end
+	return list
+end
+
+-- The add-on style definition a stored ui_style index selects, or nil for a built-in /
+-- out-of-range index (an add-on the player has since removed). Hot: called every frame
+-- per drawn slot, so it allocates nothing and leans on ii_api.registered()'s cached array.
+function custom_style(index)
+	if not index or index <= BUILTIN_STYLE_COUNT or not ii_api then
+		return nil
+	end
+	return ii_api.registered()[index - BUILTIN_STYLE_COUNT]
+end
+
 -- Where the tag/marker anchors on the target's body (anchor_basis). Index order IS the stored
 -- value. Referenced as ii_identify.ANCHOR_BASIS_LIST from ii_mcm.script, same cross-file pattern
 -- as UI_STYLE_LIST.

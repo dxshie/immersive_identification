@@ -17,9 +17,15 @@ function on_mcm_load()
 		end
 	end
 
+	-- Built-ins plus whatever add-ons registered through ii_api (ii_config.style_list), so a
+	-- third-party style appears in this dropdown without touching this file. Each entry's
+	-- label is the string-table suffix MCM resolves -- an add-on ships its own
+	-- ii_uistyle_general_ui_style_lst_<id> string.
 	local ui_style_content = {}
-	if ii_identify and ii_identify.UI_STYLE_LIST then
-		for idx, e in ipairs(ii_identify.UI_STYLE_LIST) do
+	local style_list = ii_config and ii_config.style_list and ii_config.style_list()
+		or (ii_identify and ii_identify.UI_STYLE_LIST)
+	if style_list then
+		for idx, e in ipairs(style_list) do
 			ui_style_content[#ui_style_content + 1] = { idx, e.label }
 		end
 	end

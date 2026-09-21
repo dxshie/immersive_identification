@@ -1,0 +1,93 @@
+-- ======================================================================
+--  Example add-on: "Example Bar" UI style for Immersive Identification
+-- ======================================================================
+--  A minimal but complete style: one faction-coloured bar under each
+--  identified target, with a thinner rank-coloured bar above it.
+--
+--  Demonstrates the whole shape of an add-on -- registration, the three
+--  hooks, reusing the host mod's widget templates, honouring the player's
+--  content toggles, distance scaling, and aspect correction -- in as little
+--  code as possible. See MODDERS.md in the host mod's repo.
+--
+--  Install like any Anomaly mod. Then pick it in
+--  MCM -> Immersive Identification -> UI Style -> General -> UI style.
+-- ======================================================================
+
+local BAR_W = 30 -- bar width in virtual px, before a.scale
+local BAR_H = 4
+local RANK_H = 2
+local GAP = 2 -- between the two bars
+local DROP = 10 -- how far below the anchor the first bar sits
+
+-- One set of widgets per tag slot, made once. `tag_s2_bar` is a plain white
+-- rectangle template from the host mod's ii_tags.xml -- InitStatic gives us our
+-- OWN widget from it, we are not sharing the built-in styles' widgets.
+-- Creation order is draw order: the rank bar is created last, so it draws on top.
+local function on_create(state, ctx)
+	state.bar = ctx.xml:InitStatic("tag_s2_bar", ctx.parent)
+	state.rank = ctx.xml:InitStatic("tag_s2_bar", ctx.parent)
+end
+
+local function on_hide(state, ctx)
+	-- Anything not hidden here stays on screen after the target is gone.
+	ctx.show(state.bar, false)
+	ctx.show(state.rank, false)
+end
+
+local function on_draw(state, a, ctx)
+	-- Hoisted: every `a.b.c` is a hash lookup, and this runs per target per frame.
+	local kx = ctx.config._ui_kx
+	local scale = a.scale
+
+	-- Widths are kx-corrected so the bar keeps its proportions on a 16:9 or 21:9
+	-- screen; heights never are. Everything scales by a.scale, which carries the
+	-- player's "Card scale" plus distance scaling (we opted into that below).
+	local w = BAR_W * scale * kx
+	local h = BAR_H * scale
+	local x = a.hx - w / 2
+	local y = a.hy + DROP * scale
+
+	-- a.sign is nil when the player turned "Show relation" off, which also nils the
+	-- colour lookup -- fall back to the faction colour so the bar still says something.
+	local col = a.sign and ctx.sign_colors[a.sign] or a.fcol
+
+	-- ctx.position / ctx.size return SHARED scratch: use them inline as the argument,
+	-- never store the result. a.a already carries the fade-in/hold/fade-out curve.
+	state.bar:SetWndSize(ctx.size(w, h))
+	state.bar:SetWndPos(ctx.position(x, y))
+	state.bar:SetTextureColor(GetARGB(a.a, col[1], col[2], col[3]))
+	ctx.show(state.bar, true)
+
+	-- Rank bar, but only when the player wants rank shown: a.rank is nil both when
+	-- "Show rank" is off and for monsters, which have no rank at all.
+	if a.rank then
+		local rh = RANK_H * scale
+		local rc = a.rank_col
+		state.rank:SetWndSize(ctx.size(w, rh))
+		state.rank:SetWndPos(ctx.position(x, y + h + GAP * scale))
+		state.rank:SetTextureColor(GetARGB(a.a, rc[1], rc[2], rc[3]))
+		ctx.show(state.rank, true)
+	else
+		ctx.show(state.rank, false)
+	end
+end
+
+-- on_game_start, NOT the top level of this file: at top level there is no guarantee
+-- ii_api.script has loaded yet. This runs after every script is loaded, and before
+-- MCM builds its menu.
+function on_game_start()
+	-- nil when Immersive Identification is not installed -- stay inert rather than error.
+	if not ii_api then
+		return
+	end
+	local ok, err = ii_api.register_style({
+		id = "ii_example_bar", -- also the string-table suffix; see st_ii_example_bar.xml
+		on_create = on_create,
+		on_draw = on_draw,
+		on_hide = on_hide,
+		dist_scale = true, -- shrink with distance like the Minimal / Simple styles
+	})
+	if not ok then
+		printf("!![ii_example_bar] could not register: %s", tostring(err))
+	end
+end

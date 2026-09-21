@@ -1,0 +1,102 @@
+-- ======================================================================
+--  Immersive Identification: public add-on API
+-- ======================================================================
+--  Third-party mods register their own UI styles here. Anomaly makes every
+--  <name>.script a global table, so this file IS the public object: an add-on
+--  just calls ii_api.register_style{...} -- no require, no shared state, and
+--  nothing in this mod needs editing.
+--
+--  Register from a FUNCTION, not a script's top level: at top level the load
+--  order of the two scripts decides whether `ii_api` exists yet. on_game_start
+--  is the natural hook -- it runs before MCM builds its menu and before the tag
+--  widgets are created, so the style is visible to both.
+--
+--      function on_game_start()
+--          ii_api.register_style({ id = "my_style", on_draw = ... })
+--      end
+--
+--  See SPEC.md section 8 for the hook contract and a worked example.
+-- ======================================================================
+
+-- Bumped when a hook's signature or contract changes. Add-ons can branch on it;
+-- additive changes (new optional def fields, new ctx members) do NOT bump it.
+API_VERSION = 1
+
+local styles = {} -- id -> definition
+local ordered = nil -- cached array form, rebuilt on registration
+
+-- Deterministic ORDER is the whole point of sorting here rather than appending in
+-- registration order: a style's stored ui_style value is its INDEX, and script load
+-- order is not guaranteed between add-ons. Sorting by id means a given set of installed
+-- add-ons always yields the same indices, so a saved setting keeps meaning the same
+-- style across restarts. (Installing or removing an add-on still reshuffles the custom
+-- range -- the built-in styles are never affected. Unavoidable while the option stores
+-- a number; see SPEC.md.)
+local function rebuild()
+	local ids = {}
+	for id in pairs(styles) do
+		ids[#ids + 1] = id
+	end
+	table.sort(ids)
+	ordered = {}
+	for i = 1, #ids do
+		ordered[i] = styles[ids[i]]
+	end
+end
+
+-- Registers one UI style. Returns true, or false + a reason string.
+--
+-- def.id          REQUIRED. Unique, [a-z0-9_]. Also the MCM dropdown's string-table
+--                 suffix: ship `ii_uistyle_general_ui_style_lst_<id>` in your own
+--                 string table or the menu shows the raw id.
+-- def.on_draw     REQUIRED. function(state, a, ctx, slot) -- called every frame for each
+--                 visible target while this style is selected. `a` is the render record
+--                 (see SPEC.md section 8); `state` is a per-slot scratch table that is
+--                 yours to keep widgets in.
+-- def.on_create   optional. function(state, ctx, slot) -- called once per slot, lazily,
+--                 just before the first on_draw. Create your widgets here.
+-- def.on_hide     optional. function(state, ctx, slot) -- called when the slot stops
+--                 drawing (target lost, style switched away). Hide your widgets here;
+--                 anything you leave shown stays on screen.
+-- def.dist_scale  optional. true = `a.scale` follows camera depth/zoom like the Minimal
+--                 and Simple styles, instead of the flat card_scale.
+-- def.want_box    optional. true = also fill a.box_cx/cy/hw/hh with the head/body box
+--                 extents (the Bodycam style's geometry), which draw code cannot derive
+--                 on its own because it has no world access.
+function register_style(def)
+	if type(def) ~= "table" then
+		return false, "definition must be a table"
+	end
+	if type(def.id) ~= "string" or def.id == "" then
+		return false, "definition needs a non-empty string id"
+	end
+	if def.id:find("[^a-z0-9_]") then
+		return false, "id must be lowercase a-z, 0-9 or _"
+	end
+	if type(def.on_draw) ~= "function" then
+		return false, "definition needs an on_draw function"
+	end
+	if styles[def.id] then
+		return false, "a style with id '" .. def.id .. "' is already registered"
+	end
+	styles[def.id] = def
+	rebuild()
+	return true
+end
+
+-- Every registered style, in the stable sorted order described above. The SAME table is
+-- returned every call (rebuilt only on registration), so per-frame callers allocate nothing.
+function registered()
+	if not ordered then
+		rebuild()
+	end
+	return ordered
+end
+
+function get(id)
+	return styles[id]
+end
+
+function count()
+	return #registered()
+end

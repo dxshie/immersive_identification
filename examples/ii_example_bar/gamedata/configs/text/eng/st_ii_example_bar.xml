@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<string_table>
+	<!-- The UI style dropdown label. MCM resolves it as
+	     ii_uistyle_general_ui_style_lst_<the style's registered id>; without this
+	     string the dropdown shows the raw id instead of a name. -->
+	<string id="ii_uistyle_general_ui_style_lst_ii_example_bar"><text>Example Bar</text></string>
+</string_table>
