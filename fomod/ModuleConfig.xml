@@ -14,12 +14,12 @@
 				<group name="Compatibility" type="SelectAny">
 					<plugins order="Explicit">
 						<plugin name="Neutralize FactionID HUD">
-							<description>Disables the separate FactionID mod's own on-screen faction HUD (its script becomes a no-op) so it doesn't show its own indicator alongside this mod's. Only install this if you also have FactionID installed.</description>
+							<description>Disables the separate FactionID mod's own on-screen faction HUD (its script becomes a no-op) so it doesn't show its own indicator alongside this mod's -- this mod replaces that HUD with its world-anchored tag, so running both means two faction indicators at once. Enabled by default because most setups (GAMMA included) ship FactionID; it is inert if you do not have FactionID installed, and you can uncheck it to keep FactionID's HUD.</description>
 							<files>
 								<folder source="FactionID Neutralized/gamedata" destination="gamedata" />
 							</files>
 							<typeDescriptor>
-								<type name="Optional" />
+								<type name="Recommended" />
 							</typeDescriptor>
 						</plugin>
 						<plugin name="Skill System: Perception">

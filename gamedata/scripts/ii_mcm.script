@@ -147,10 +147,11 @@ function on_mcm_load()
 					opt_track("max_dist", 10, 250, 5),
 				},
 			},
-			-- UI Style is a CONTAINER (no `sh`), so MCM shows its sub-pages (General/Bodycam/Crooks)
-			-- in the third column. A container can hold NO options directly (MCM only codes options on
-			-- sh=true nodes), so the general options live in the "general" sub-page. Option storage
-			-- paths become ii/uistyle/<sub>/<key> -- kept in sync in MCM_PAGES + presets_ii.ltx.
+			-- UI Style is a CONTAINER (no `sh`), so MCM shows its sub-pages (General/Card/Bodycam/
+			-- Crooks/Patch) in the third column. A container can hold NO options directly (MCM only
+			-- codes options on sh=true nodes), so the general options live in the "general" sub-page.
+			-- Option storage paths become ii/uistyle/<sub>/<key> -- kept in sync in MCM_PAGES +
+			-- presets_ii.ltx.
 			{
 				id = "uistyle",
 				gr = {
@@ -160,14 +161,18 @@ function on_mcm_load()
 						opt_check("show_name"),
 						opt_check("show_faction"),
 						opt_check("show_rank"),
+						opt_check("show_relation"),
 						opt_check("show_weapon"),
 						opt_check("color_by_relation"),
-						opt_track("card_scale", 0.5, 2, 0.05, 2),
-						opt_track("mini_scale_cutoff", 0.1, 1, 0.05, 2),
 						opt_check("mini_dist_scale"),
 						opt_track("ui_offset_x", -200, 200, 5),
 						opt_track("ui_offset_y", -200, 200, 5),
 						opt_list("anchor_basis", anchor_basis_content),
+					}),
+					page("card", {
+						opt_title("ui_mcm_ii_card_title"),
+						opt_track("card_scale", 0.5, 2, 0.05, 2),
+						opt_track("mini_scale_cutoff", 0.1, 1, 0.05, 2),
 					}),
 					page("bodycam", {
 						opt_title("ui_mcm_ii_bodycam_title"),
@@ -183,6 +188,12 @@ function on_mcm_load()
 						opt_track("crooks_x", -500, 500, 5, 0),
 						opt_track("crooks_y", -100, 700, 5, 0),
 					}),
+					page("patch", {
+						opt_title("ui_mcm_ii_patch_title"),
+						opt_track("patch_size", 8, 64, 1, 0),
+						opt_track("patch_thickness", 0, 5, 0.5, 1),
+						opt_track("patch_padding", 0, 12, 0.5, 1),
+					}),
 				},
 			},
 			page("targeting", {
@@ -190,6 +201,7 @@ function on_mcm_load()
 				opt_check("fov_assist"),
 				opt_check("freeaim_assist"),
 				opt_track("fov_radius", 0, 90, 5),
+				opt_check("fov_zoom_scaling"),
 				opt_check("fov_identify_all"),
 				opt_check("require_los"),
 				opt_check("los_block_seethrough"),
@@ -215,6 +227,7 @@ function on_mcm_load()
 				opt_track("binoc_scan_mult", 0.1, 1, 0.05, 2),
 				opt_track("binoc_range_mult", 1, 5, 0.1, 1),
 				opt_check("binoc_zoom_scaling"),
+				opt_check("binoc_clear_on_lower"),
 				opt_check("instant_exclude_binoc"),
 				opt_track("binoc_max_dist", 0, 1000, 5),
 			}),

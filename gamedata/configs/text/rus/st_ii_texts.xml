@@ -3,8 +3,10 @@
 	<string id="ui_mcm_menu_ii"><text>Иммерсивная идентификация</text></string>
 	<string id="ui_mcm_menu_general"><text>Общие</text></string>
 	<string id="ui_mcm_menu_uistyle"><text>Стиль интерфейса</text></string>
+	<string id="ui_mcm_menu_card"><text>Карточка</text></string>
 	<string id="ui_mcm_menu_bodycam"><text>Нагрудная камера</text></string>
 	<string id="ui_mcm_menu_crooks"><text>Бандиты</text></string>
+	<string id="ui_mcm_menu_patch"><text>Нашивка</text></string>
 	<string id="ui_mcm_menu_targeting"><text>Наведение</text></string>
 	<string id="ui_mcm_menu_hipfire"><text>Стрельба от бедра</text></string>
 	<string id="ui_mcm_menu_binoc"><text>Бинокль</text></string>
@@ -28,8 +30,10 @@
 
 	<string id="ui_mcm_ii_general_title"><text>Общие</text></string>
 	<string id="ui_mcm_ii_uistyle_title"><text>Стиль интерфейса</text></string>
+	<string id="ui_mcm_ii_card_title"><text>Карточка</text></string>
 	<string id="ui_mcm_ii_bodycam_title"><text>Нагрудная камера</text></string>
 	<string id="ui_mcm_ii_crooks_title"><text>Бандиты</text></string>
+	<string id="ui_mcm_ii_patch_title"><text>Нашивка</text></string>
 	<string id="ui_mcm_ii_targeting_title"><text>Наведение</text></string>
 	<string id="ui_mcm_ii_hipfire_title"><text>Стрельба от бедра</text></string>
 	<string id="ui_mcm_ii_instant_exclude_hipfire"><text>Исключить стрельбу от бедра из мгновенной идентификации</text></string>
@@ -49,7 +53,7 @@
 	<string id="ui_mcm_ii_modifier_index_desc"><text>Необязательная клавиша-модификатор, удерживаемая вместе с клавишей идентификации.</text></string>
 
 	<string id="ui_mcm_ii_ui_style"><text>Стиль интерфейса</text></string>
-	<string id="ui_mcm_ii_ui_style_desc"><text>Карточка (подробная информация), минимальный (точка цвета фракции со значком отношения) или нагрудная камера (контур цвета фракции, закреплённый на голове).</text></string>
+	<string id="ui_mcm_ii_ui_style_desc"><text>Визуальный стиль метки: карточка (подробная информация), минимальный (точка цвета фракции со значком отношения), нагрудная камера (контур цвета фракции, закреплённый на голове), простой 2 (круг фракции и треугольник отношения над головой), простой (точка, эмблема фракции и имя), бандиты (одна статичная надпись на экране о последней цели), минимальный 2 (одиночная точка цвета отношения) или нашивка (нашивка фракции в контуре цвета отношения).</text></string>
 
 	<string id="ui_mcm_ii_box_area"><text>Область рамки нагрудной камеры</text></string>
 	<string id="ui_mcm_ii_box_area_desc"><text>Стиль нагрудной камеры: рисовать прямоугольный контур только вокруг головы и лица или вокруг всего тела.</text></string>
@@ -70,6 +74,15 @@
 	<string id="ui_mcm_ii_box_opacity"><text>Прозрачность рамки</text></string>
 	<string id="ui_mcm_ii_box_opacity_desc"><text>Стиль нагрудной камеры: прозрачность прямоугольного контура (1 = полностью непрозрачный, меньшее значение = более прозрачный). Текст имени, фракции и оружия не изменяется.</text></string>
 
+	<string id="ui_mcm_ii_patch_size"><text>Размер нашивки</text></string>
+	<string id="ui_mcm_ii_patch_size_desc"><text>Стиль нашивки: размер нашивки фракции в пикселях на опорной дистанции. Нашивка и её контур масштабируются с расстоянием (ближе — крупнее, дальше — мельче).</text></string>
+
+	<string id="ui_mcm_ii_patch_thickness"><text>Толщина контура нашивки</text></string>
+	<string id="ui_mcm_ii_patch_thickness_desc"><text>Стиль нашивки: толщина контура отношения вокруг нашивки, в пикселях на опорной дистанции. 0 — контур не рисуется, остаётся только сама нашивка.</text></string>
+
+	<string id="ui_mcm_ii_patch_padding"><text>Отступ контура нашивки</text></string>
+	<string id="ui_mcm_ii_patch_padding_desc"><text>Стиль нашивки: зазор между нашивкой фракции и контуром отношения, в пикселях на опорной дистанции. 0 — контур вплотную к нашивке.</text></string>
+
 	<string id="ui_mcm_ii_auto_identify"><text>Автоматически идентифицировать видимые цели</text></string>
 	<string id="ui_mcm_ii_auto_identify_desc"><text>Непрерывно идентифицировать каждую цель в поле зрения и в пределах дальности, без нажатия клавиши и без прицеливания. Линия обзора всегда обязательна. Хорошо сочетается со стилем нагрудной камеры. (Если включено «Показывать интерфейс только при наведении», остаются только цели под прицелом.)</text></string>
 	<string id="ui_mcm_ii_hipfire_mode"><text>Автоидентификация</text></string>
@@ -81,7 +94,7 @@
 
 
 	<string id="ui_mcm_ii_color_by_relation"><text>Цвет по отношению</text></string>
-	<string id="ui_mcm_ii_color_by_relation_desc"><text>Окрашивать метку в зависимости от отношения к цели: красный — враг, зелёный — друг, бежевый — нейтральный. В стиле «Минимальный» также включает/выключает знак отношения (-/+/o).</text></string>
+	<string id="ui_mcm_ii_color_by_relation_desc"><text>Окрашивать метку по отношению к вам: красный — враг, зелёный — друг, песочный — нейтрал. Выкл. — ровный нейтральный оттенок. Влияет только на ЦВЕТ: чтобы полностью убрать признак отношения, используйте «Показывать отношение».</text></string>
 
 	<string id="ui_mcm_ii_show_name"><text>Показывать имя</text></string>
 	<string id="ui_mcm_ii_show_name_desc"><text>Показывать строку с именем цели. Применяется ко всем стилям, отображающим текст (карточка и нагрудная камера).</text></string>
@@ -91,6 +104,9 @@
 
 	<string id="ui_mcm_ii_show_rank"><text>Показывать ранг</text></string>
 	<string id="ui_mcm_ii_show_rank_desc"><text>Показывать строку с рангом цели (карточка и нагрудная камера, а также под именем в отображении бандитов).</text></string>
+
+	<string id="ui_mcm_ii_show_relation"><text>Показывать отношение</text></string>
+	<string id="ui_mcm_ii_show_relation_desc"><text>Показывать, враждебна цель, дружественна или нейтральна. Выкл. — метка сообщает, кто перед вами, но не как он к вам относится: нет значка отношения в минимальном стиле, нет треугольника в «Простом 2», нет окраски по отношению в карточке и простом стиле, нейтральный контур в «Нашивке», а нагрудная камера и «Минимальный 2» переходят на цвет фракции.</text></string>
 
 	<string id="ui_mcm_ii_show_weapon"><text>Показывать оружие и калибр</text></string>
 	<string id="ui_mcm_ii_show_weapon_desc"><text>Показывать текущее оружие цели и его калибр. Применяется ко всем стилям, отображающим текст (карточка и нагрудная камера).</text></string>
@@ -118,6 +134,9 @@
 
 	<string id="ui_mcm_ii_fov_radius"><text>Радиус помощи при выборе цели (пикс.)</text></string>
 	<string id="ui_mcm_ii_fov_radius_desc"><text>Допустимое отклонение при выборе цели без прямого попадания прицелом. Измеряется как угол от направления прицеливания, поэтому одинаково работает при стрельбе от бедра и через прицел с любым увеличением (0 = только прямое попадание).</text></string>
+	<string id="ui_mcm_ii_fov_zoom_scaling"><text>Масштабировать радиус помощи по зуму</text></string>
+	<string id="ui_mcm_ii_fov_zoom_scaling_desc"><text>Уменьшать радиус помощи при наведении во столько же раз, во сколько увеличивает оптика, чтобы помощь прощала одну и ту же ошибку прицеливания в реальном мире как с прицелом, так и без него. Без этого постоянный радиус в пикселях охватывает тем большую область мира, чем сильнее приближение, и помощь становится «цепкой» именно там, где вы целитесь точнее всего. Выкл. — радиус остаётся постоянным на экране при любом увеличении.</text></string>
+
 	<string id="ui_mcm_ii_fov_identify_all"><text>Идентифицировать всех в радиусе помощи</text></string>
 	<string id="ui_mcm_ii_fov_identify_all_desc"><text>Для авто-триггеров от бедра / прицеливания / бинокля: опознавать КАЖДУЮ подходящую цель внутри радиуса помощи прицеливания, чтобы скопление стоящих рядом сталкеров опознавалось разом. Выключите, чтобы опознавать только одну цель, ближайшую к точке прицеливания. (Ручное нажатие клавиши всегда опознаёт ближайшую. На автоидентификацию видимых целей не влияет.) По умолчанию включено.</text></string>
 
@@ -157,6 +176,9 @@
 	<string id="ui_mcm_ii_binoc_range_mult_desc"><text>Множитель максимальной дальности и дальности затухания при поднятом бинокле. По умолчанию используется постоянный множитель или базовый множитель 1 при включённом параметре «Масштабировать дальность по увеличению» ниже.</text></string>
 	<string id="ui_mcm_ii_binoc_zoom_scaling"><text>Масштабировать дальность по увеличению</text></string>
 	<string id="ui_mcm_ii_binoc_zoom_scaling_desc"><text>Умножать дальность бинокля на его увеличение, чтобы дальность зависела от оптического увеличения, а не от постоянного множителя. Выкл. = постоянный «Множитель максимальной дальности бинокля». Вкл.: установите этот множитель на 1,0 для дальности = базовая дальность ? увеличение.</text></string>
+
+	<string id="ui_mcm_ii_binoc_clear_on_lower"><text>Сбрасывать метки при опускании бинокля</text></string>
+	<string id="ui_mcm_ii_binoc_clear_on_lower_desc"><text>Убирать все опознанные цели, как только вы перестаёте смотреть в бинокль, включая те, что находятся в пределах обычной дальности опознания. Цели за пределами обычной дальности и так исчезают при опускании бинокля (вместе с увеличением пропадает и увеличенная дальность); эта опция убирает и остальные, делая наблюдение через бинокль строго «живым»: увиденное исчезает, как только оптика уходит от глаз.</text></string>
 	<string id="ui_mcm_ii_binoc_max_dist"><text>Максимальная дальность идентификации (м)</text></string>
 	<string id="ui_mcm_ii_binoc_max_dist_desc"><text>Жёсткое ограничение итоговой дальности идентификации через бинокль. Ограничивает базовую дальность после масштабирования по увеличению/бонусам — не даёт биноклю с высоким увеличением доставать слишком далеко. 0 = без ограничения.</text></string>
 
@@ -187,10 +209,10 @@
 	<string id="ui_mcm_ii_distance_scaling_title"><text>Размер карточки</text></string>
 
 	<string id="ui_mcm_ii_card_scale"><text>Масштаб карточки</text></string>
-	<string id="ui_mcm_ii_card_scale_desc"><text>Постоянный множитель размера всей карточки. Не зависит от расстояния.</text></string>
+	<string id="ui_mcm_ii_card_scale_desc"><text>Постоянный множитель размера, не зависит от расстояния. Несмотря на название, влияет на ВСЕ стили, а не только на карточку — для стилей, масштабируемых по расстоянию, умножается поверх него.</text></string>
 
 	<string id="ui_mcm_ii_mini_scale_cutoff"><text>Порог минимального режима</text></string>
-	<string id="ui_mcm_ii_mini_scale_cutoff_desc"><text>Ниже этого масштаба показывать только точку отношения вместо полной карточки.</text></string>
+	<string id="ui_mcm_ii_mini_scale_cutoff_desc"><text>Только для стиля «Карточка»: ниже этого масштаба карточка уже не помещается, поэтому показывается только точка отношения.</text></string>
 	<string id="ui_mcm_ii_mini_dist_scale"><text>Минимальный режим: масштабировать точку по расстоянию</text></string>
 	<string id="ui_mcm_ii_mini_dist_scale_desc"><text>В минимальном режиме (точка) изменять размер точки в зависимости от расстояния, чтобы точка дальней цели не была слишком большой (близко = больше, далеко = меньше). Выкл. = постоянный размер, как у других стилей.</text></string>
 	<string id="ui_mcm_ii_ui_offset_x"><text>Смещение интерфейса по горизонтали (пикс.)</text></string>
@@ -285,6 +307,7 @@
 	<string id="ii_uistyle_general_ui_style_lst_simple"><text>Простой</text></string>
 	<string id="ii_uistyle_general_ui_style_lst_crooks"><text>Бандиты</text></string>
 	<string id="ii_uistyle_general_ui_style_lst_minimal2"><text>Минимальный 2</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_patch"><text>Нашивка</text></string>
 	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_left"><text>Снизу слева</text></string>
 	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_middle"><text>Снизу по центру</text></string>
 	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_right"><text>Снизу справа</text></string>

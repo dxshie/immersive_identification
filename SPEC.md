@@ -19,13 +19,13 @@ configurable duration, then fades out.
 It replaces static HUD faction indicators (e.g. the FactionID mod) with a
 diegetic, in-world label that tracks the target as it and the camera move.
 
-Five visual styles:
+Eight visual styles:
 
 - **Card** (`ui_style = 1`): dark plate + faction icon + text lines + a leader
   line connecting to a colored dot on the target's chest.
 - **Minimal** (`ui_style = 2`): just a faction-colored dot plus a relation glyph
   (`-` enemy / `+` friend / `o` neutral). The two elements reuse the existing content
-  toggles — the dot honours `show_faction`, the sign honours `color_by_relation`; if both are off
+  toggles — the dot honours `show_faction`, the sign honours `show_relation`; if both are off
   a neutral locator dot is drawn so the tag never fully vanishes. With `mini_dist_scale` on, the
   dot and glow follow camera depth and zoom (near = bigger, far = smaller), without a
   far-distance size floor. The relation glyph retains its native font size.
@@ -40,11 +40,12 @@ Five visual styles:
   (`rank_color`, novice grey → legend gold). Distance-scaled and anchored above
   the head like the PiP marker (`draw_slot`'s `ui_style == 4` branch). All shapes,
   including the rank bar, shrink continuously with camera depth and grow with zoom;
-  no minimum pixel dimensions.
+  no minimum pixel dimensions. With `show_relation` off the triangle is dropped entirely and
+  the row (and the rank bar spanning it) closes up around the circle alone.
 - **Bodycam** (`ui_style = 3`): an unfilled faction-colored rectangle outline
   locked to the target's **head bone**, auto-scaled with distance so it stays a
   constant real-world size around the head (a bounding box with padding). Four
-  thin `ii_white` strips per edge (`draw_head_box`), with the target **name** and
+  thin `ii_white` strips per edge (`draw_rect_outline`, shared with Patch style), with the target **name** and
   **weapon/caliber** (`e.weap`, includes caliber) stacked as shadowed text just to
   the right of the box (reusing the card's `tag_name`/`tag_weap` widgets). The box
   covers the head or the full body per **`box_area`** (`area_box_for`). The head box is the **screen bounding box of the head's four
@@ -54,15 +55,34 @@ Five visual styles:
   "slips off at the corners" bug). The centre is `bip01_head` lifted `HEAD_LIFT`
   (0.09 m) to the face (the bone sits at the skull base, so an unlifted box rides
   low over the neck). Distance scaling falls out of the projection (no `UI_KX`
-  squeeze). Pairs naturally with **Auto-identify** below.
+  squeeze). With `box_color_source = relation` and `show_relation` off the box falls back to
+  the **faction** colour — like Minimal 2, the box is the style's only cue, so a neutral box
+  would say nothing. Pairs naturally with **Auto-identify** below.
 - **Crooks** (`ui_style = 6`): not a per-entity tag at all — a single **static** screen-space
   readout of the **last-identified** stalker (faction **logo** + name, + rank if `show_rank`),
   anchored to a screen corner (`crooks_pos`) with X/Y offsets (`draw_crooks`).
 - **Minimal 2** (`ui_style = 7`): the most stripped-down marker — a single bare **dot, no glow**,
   coloured purely by **relation** (red enemy / green friend / tan neutral, always relation-based
-  regardless of `color_by_relation`). No sign, no text. **Always** distance-scales (near = bigger,
+  regardless of `color_by_relation`). No sign, no text. With `show_relation` off it falls back to
+  the **faction** colour rather than a flat neutral dot — this style carries nothing else, so a
+  neutral dot would say nothing at all. **Always** distance-scales (near = bigger,
   far = smaller), like Simple / Simple 2, and follows camera zoom. Its centre stays
   at the projected anchor plus the configured offset, without a distance-based nudge.
+- **Patch** (`ui_style = 8`): the **faction patch alone**, ringed by a **relation-colored
+  outline** — "who they are" plus "friend or foe", with no text and no dot (`draw_slot`'s
+  `ui_style == 8` branch). The patch is the same `<community>_icon` texture the Card style
+  uses, drawn on the reused `tag_icon` static; the ring is four `tag_box_*` strips via the
+  shared `draw_rect_outline` helper. The ring colour is **always** relation-based (like
+  Minimal 2's dot), regardless of `color_by_relation`; `show_faction` off leaves the bare
+  ring as a locator, and `show_relation` off drops the ring to **neutral** — unlike Minimal 2
+  and Bodycam the patch itself still carries the faction, so the ring can go quiet without
+  emptying the tag. **Always** distance-scales (near = bigger, far = smaller) and follows
+  camera zoom, like Simple / Simple 2 / Minimal 2 — patch size, ring thickness, and the gap
+  between them all scale together, so the marker keeps its proportions at any range. Sized by
+  `patch_size` / `patch_thickness` / `patch_padding` (virtual px at the reference distance;
+  defaults 13 / 2 / 0). A thickness of **0** drops the ring entirely and stops it padding the
+  layout, leaving the bare patch. Patch width and horizontal padding are `UI_KX`-corrected so
+  the patch stays square on wide screens. Sits just above the head anchor, like Simple 2.
 
 Optionally, **Auto-identify** (`auto_identify`, default off) continuously reveals
 every target in the player's view and in range, without a keypress or aiming. The target
@@ -151,7 +171,7 @@ LOS is still refreshed every frame; no extra cross-frame visibility delay is add
 - **Per-frame driver** (`actor_on_update`, 4323-4355): always runs
   `update_fov_baseline()`; polls actor death → `teardown_ui()`; then when enabled
   runs `ensure_tags()`, `update_binocular_scan()`, `update_auto_identify()`,
-  `update_ads_range_cull()`, `update_loot_xp()`, and `render()`.
+  `update_ads_range_snapshot()`, `update_binoc_clear()`, `update_loot_xp()`, and `render()`.
 - **Render surface** (`ensure_tags`, 3631): lazily creates the `IiTags`
   (`CUIScriptWnd`) dialog and registers it with `get_hud():AddDialogToRender()`.
   There is **no separate render callback** — drawing is done by repositioning
@@ -264,6 +284,19 @@ engaging. It selects the candidate **nearest to the aim point** within the assis
 nearest in world space. Already-tracked targets are held as a runner-up and only returned if
 nothing else qualifies.
 
+**Assist radius** (`assist_radius()`, the single source for every `fov_radius` comparison —
+selection, the `aimed`/`under_aim` dwell tests, and the debug ring): `fov_radius` is a screen-px
+tolerance measured to the target's **silhouette**, so a fixed pixel count is *not* a fixed amount
+of forgiveness — at 4x the same 35 px spans a four-times-wider world cone, making the assist
+grabbier exactly where the player aims most precisely. With **`fov_zoom_scaling`** on (default)
+the radius is divided by the live `scope_magnification()`, holding the forgiveness constant in
+world terms. It stays usable at high zoom because the silhouette it is measured from grows by the
+same factor the radius shrinks by. Floored at `_ZOOMCFG.assist_min_px` (4) so an extreme optic (a
+binocular's raw angular ratio runs ~19x) cannot collapse it to direct-hit-only; `fov_radius = 0`
+means the player disabled the assist and stays 0. Off = the pre-existing flat screen radius at
+every zoom level. The debug-draw ring and its label both show the **effective** radius, with the
+configured value and magnification appended whenever zoom has shrunk it.
+
 **Exclude hostiles** (`exclude_hostile`, off by default): `is_hostile_engaging(obj)` returns true
 when the NPC's AI combat target is the actor (`best_enemy()`, guarded) OR it is enemy-disposed
 (`relation == enemy`) AND currently sees the actor (`see()`) — i.e. it has pulled aggro and will
@@ -273,6 +306,34 @@ identify one). A target identified BEFORE combat that later turns hostile is als
 `tracked` per-frame** in the render loop (alongside `hide_unseen`/`hide_off_aim`), so its tag
 disappears the moment you engage it — consistent with never being able to acquire one. All engine
 calls are guarded, so a missing binding degrades to "not hostile".
+
+**Reading the PDA — unconditional block** (`pda_focused()`, no setting): identification is an act of
+*looking at the target*, so a player looking at the PDA screen instead identifies nothing. The state
+is read from the PDA window's own input flag — `ActorMenu.get_pda_menu():IsShown()` **and**
+`:IsEnabled()` — which tracks exactly the right thing:
+
+- **3D PDA** (`g_3d_pda`, GAMMA's default) comes up *shown but disabled* (`CPda::UpdateCL`:
+  `ShowDialog(false)` then `Enable(false)`) — the device sits low, the world is still in view, so
+  identification stays live while you merely hold it.
+- **Right-click** (`kWPN_ZOOM`), **left-click** (`kWPN_FIRE`) and **R** (`kWPN_RELOAD`, the zoom
+  toggle) each call `pda->Enable(true)` and raise it to the face (`CPda::Action`) — that's the block.
+  `m_bZoomed` moves in lockstep with the flag (zoom implies `Enable(true)`; losing `Enable` clears
+  `m_bZoomed` in `UpdateHudAdditional`), and `m_bZoomed` itself is unreachable from Lua — `CPda` is
+  bound with **no methods at all** (`torch_script.cpp`: `class_<CPda, CGameObject>`, constructor
+  only) — so the window flag is both the proxy and the exact signal.
+- **Classic fullscreen PDA** (3D PDA off) never enters the hands; `ShowPdaMenu()` shows a dialog that
+  is enabled by default, so the same test covers it.
+
+While it holds: the `identify_target` choke point rejects every path, `update_auto_identify` returns
+early, and `update_binocular_scan` **disarms** the ADS / hipfire dwells and the binocular steady
+anchor (so unzooming can't fire a dwell that "held" for as long as the map was open). `render`
+also **clears `tracked`** and hides every slot, the Crooks readout and the in-scope markers (one
+empty `svp_ui_markers_begin`/`commit` pair, or the render thread would keep drawing the last scoped
+frame's). So raising the PDA *drops* what was identified rather than leaving cards pinned to a world
+the player isn't looking at, and lowering it re-scans from scratch instead of restoring a stale set —
+the same reasoning as disarming the dwells rather than pausing them. (`familiarity_boost` makes the
+re-scan of an already-known target quick.) Debug draw is deliberately left running, and its info
+panel shows `PDA focused: identification blocked` while it applies.
 
 **The assist is a straight screen-pixel radius** around the aim point (no angular
 cone):
@@ -393,11 +454,18 @@ nothing), a non-PiP optic narrows the **main-camera FOV**, so magnification is
 recovered as `_fov_baseline / device().fov`. Iron sights / un-magnified aim stay at
 the x1 base (`MAG_FOV_MIN = 1.05`).
 
-**Zoom-out range cull** (`update_ads_range_cull`): on the ADS-boost
-active→inactive edge, tags now beyond the (unboosted, base) range are dropped
-immediately rather than lingering invisibly on their timer; survivors are
-re-snapshotted to the base range. Deliberately ADS-only — binoculars keep a
-just-glassed distant tag readable after lowering (observation vs. combat-aid UX).
+**Out-of-range cull** (in `render`'s tracked loop, every frame): a tag whose target now sits
+beyond the **live** `boost_params()` range is dropped. Per-instance `e.max_dist` is the range
+snapshotted at identify time, so on its own it can never notice the range shrinking underneath
+it — and the range shrinks by the *whole zoom factor* the moment magnification goes away (scope
+lowered, binoculars down), which would otherwise strand every distant tag you had just earned.
+Also covers either party simply walking apart. Measured against the same range identification
+uses, so what stays tagged is exactly what could be re-acquired right now.
+
+**Zoom-out range re-snapshot** (`update_ads_range_snapshot`): on the ADS-boost active→inactive
+edge, surviving tags' `e.max_dist` is re-snapshotted to the base range, keeping it (and the draw
+gate that reads it) coherent. It no longer *drops* anything — the per-frame cull above owns that
+for every cause, which is also why binoculars need no special case here any more.
 
 **Steady auto-trigger uses auto semantics**: `try_identify(auto_mode)` — the
 steady-aim trigger (binocular / ADS mode) passes `true`, so `identify_target`
@@ -423,7 +491,8 @@ state (independent of `pip_markers`), so this also covers `pip_markers`-off.
 supplies its widget methods. It parses `ii_tags.xml` via `CScriptXmlInit`.
 `InitControls` builds `MAX_TAGS` slots of widgets in draw
 order (shadow → line → plate → accent → icon → text → node/glow → spinner →
-bodycam box edges → Simple 2 circle/triangle/bar), plus the debug dot/text pool.
+bodycam box edges → Simple 2 circle/triangle/bar), plus the debug dot/text pool. Patch style
+reuses `tag_icon` for the patch and the `tag_box_*` edges for its relation ring.
 
 - **Rendering data flow:** the coordinator fills a reused render record in each
   tracked entry's stable slot, then calls `draw_slot(slot, record, time)`. Card
@@ -442,12 +511,25 @@ bodycam box edges → Simple 2 circle/triangle/bar), plus the debug dot/text poo
   = `anchor_pos`), Torso (`bip01_spine2/1`), or Feet (`position()`) — for the card + all dot
   styles + the in-scope marker. `anchor_pos` itself stays head-biased for LOS/foliage geometry
   regardless; the Bodycam box uses its own `box_area`.
-- **UI styles** (`ui_style`): 1 Card, 2 Minimal, 3 Bodycam, 4 Simple 2, 5 Simple, 6 Crooks, 7 Minimal 2 (bare relation dot).
+- **Relation gating** (`show_relation`): folded in at snapshot time like the other content
+  toggles — `show_rel` (MCM toggle **and** the WD tier's `ft.relationship` gate) drives both
+  `col` (→ `COL_NEUTRAL`) and `sign` (→ **`nil`**, not `"o"`). Field *absence* is the signal, the
+  same idiom as `name`/`rank`/`weap`, and every `SIGN_COLOR[sign]` lookup degrades to
+  `COL_NEUTRAL` for free (indexing with a nil key is legal in Lua and returns nil). Card and
+  Simple then go neutral automatically via `col`; the styles whose *only* cue is relation fall
+  back to something that still says something — Minimal drops the glyph, Simple 2 drops the
+  triangle and re-centres the row, Minimal 2 and Bodycam switch to the faction colour, Patch
+  drops its ring to neutral. Because it is snapshotted, an already-revealed tag keeps its old
+  relation state until re-identified (as with every `show_*` toggle).
+- **UI styles** (`ui_style`): 1 Card, 2 Minimal, 3 Bodycam, 4 Simple 2, 5 Simple, 6 Crooks, 7 Minimal 2 (bare relation dot), 8 Patch (faction patch + relation ring).
 - **`draw_slot`** branches: for **Crooks** (`ui_style==6`) it hides the per-entity slot and bails
-  (Crooks is a single static readout — see below); otherwise scanning spinner only → **bodycam**
-  (head-outline box, `ui_style==3`) → **Simple 2** (circle+triangle+rank bar, `ui_style==4`) →
-  **Simple** (dot+glow, faction logo, name strip, `ui_style==5`) → minimal (node+glow+glyph,
-  `ui_style==2`) → mini fallback below `mini_scale_cutoff` (node+glow) → full card (measured text,
+  (Crooks is a single static readout — see below); otherwise scanning spinner only → minimal
+  (node+glow+glyph, `ui_style==2`) → **Minimal 2** (bare relation dot, `ui_style==7`) →
+  **Simple** (dot+glow, faction logo, name strip, `ui_style==5`) → **bodycam** (head-outline
+  box, `ui_style==3`) → **Simple 2** (circle+triangle+rank bar, `ui_style==4`) → **Patch**
+  (faction patch + relation ring, `ui_style==8`) → mini fallback below `mini_scale_cutoff`
+  (node+glow; its internal mode sentinel is `-1`, deliberately outside the real `ui_style`
+  range so a style switch still resets the slot's widgets) → full card (measured text,
   plate, accent, icon, shadowed text lines, node/glow, leader line). The bodycam box's
   centre/extents (`box_cx/cy/hw/hh`) are precomputed per target in `render` (via `area_box_for`)
   since `draw_slot` has no world access.
@@ -456,7 +538,7 @@ bodycam box edges → Simple 2 circle/triangle/bar), plus the debug dot/text poo
   anchored to a screen corner (`crooks_pos`) with `crooks_x`/`crooks_y` offsets. Shows only while
   its target is still in `tracked` (the reveal-window linger, or — under `hide_off_aim` — only
   while aimed), following your gaze via the per-frame direct-hit id.
-- **Distance scaling / offsets:** Minimal (when `mini_dist_scale` is on), Minimal 2,
+- **Distance scaling / offsets:** Minimal (when `mini_dist_scale` is on), Minimal 2, Patch,
   Simple, and Simple 2 derive their graphical scale from a camera-up metre projected
   beside the anchor (`mini_dist_scale_factor`). Each reference layout unit represents
   `MARKER.unit_m = 0.03` metres before the `card_scale` multiplier. This uses the same
@@ -471,7 +553,7 @@ bodycam box edges → Simple 2 circle/triangle/bar), plus the debug dot/text poo
   Card, Bodycam, Crooks, and the engine PiP path retain their existing sizing;
   Minimal with `mini_dist_scale` off retains its fixed size and virtual-pixel offsets.
 - **Aspect correction** `UI_KX` (assigned 375): `(h/w)/(768/1024)`; the X of any
-  KX-distorted static (node, glow, line, Simple 2 shapes) is pre-corrected so circles
+  KX-distorted static (node, glow, line, Simple 2 shapes, the Patch patch + its ring gap) is pre-corrected so circles
   stay round and angles stay true under the engine's anisotropic virtual→screen
   stretch. The spinner is deliberately kept square (rotation doesn't commute with
   non-uniform scale).
@@ -510,7 +592,8 @@ bodycam box edges → Simple 2 circle/triangle/bar), plus the debug dot/text poo
 (2492) • `update_ads_dwell` (2541) • `update_binocular_scan` (2644) •
 `install_key_hook` (2688) • `IiTags:draw_debug` (2787) • `ensure_tags` (3156) •
 `head_box_for` (3197) • `body_box_for` (3259) • `render` (3437) •
-`teardown_ui` (3754) • `update_ads_range_cull` (3774) • `actor_on_update` (3794) •
+`teardown_ui` (3754) • `update_ads_range_snapshot` (3774) • `update_binoc_clear` (3794) •
+`actor_on_update` (3814) •
 `on_game_start` (3907).
 
 In `ii_ui.script`: `IiTags:InitControls` (22) • `draw_head_box` (264) •
@@ -559,10 +642,10 @@ opt_list` helpers set `hint = "ii_" .. id` mechanically.
 
 Listed in MCM display order (`ii_mcm.script`); ranges are `(min, max, step, prec)`.
 
-Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `uistyle/bodycam`,
-`uistyle/crooks`), `targeting`, `hipfire`, `binoc`, `ads`, `pip`, `scantime`,
-`debug`, `wdcompat`, `colors`. These path prefixes must stay in sync with `MCM_PAGES` in
-`ii_identify.script` and with `presets_ii.ltx`.
+Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `uistyle/card`,
+`uistyle/bodycam`, `uistyle/crooks`, `uistyle/patch`), `targeting`, `hipfire`, `binoc`, `ads`,
+`pip`, `scantime`, `debug`, `wdcompat`, `colors`. These path prefixes must stay in sync with
+`MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 
 | id | type | default | range | controls |
 |---|---|---|---|---|
@@ -577,18 +660,20 @@ Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `
 | `hide_unseen` | check | true | — | hide a tag while its target is out of sight |
 | `max_dist` | track | 50 | 10, 250, 5 | **Base identification distance** (m) — the base, before scaling up/down |
 | **UI Style → General** (`uistyle/general`) | | | | |
-| `ui_style` | list | Card | Card/Minimal/Bodycam/Simple 2/Simple/Crooks/Minimal 2 | which visual style |
+| `ui_style` | list | Card | Card/Minimal/Bodycam/Simple 2/Simple/Crooks/Minimal 2/Patch | which visual style |
 | `show_name` | check | true | — | show name line |
 | `show_faction` | check | true | — | show faction line |
 | `show_rank` | check | true | — | show rank line (Card/Bodycam/Crooks) |
+| `show_relation` | check | true | — | show the enemy/friend/neutral cue at all — see **Relation gating** below |
 | `show_weapon` | check | true | — | show weapon+caliber line |
-| `color_by_relation` | check | true | — | tint by relation vs flat neutral |
-| `card_scale` | track | 1.0 | 0.5, 2, 0.05, 2 | flat card size multiplier |
-| `mini_scale_cutoff` | track | 0.4 | 0.1, 1, 0.05, 2 | below this scale → dot only |
+| `color_by_relation` | check | true | — | tint by relation vs flat neutral (colour only; `show_relation` is the content gate) |
 | `mini_dist_scale` | check | true | — | Minimal dot: scale with distance |
 | `ui_offset_x` | track | 0 | -200, 200, 5 | horizontal nudge for on-screen UI (px) |
 | `ui_offset_y` | track | 0 | -200, 200, 5 | vertical nudge for on-screen UI (px) |
 | `anchor_basis` | list | Head | Head/Torso/Feet | where the tag/marker anchors on the target (`ui_anchor_pos`); Bodycam box keeps its own `box_area` |
+| **UI Style → Card** (`uistyle/card`) | | | | |
+| `card_scale` | track | 1.0 | 0.5, 2, 0.05, 2 | flat size multiplier — despite the name it scales **every** style, multiplying on top of the distance scale where that applies |
+| `mini_scale_cutoff` | track | 0.4 | 0.1, 1, 0.05, 2 | Card only: below this scale → relation dot instead of the card |
 | **UI Style → Bodycam** (`uistyle/bodycam`) | | | | |
 | `box_area` | list | Head | Head/Body | bodycam outline rectangle region |
 | `box_color_source` | list | faction | faction/relation | bodycam box colour source |
@@ -599,10 +684,15 @@ Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `
 | `crooks_pos` | list | bottom_left | BL/BM/BR | Crooks readout screen corner |
 | `crooks_x` | track | 0 | -500, 500, 5 | Crooks X offset (px) |
 | `crooks_y` | track | 0 | -100, 700, 5 | Crooks Y offset (px, + = up) |
+| **UI Style → Patch** (`uistyle/patch`) | | | | |
+| `patch_size` | track | 13 | 8, 64, 1, 0 | Patch style: faction-patch size (px at the reference distance) |
+| `patch_thickness` | track | 2 | 0, 5, 0.5, 1 | Patch style: relation-ring edge thickness (px at the reference distance); **0 = no ring**, bare patch |
+| `patch_padding` | track | 0 | 0, 12, 0.5, 1 | Patch style: gap between the patch and its ring (px at the reference distance) |
 | **Targeting** | | | | |
 | `fov_assist` | check | true | — | master FOV target-assist; off = direct-hit aim only |
 | `freeaim_assist` | check | false | — | bodycam/free-aim: aim from the weapon barrel/first-eye ray |
-| `fov_radius` | track | **35** | 0, 90, 5 | target-assist **screen radius** (virtual px; 0 = off) |
+| `fov_radius` | track | **35** | 0, 90, 5 | target-assist **screen radius** (virtual px; 0 = off) — the *unmagnified* value, see `fov_zoom_scaling` |
+| `fov_zoom_scaling` | check | true | — | shrink the assist radius by the live magnification, so it covers a constant **world** cone at any zoom (`assist_radius`) |
 | `fov_identify_all` | check | true | — | hipfire/ADS/binocular auto-triggers reveal ALL targets in the assist radius; off = only the one nearest the aim (manual key always nearest; Auto-identify unaffected) |
 | `require_los` | check | true | — | require line of sight |
 | `los_block_seethrough` | check | false | — | LOS: treat see-through surfaces (fences/glass/foliage/clip) as opaque — no ID through them |
@@ -624,6 +714,7 @@ Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `
 | `binoc_scan_mult` | track | 0.4 | 0.1, 1, 0.05, 2 | scan-speed mult w/ binocs |
 | `binoc_range_mult` | track | 4.4 | 1, 5, 0.1, 1 | range mult w/ binocs (when zoom-scaling off) |
 | `binoc_zoom_scaling` | check | false | — | scale range by the binocular's real magnification |
+| `binoc_clear_on_lower` | check | false | — | lowering the binoculars wipes **every** tag, near ones included (distant ones already go via the out-of-range cull) |
 | `instant_exclude_binoc` | check | false | — | keep the scan wait for binocs under Instant identify |
 | `binoc_max_dist` | track | 0 | 0, 1000, 5 | hard cap on effective range (m; 0 = none) |
 | **Aim Down Sight (ADS)** | | | | |
@@ -690,7 +781,8 @@ charcoal 24/22/19), `tag_accent` (3×26, relation bar), `tag_icon` (20×20, swap
 to `<community>_icon` at runtime), `tag_line`/`tag_line_sh` (64×2, leader line),
 `tag_glow` (40×40, ii_dot), `tag_node` (10×10, ii_node, baked black ring),
 `tag_spinner` (20×20, ii_spinner), `tag_box_top`/`tag_box_bottom`/`tag_box_left`/
-`tag_box_right` (thin ii_white strips forming the Bodycam head-outline box, sized
+`tag_box_right` (thin ii_white strips forming the Bodycam head-outline box and the
+Patch style's relation ring, sized
 per frame), `tag_s2_circle` (12×12, ii_dot — Simple 2 faction circle),
 `tag_s2_tri` (13×11, ii_tri — Simple 2 relation triangle), `tag_s2_bar` (28×3,
 ii_white — Simple 2 rank bar), and the debug widgets `dbg_ring` (ii_ring, sized to
@@ -731,11 +823,15 @@ Zombified, Sin, Trader, Mutant, UNISG, Arena).
 - **Required:** `gamedata → gamedata` (self-contained drop-in, no required
   choices).
 - **One step** "Optional Components" → group "Compatibility" (`SelectAny`), three
-  optional plugins (all unchecked by default):
+  optional plugins:
   1. **Neutralize FactionID HUD** → installs `FactionID Neutralized/gamedata`.
+     `type = Recommended`, so it is **pre-checked** — nearly every target setup (GAMMA
+     included) ships FactionID, and leaving it on means two faction indicators at once.
+     Still deselectable, and inert without FactionID (see §7.1).
   2. **Skill System: Perception** → installs `Perception Skill Integration/gamedata`.
+     `type = Optional` (unchecked).
   3. **st-wearable-devices Compatibility** → installs `WD Compatibility/gamedata` (§7.3).
-
+     `type = Optional` (unchecked).
 ---
 
 ## 7. Compatibility add-ons
@@ -747,7 +843,10 @@ same-path script (VFS "last-mod-wins") with an inert stub — every public funct
 (`activate_hud`, `identify`, `actor_on_update`, `on_mcm_load`, `on_game_start`, …)
 redefined as a no-op, `HUD = nil`. This suppresses FactionID's on-screen HUD so
 you don't get two overlapping faction indicators, while leaving the rest of that
-mod harmlessly loaded. Only relevant if FactionID is installed.
+mod harmlessly loaded. Only relevant if FactionID is installed — without it the stub is an orphan
+script that shadows nothing, registers no callbacks and returns nil from `on_mcm_load` (a path MCM
+already takes in the intended case, since the stub replaces FactionID there too), which is why it
+is safe to ship pre-checked.
 
 ### 7.2 Perception Skill Integration
 

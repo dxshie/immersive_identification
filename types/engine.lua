@@ -379,6 +379,33 @@ function game.translate_string(id) end
 function game.world2ui(pos, hud, allow_offscreen) end
 
 ---------------------------------------------------------------------------
+-- ActorMenu (src/xrGame/ui/UIActorMenu_script.cpp:410 `module(L, "ActorMenu")`).
+-- Only the PDA window getter this mod calls is stubbed.
+---------------------------------------------------------------------------
+--- The fullscreen PDA window (CUIPdaWnd). With 3D PDA off it IS the PDA; with
+--- 3D PDA on it is the screen overlaid on the held device.
+---@class CUIPdaWnd
+local CUIPdaWnd = {}
+
+--- Is the window currently up? UIActorMenu_script.cpp:334.
+---@return boolean
+function CUIPdaWnd:IsShown() end
+
+--- Does the window currently take input? For the 3D PDA this is the "raised to the
+--- face / cursor on the screen" state: CPda::Action calls Enable(true) on right-click,
+--- left-click and the R zoom toggle, and the fullscreen (non-3D) PDA is enabled by
+--- default. Inherited from CUIWindow, bound UIWindow_script.cpp:195.
+---@return boolean
+function CUIPdaWnd:IsEnabled() end
+
+---@class ActorMenuApi
+ActorMenu = {}
+
+--- UIActorMenu_script.cpp:411 `def("get_pda_menu", &GetPDAMenu)`.
+---@return CUIPdaWnd
+function ActorMenu.get_pda_menu() end
+
+---------------------------------------------------------------------------
 -- db (stock global; db.actor is the player's game_object)
 ---------------------------------------------------------------------------
 ---@class DbApi

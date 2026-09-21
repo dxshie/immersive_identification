@@ -45,6 +45,10 @@ demonized** — look them up there rather than guessing:
 Grep the C++ source for a symbol to confirm exact signatures/behavior before relying
 on it; the `types/` stubs are cited against that source but engine forks drift.
 
+### Custom API bindings
+
+Some custom LUA engine bindings can be found in the xray-monolith-bodycam fork.
+
 ## Dev tooling (nix flake)
 
 - `nix run .#check-xml` — `xmllint --noout` over all mod XML. **Run after any XML

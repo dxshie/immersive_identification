@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+- **Tags now clear when the target falls outside your identify range.** Previously each tag kept
+  the range it was identified at for its whole life, so losing magnification -- lowering a scope
+  or binoculars, which cuts the effective range by the entire zoom factor -- left distant tags
+  floating on targets you could no longer identify at all. The check now runs every frame against
+  the live range, so it also covers you or the target simply walking apart. What stays tagged is
+  exactly what you could re-identify right now.
+  **This ends the old binocular linger for distant targets** -- glassing someone at 200 m and
+  lowering the binoculars now drops that tag instead of keeping it readable.
+- **New option: Clear tags when lowering binoculars** (Binoculars, off by default). Wipes every
+  identified target when you stop looking through them, including ones still inside your normal
+  range -- distant ones already go on their own now (above). On, glassing becomes strictly live
+  observation: what you saw through the optic is gone as soon as it leaves your eyes.
+- **Neutralize FactionID HUD is now pre-selected in the installer.** It is marked Recommended
+  rather than Optional, so it installs unless you uncheck it -- virtually every setup that
+  wants this mod already has FactionID, and leaving both on gives you two faction indicators
+  at once. It is inert if you don't have FactionID, and unchecking it keeps FactionID's HUD.
+- **New option: Scale assist radius with zoom** (Targeting, on by default). The target-assist
+  radius now shrinks by however much your optic magnifies, so the assist forgives the same
+  amount of *real-world* aim error scoped as unscoped. A fixed pixel radius was never a fixed
+  amount of help: at 4x the same 35 px covers a four-times-wider slice of the world, so scoping
+  in quietly made the assist grabbier exactly where you were aiming most carefully. It stays
+  usable at high zoom because the silhouette it measures from grows as the radius shrinks, and
+  it is floored so even a binocular can't reduce it to "direct hit only". Turn it off for the
+  old flat-radius behaviour. The debug ring and its label show the effective radius.
+- **Patch style tuning.** The outline thickness slider now goes down to **0** (no ring at all,
+  just the bare faction patch -- and it no longer pads the layout when off). Default patch
+  size is now **13** (was 22) and the default outline gap **0** (was 3), for a tighter marker
+  out of the box.
+- **New option: Show relation** (UI Style -> General). Turns the whole enemy/friend/neutral
+  cue on or off, so a tag can tell you *who* someone is without telling you how they feel
+  about you. Every style respects it: Minimal drops its -/+/o sign, Simple 2 drops its
+  triangle (and the row closes up around the circle), the Card and Simple lose their relation
+  tint, Patch's ring goes neutral, and Bodycam / Minimal 2 -- whose only cue *is* the relation
+  colour -- fall back to the faction colour rather than rendering a marker that says nothing.
+- **Colour by relation** no longer doubles as the Minimal sign toggle. It is now purely about
+  colour; use the new **Show relation** to hide the cue itself. If you were turning
+  **Colour by relation** off to hide Minimal's sign, turn off **Show relation** instead.
+- **Card options moved to their own MCM page.** **Card scale** and **Mini mode cutoff** now
+  live under **UI Style -> Card** instead of cluttering **UI Style -> General**. Because an
+  option's storage path follows its page, **both reset to their defaults** (1.00 and 0.40) --
+  set them again if you had them tuned. Card scale's tooltip now admits what it always did:
+  despite the name it scales *every* style, not just the Card.
+- **New UI style: Patch.** The faction patch on its own, ringed by a relationship-coloured
+  outline (red enemy / green friendly / tan neutral) -- who they are plus friend-or-foe, with
+  no text and no dot. It scales with distance and zoom like Minimal / Simple, so the patch,
+  the ring and the gap between them keep their proportions at any range. New **UI Style ->
+  Patch** MCM page: patch size, outline thickness, and outline gap. Turning off **Show
+  faction** leaves the bare ring as a locator.
+- **No identification while you're reading the PDA.** Focusing the PDA -- right-click,
+  left-click or R to raise the 3D PDA to your face, or the fullscreen PDA window with 3D PDA
+  off -- blocks every identification path (keypress, auto-identify, and the hipfire / ADS /
+  binocular auto-triggers) and disarms the dwell timers, so unzooming doesn't instantly reveal
+  whatever you happen to be facing. Merely holding the device out, screen lowered, still
+  identifies. Raising it also CLEARS the tags already on screen -- they are not left pinned to a
+  world you are not looking at -- so lowering the PDA re-scans from scratch (fast for anyone you'd
+  already identified, via the familiarity bonus).
 - **Face redaction moved out of this mod.** The face-censoring post-process was never
   part of identification -- no aiming, no keypress, its own range and its own sweep --
   and its engine half already shipped in the **xray-monolith-bodycam** repo, so the

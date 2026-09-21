@@ -7,8 +7,9 @@
 ; lists; everything else keeps its current value.
 ;
 ; NOTE: a path is ii/<page>/<opt>, or ii/uistyle/<sub>/<opt> for the nested UI Style
-; sub-pages (general / bodycam / crooks). Pages: general, uistyle/general, uistyle/bodycam,
-; uistyle/crooks, targeting, hipfire, binoc, ads, pip, scantime, debug, colors.
+; sub-pages (general / card / bodycam / crooks / patch). Pages: general, uistyle/general,
+; uistyle/card, uistyle/bodycam, uistyle/crooks, uistyle/patch, targeting, hipfire, binoc, ads,
+; pip, scantime, debug, colors.
 ; Keep in sync with the page an option lives on in ii_mcm.script (+ MCM_PAGES in
 ; ii_identify.script), or the preset writes a dead path and silently does nothing.
 
@@ -29,14 +30,16 @@ ii/uistyle/general/ui_style               = 1
 ii/uistyle/general/show_name              = true
 ii/uistyle/general/show_faction           = true
 ii/uistyle/general/show_rank              = true
+ii/uistyle/general/show_relation          = true
 ii/uistyle/general/show_weapon            = true
 ii/uistyle/general/color_by_relation      = true
-ii/uistyle/general/card_scale             = 1.0
-ii/uistyle/general/mini_scale_cutoff      = 0.4
 ii/uistyle/general/mini_dist_scale        = true
 ii/uistyle/general/ui_offset_x            = 0
 ii/uistyle/general/ui_offset_y            = 0
 ii/uistyle/general/anchor_basis           = 1
+
+ii/uistyle/card/card_scale                = 1.0
+ii/uistyle/card/mini_scale_cutoff         = 0.4
 
 ii/uistyle/bodycam/box_area               = 1
 ii/uistyle/bodycam/box_color_source       = 1
@@ -48,9 +51,14 @@ ii/uistyle/crooks/crooks_pos             = 1
 ii/uistyle/crooks/crooks_x               = 0
 ii/uistyle/crooks/crooks_y               = 0
 
+ii/uistyle/patch/patch_size              = 13
+ii/uistyle/patch/patch_thickness         = 2
+ii/uistyle/patch/patch_padding           = 0
+
 ii/targeting/fov_assist             = true
 ii/targeting/freeaim_assist         = false
 ii/targeting/fov_radius             = 35
+ii/targeting/fov_zoom_scaling       = true
 ii/targeting/fov_identify_all       = true
 ii/targeting/require_los            = true
 ii/targeting/los_block_seethrough   = false
@@ -72,6 +80,7 @@ ii/binoc/binoc_boost            = true
 ii/binoc/binoc_scan_mult        = 0.4
 ii/binoc/binoc_range_mult       = 4.4
 ii/binoc/binoc_zoom_scaling     = false
+ii/binoc/binoc_clear_on_lower   = false
 ii/binoc/instant_exclude_binoc  = false
 ii/binoc/binoc_max_dist         = 0
 

@@ -3,8 +3,10 @@
 	<string id="ui_mcm_menu_ii"><text>Immersive Identification</text></string>
 	<string id="ui_mcm_menu_general"><text>General</text></string>
 	<string id="ui_mcm_menu_uistyle"><text>UI Style</text></string>
+	<string id="ui_mcm_menu_card"><text>Card</text></string>
 	<string id="ui_mcm_menu_bodycam"><text>Bodycam</text></string>
 	<string id="ui_mcm_menu_crooks"><text>Crooks</text></string>
+	<string id="ui_mcm_menu_patch"><text>Patch</text></string>
 	<string id="ui_mcm_menu_targeting"><text>Targeting</text></string>
 	<string id="ui_mcm_menu_hipfire"><text>Hipfire</text></string>
 	<string id="ui_mcm_menu_binoc"><text>Binoculars</text></string>
@@ -28,8 +30,10 @@
 
 	<string id="ui_mcm_ii_general_title"><text>General</text></string>
 	<string id="ui_mcm_ii_uistyle_title"><text>UI Style</text></string>
+	<string id="ui_mcm_ii_card_title"><text>Card</text></string>
 	<string id="ui_mcm_ii_bodycam_title"><text>Bodycam</text></string>
 	<string id="ui_mcm_ii_crooks_title"><text>Crooks</text></string>
+	<string id="ui_mcm_ii_patch_title"><text>Patch</text></string>
 	<string id="ui_mcm_ii_targeting_title"><text>Targeting</text></string>
 	<string id="ui_mcm_ii_hipfire_title"><text>Hipfire</text></string>
 	<string id="ui_mcm_ii_instant_exclude_hipfire"><text>Exclude hipfire from instant identify</text></string>
@@ -49,7 +53,7 @@
 	<string id="ui_mcm_ii_modifier_index_desc"><text>Optional modifier held with the identify key.</text></string>
 
 	<string id="ui_mcm_ii_ui_style"><text>UI style</text></string>
-	<string id="ui_mcm_ii_ui_style_desc"><text>Card (full details), Minimal (a faction-coloured dot with a relation sign), or Bodycam (a faction-coloured outline box locked to the head).</text></string>
+	<string id="ui_mcm_ii_ui_style_desc"><text>Which visual language the tag uses: Card (full details), Minimal (faction-coloured dot with a relation sign), Bodycam (faction-coloured outline box locked to the head), Simple 2 (faction circle plus relation triangle over the head), Simple (dot, faction logo and name strip), Crooks (one static screen readout of the last target), Minimal 2 (a bare relation-coloured dot), or Patch (the faction patch ringed by a relation-coloured outline).</text></string>
 
 	<string id="ui_mcm_ii_box_area"><text>Bodycam box area</text></string>
 	<string id="ui_mcm_ii_box_area_desc"><text>Bodycam style: draw the outline rectangle around just the head/face, or around the full body.</text></string>
@@ -70,6 +74,15 @@
 	<string id="ui_mcm_ii_box_opacity"><text>Box opacity</text></string>
 	<string id="ui_mcm_ii_box_opacity_desc"><text>Bodycam style: opacity of the outline rectangle (1 = solid, lower = more transparent). The name/faction/weapon text is unaffected.</text></string>
 
+	<string id="ui_mcm_ii_patch_size"><text>Patch size</text></string>
+	<string id="ui_mcm_ii_patch_size_desc"><text>Patch style: size of the faction patch in pixels, at the reference distance. The patch and its outline scale with distance from there (near = bigger, far = smaller).</text></string>
+
+	<string id="ui_mcm_ii_patch_thickness"><text>Patch outline thickness</text></string>
+	<string id="ui_mcm_ii_patch_thickness_desc"><text>Patch style: thickness of the relationship outline around the patch, in pixels at the reference distance. 0 = no outline at all, just the bare faction patch.</text></string>
+
+	<string id="ui_mcm_ii_patch_padding"><text>Patch outline gap</text></string>
+	<string id="ui_mcm_ii_patch_padding_desc"><text>Patch style: gap between the faction patch and its relationship outline, in pixels at the reference distance. 0 = the outline sits flush against the patch.</text></string>
+
 	<string id="ui_mcm_ii_auto_identify"><text>Auto-identify visible targets</text></string>
 	<string id="ui_mcm_ii_auto_identify_desc"><text>Continuously identify every target in your view and within range, without pressing the key or aiming at them. Line of sight is always required. Pairs well with the Bodycam style. (If Only show overlay while aimed is on, only aimed targets are kept.)</text></string>
 	<string id="ui_mcm_ii_hipfire_mode"><text>Auto Identification</text></string>
@@ -81,7 +94,7 @@
 
 
 	<string id="ui_mcm_ii_color_by_relation"><text>Colour by relation</text></string>
-	<string id="ui_mcm_ii_color_by_relation_desc"><text>Tint the tag by your relation to the target: red enemy, green friend, tan neutral. In Minimal style this also toggles the relation sign (-/+/o).</text></string>
+	<string id="ui_mcm_ii_color_by_relation_desc"><text>Tint the tag by your relation to the target: red enemy, green friend, tan neutral. Off = a flat neutral tint. This is about COLOUR only - to drop the relationship cue entirely, use Show relation.</text></string>
 
 	<string id="ui_mcm_ii_show_name"><text>Show name</text></string>
 	<string id="ui_mcm_ii_show_name_desc"><text>Show the target's name line. Applies to every style that draws text (Card and Bodycam).</text></string>
@@ -91,6 +104,9 @@
 
 	<string id="ui_mcm_ii_show_rank"><text>Show rank</text></string>
 	<string id="ui_mcm_ii_show_rank_desc"><text>Show the target's rank line (Card and Bodycam, and below the name in the Crooks readout).</text></string>
+
+	<string id="ui_mcm_ii_show_relation"><text>Show relation</text></string>
+	<string id="ui_mcm_ii_show_relation_desc"><text>Show whether the target is hostile, friendly or neutral. Off = the tag tells you who they are but never how they feel about you: no relation sign in Minimal, no triangle in Simple 2, no relation tint on the Card or Simple, a neutral ring in Patch, and Bodycam / Minimal 2 fall back to the faction colour.</text></string>
 
 	<string id="ui_mcm_ii_show_weapon"><text>Show weapon / caliber</text></string>
 	<string id="ui_mcm_ii_show_weapon_desc"><text>Show the target's currently-wielded weapon and its caliber. Applies to every style that draws text (Card and Bodycam).</text></string>
@@ -118,6 +134,9 @@
 
 	<string id="ui_mcm_ii_fov_radius"><text>Target-assist radius (px)</text></string>
 	<string id="ui_mcm_ii_fov_radius_desc"><text>Aim tolerance for picking a target without a direct hit. Measured as an angle from where you aim, so it works the same whether hip-firing or scoped at any magnification (0 = direct hit only).</text></string>
+	<string id="ui_mcm_ii_fov_zoom_scaling"><text>Scale assist radius with zoom</text></string>
+	<string id="ui_mcm_ii_fov_zoom_scaling_desc"><text>Shrink the target-assist radius by however much your optic magnifies, so the assist forgives the same amount of real-world aim error scoped as unscoped. Without this, a fixed pixel radius covers a much wider area of the world the further you zoom in, making the assist grabbier exactly where you are aiming most carefully. Off = the radius is a flat screen distance at every zoom level.</text></string>
+
 	<string id="ui_mcm_ii_fov_identify_all"><text>Identify all in assist radius</text></string>
 	<string id="ui_mcm_ii_fov_identify_all_desc"><text>For the hipfire / ADS / binocular auto-triggers: reveal EVERY eligible target inside the target-assist radius, so a cluster of stacked stalkers all get identified at once. Turn off to identify only the single target nearest your aim point. (A manual keypress always identifies the nearest one. Auto-identify visible targets is not affected.) On by default.</text></string>
 
@@ -157,6 +176,9 @@
 	<string id="ui_mcm_ii_binoc_range_mult_desc"><text>Max (and fade-out) distance multiplier while binoculars are raised. A flat multiplier by default, or the x1 base when "Scale range by magnification" (below) is on.</text></string>
 	<string id="ui_mcm_ii_binoc_zoom_scaling"><text>Scale range by magnification</text></string>
 	<string id="ui_mcm_ii_binoc_zoom_scaling_desc"><text>Multiply the binocular range by the binocular's magnification (like the ADS option), so the range tracks the optical zoom instead of a flat multiplier. Off = flat "Binoculars max distance multiplier". On: set that multiplier to 1.0 for range = base x magnification.</text></string>
+
+	<string id="ui_mcm_ii_binoc_clear_on_lower"><text>Clear tags when lowering binoculars</text></string>
+	<string id="ui_mcm_ii_binoc_clear_on_lower_desc"><text>Wipe every identified target the moment you stop looking through the binoculars, including ones still close enough to identify normally. Targets beyond your normal range already disappear on their own when you lower them (the magnified range goes away with the magnification); this option clears the rest too, making glassing strictly live observation - what you saw through the optic is gone as soon as it leaves your eyes.</text></string>
 	<string id="ui_mcm_ii_binoc_max_dist"><text>Max identification distance (m)</text></string>
 	<string id="ui_mcm_ii_binoc_max_dist_desc"><text>Hard cutoff on the effective identify range through binoculars. Caps the base identification distance after magnification/boost scaling -- use this to stop high-magnification binoculars from reaching absurdly far. 0 = no cap.</text></string>
 
@@ -187,10 +209,10 @@
 	<string id="ui_mcm_ii_distance_scaling_title"><text>Card Size</text></string>
 
 	<string id="ui_mcm_ii_card_scale"><text>Card scale</text></string>
-	<string id="ui_mcm_ii_card_scale_desc"><text>Flat size multiplier for the whole card. Not distance-based.</text></string>
+	<string id="ui_mcm_ii_card_scale_desc"><text>Flat size multiplier, not distance-based. Despite the name it scales EVERY style, not just the Card - for the styles that scale with distance it multiplies on top of that.</text></string>
 
 	<string id="ui_mcm_ii_mini_scale_cutoff"><text>Mini mode cutoff</text></string>
-	<string id="ui_mcm_ii_mini_scale_cutoff_desc"><text>Below this scale, show just the relation dot instead of the full card.</text></string>
+	<string id="ui_mcm_ii_mini_scale_cutoff_desc"><text>Card style only: below this scale the card no longer fits, so just the relation dot is shown instead.</text></string>
 	<string id="ui_mcm_ii_mini_dist_scale"><text>Minimal: scale dot with distance</text></string>
 	<string id="ui_mcm_ii_mini_dist_scale_desc"><text>In the Minimal (dot) style, size the dot by distance so a far target's dot isn't oversized (near = bigger, far = smaller). Off = a flat size like the other styles.</text></string>
 	<string id="ui_mcm_ii_ui_offset_x"><text>UI offset X (px)</text></string>
@@ -286,6 +308,7 @@
 	<string id="ii_uistyle_general_ui_style_lst_simple"><text>Simple</text></string>
 	<string id="ii_uistyle_general_ui_style_lst_crooks"><text>Crooks</text></string>
 	<string id="ii_uistyle_general_ui_style_lst_minimal2"><text>Minimal 2</text></string>
+	<string id="ii_uistyle_general_ui_style_lst_patch"><text>Patch</text></string>
 	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_left"><text>Bottom left</text></string>
 	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_middle"><text>Bottom middle</text></string>
 	<string id="ii_uistyle_crooks_crooks_pos_lst_bottom_right"><text>Bottom right</text></string>

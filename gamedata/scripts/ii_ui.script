@@ -255,31 +255,30 @@ function install(IiTags, context)
 	
 	-- Draws an unfilled rectangle outline (four thin strips) centred on (cx,cy)
 	-- with the given screen-space half-width/half-height, in the fixed 1024x768
-	-- virtual space. hw/hh already come from a world2ui projection of the head's
-	-- real-world extents (see screen_box), so they're in the correct virtual units
-	-- and need NO C._ui_kx squeeze -- the engine's virtual->screen stretch maps
-	-- position and size together, landing each edge exactly on the projected point.
+	-- virtual space. hw/hh are already in virtual units -- Bodycam gets them from a
+	-- world2ui projection of the head's real-world extents (see screen_box), Patch
+	-- style from its own kx-corrected sizing -- so they need NO C._ui_kx squeeze here:
+	-- the engine's virtual->screen stretch maps position and size together, landing
+	-- each edge exactly on the projected point.
 	--
-	-- Thickness is the fixed C.box_thickness (virtual px), not distance-scaled, so
-	-- the outline stays a predictable weight the player sets. The vertical edges'
+	-- Thickness `t` and the already-opacity-folded alpha `a` are the caller's: Bodycam
+	-- passes its fixed (never distance-scaled) C.box_thickness, Patch style scales its own
+	-- with distance so the ring keeps its proportions. The vertical edges'
 	-- WIDTH is pre-divided by C._ui_kx so they render the same on-screen thickness as
 	-- the horizontal edges (a raw px width is stretched differently on the X axis --
 	-- see C._ui_kx). Edges butt at the corners with NO overlap: top/bottom span the
 	-- full width, left/right fill only the gap between them -- so a thick outline
 	-- no longer double-draws (and darkens) at the corners.
-	local function draw_head_box(s, cx, cy, hw, hh, alpha, r, g, b, wx, wy, wz)
-		local t = C.box_thickness or 2
+	local function draw_rect_outline(s, cx, cy, hw, hh, t, a, r, g, b)
 		if t < 1 then
 			t = 1
 		end
 		local tw = math.max(1, t * C._ui_kx) -- vertical-edge width, aspect-corrected
-		local a = math.floor(alpha * (C.box_opacity or 1))
 		local x0, y0 = cx - hw, cy - hh
 		local w, h = hw * 2, hh * 2
 		local vh = math.max(1, h - 2 * t) -- vertical edges fill between top & bottom
 	
-		-- Flat CUIStatic edges (the depth-aware world-anchored overlay path for the box was
-		-- removed). wx/wy/wz are unused now but kept in the signature for the caller.
+		-- Flat CUIStatic edges (the depth-aware world-anchored overlay path was removed).
 		local col = GetARGB(a, r, g, b)
 		s.box_top:SetWndSize(S(w, t))
 		s.box_top:SetWndPos(P(x0, y0))
@@ -528,8 +527,11 @@ function install(IiTags, context)
 			return
 		end
 		local mode = scanning and 0 or C.ui_style
+		-- -1, not a free style index: the fallback has to stay distinct from every real
+		-- ui_style so switching INTO a style whose number collided with it would still
+		-- trip the mode change below and clear the previous style's widgets.
 		if mode == 1 and scale < C.mini_scale_cutoff then
-			mode = 8
+			mode = -1
 		end
 		if s.mode ~= mode then
 			self:hide_slot(i)
@@ -593,10 +595,10 @@ function install(IiTags, context)
 		-- just Card style's own too-small-to-fit fallback below.
 		if C.ui_style == 2 then
 			-- Minimal reuses the existing content toggles: the faction-coloured dot honours
-			-- `show_faction`, the relation sign honours `color_by_relation`. If BOTH are off, keep a
-			-- neutral locator dot so the tag doesn't vanish entirely.
+			-- `show_faction`, the relation sign honours `show_relation` (via `sign` being nil when
+			-- it's off). If BOTH are off, keep a neutral locator dot so the tag doesn't vanish.
 			local show_dot = C.show_faction
-			local show_relsign = C.color_by_relation
+			local show_relsign = sign ~= nil
 			if show_dot then
 				draw_node_glow(s, hx, hy, scale, alpha, fcol[1], fcol[2], fcol[3], C.mini_dist_scale)
 			elseif not show_relsign then
@@ -617,9 +619,11 @@ function install(IiTags, context)
 		-- Minimal 2 (style 7): a single bare DOT (no glow, no sign, no text) coloured by RELATION --
 		-- red enemy / green friend / tan neutral, always relation-based (SIGN_COLOR is accurate
 		-- regardless of color_by_relation). The most stripped-down "friend or foe" indicator.
+		-- With `show_relation` off there IS no relation to show, so it falls back to the FACTION
+		-- colour rather than a flat neutral dot -- otherwise the whole style would carry nothing.
 		if C.ui_style == 7 then
 			show(s.glow, false)
-			local rc = SIGN_COLOR[sign] or COL_NEUTRAL
+			local rc = sign and SIGN_COLOR[sign] or fcol
 			local ns = 7 * scale
 			local nsx = ns * C._ui_kx
 			s.node:SetWndSize(S(nsx, ns))
@@ -719,11 +723,24 @@ function install(IiTags, context)
 				-- Box colour source: faction colour, or the relationship colour
 				-- (red/green/grey) keyed off the relation sign -- which stays accurate
 				-- regardless of color_by_relation, unlike the relation-tinted `col`.
+				-- `show_relation` off nils the sign, and the box falls back to the faction
+				-- colour: this style has no other cue, so a neutral box would say nothing.
 				local bcol = fcol
-				if C.box_color_source == 2 then
-					bcol = SIGN_COLOR[sign] or COL_NEUTRAL
+				if C.box_color_source == 2 and sign then
+					bcol = SIGN_COLOR[sign]
 				end
-				draw_head_box(s, box_cx, box_cy, box_hw, box_hh, alpha, bcol[1], bcol[2], bcol[3], box_wx, box_wy, box_wz)
+				draw_rect_outline(
+					s,
+					box_cx,
+					box_cy,
+					box_hw,
+					box_hh,
+					C.box_thickness or 2,
+					math.floor(alpha * (C.box_opacity or 1)),
+					bcol[1],
+					bcol[2],
+					bcol[3]
+				)
 	
 				-- Name / faction / weapon+caliber, stacked just to the right of the box
 				-- and tracking it every frame, each gated by its generic show toggle.
@@ -808,7 +825,8 @@ function install(IiTags, context)
 			local cw = cd * kx
 			local twx = tw * kx
 			local gpx = gap * kx
-			local roww = cw + gpx + twx
+			local has_tri = sign ~= nil
+			local roww = has_tri and (cw + gpx + twx) or cw
 			local left = hx - roww / 2
 			local rowh = math.max(cd, th)
 			local cy = hy - rowh / 2 - 2 * sc -- sit the shapes just above the head anchor
@@ -818,17 +836,68 @@ function install(IiTags, context)
 			s.s2_circle:SetTextureColor(GetARGB(alpha, fcol[1], fcol[2], fcol[3]))
 			show(s.s2_circle, true)
 	
-			local rc = SIGN_COLOR[sign] or COL_NEUTRAL
-			s.s2_tri:SetWndSize(S(twx, th))
-			s.s2_tri:SetWndPos(P(left + cw + gpx, cy - th / 2))
-			s.s2_tri:SetTextureColor(GetARGB(alpha, rc[1], rc[2], rc[3]))
-			show(s.s2_tri, true)
+			-- `show_relation` off nils the sign: drop the triangle entirely and let the row
+			-- (and the rank bar spanning it) close up around the circle alone.
+			if has_tri then
+				local rc = SIGN_COLOR[sign]
+				s.s2_tri:SetWndSize(S(twx, th))
+				s.s2_tri:SetWndPos(P(left + cw + gpx, cy - th / 2))
+				s.s2_tri:SetTextureColor(GetARGB(alpha, rc[1], rc[2], rc[3]))
+				show(s.s2_tri, true)
+			else
+				show(s.s2_tri, false)
+			end
 	
 			local rk = rank_col or RANK_FALLBACK
 			s.s2_bar:SetWndSize(S(roww, bh))
 			s.s2_bar:SetWndPos(P(left, cy - rowh / 2 - bgap - bh))
 			s.s2_bar:SetTextureColor(GetARGB(alpha, rk[1], rk[2], rk[3]))
 			show(s.s2_bar, true)
+			return
+		end
+	
+		-- Patch style (style 8): the faction patch on its own, ringed by a relation-coloured
+		-- outline -- "who they are" plus "friend or foe", no text, no dot. The ring is ALWAYS
+		-- relation-coloured (SIGN_COLOR stays accurate regardless of color_by_relation), like
+		-- Minimal 2's dot; show_faction off leaves the bare ring as a locator, and
+		-- `show_relation` off nils the sign so the ring falls back to neutral -- unlike Minimal 2
+		-- the patch still carries the faction, so the ring can go quiet without emptying the tag.
+		-- Distance-scaled via `scale` like Simple / Simple 2, and the patch WIDTH plus the
+		-- horizontal padding are C._ui_kx-corrected so the patch stays square on wide screens.
+		if C.ui_style == 8 then
+			show(s.glow, false)
+			show(s.node, false)
+			local kx = C._ui_kx
+			local ph = (C.patch_size or 13) * scale
+			local pw = ph * kx
+			-- Thickness 0 means the player wants the bare patch: no ring drawn, and it must not
+			-- pad the layout either. Otherwise floor the scaled thickness at 1 px so a distant
+			-- patch still gets a visible edge.
+			local ring = (C.patch_thickness or 2) > 0
+			local t = ring and math.max(1, (C.patch_thickness or 2) * scale) or 0
+			local margin = (C.patch_padding or 0) * scale + t
+			local hh = ph / 2 + margin
+			local hw = pw / 2 + margin * kx
+			local cy = hy - hh - 2 * scale -- sit the patch just above the head anchor
+			if ring then
+				local rc = SIGN_COLOR[sign] or COL_NEUTRAL
+				draw_rect_outline(s, hx, cy, hw, hh, t, alpha, rc[1], rc[2], rc[3])
+			else
+				hide_box_widgets(s)
+			end
+	
+			if C.show_faction and icon_id and icon_id ~= "" then
+				if s.icon_key ~= icon_id then
+					pcall(s.icon.InitTexture, s.icon, icon_id)
+					s.icon_key = icon_id
+				end
+				s.icon:SetWndSize(S(pw, ph))
+				s.icon:SetWndPos(P(hx - pw / 2, cy - ph / 2))
+				s.icon:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+				show(s.icon, true)
+			else
+				show(s.icon, false)
+			end
 			return
 		end
 	

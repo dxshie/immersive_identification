@@ -4,7 +4,7 @@ DEFAULTS = {
 	enabled = true,
 	key_dik = 0, -- captured DIK code; 0/nil means "unset, use DEFAULT_KEY_NAME"
 	modifier_index = 1, -- index into MODIFIER_LIST (1 = none)
-	ui_style = 1, -- index into UI_STYLE_LIST (1=card 2=minimal 3=bodycam 4=simple2 5=simple 6=crooks 7=minimal2)
+	ui_style = 1, -- index into UI_STYLE_LIST (1=card 2=minimal 3=bodycam 4=simple2 5=simple 6=crooks 7=minimal2 8=patch)
 	crooks_pos = 1, -- Crooks style: screen-corner preset, index into CROOKS_POS_LIST (1=BL, 2=BM, 3=BR)
 	crooks_x = 0, -- Crooks style: X offset from the preset anchor (virtual px, + = right)
 	crooks_y = 0, -- Crooks style: Y offset from the preset anchor (virtual px, + = up)
@@ -17,6 +17,9 @@ DEFAULTS = {
 	-- box size (0 = tight, 0.2 = 20% larger each side), distance-independent
 	box_opacity = 1.0, -- bodycam outline rectangle opacity 0..1 (multiplies the fade alpha;
 	-- the name/faction/weapon text is unaffected)
+	patch_size = 13, -- Patch style: faction-patch edge length in virtual px at scale 1 (distance-scaled from there)
+	patch_thickness = 2, -- Patch style: relation-outline edge thickness in virtual px at scale 1; 0 = no outline
+	patch_padding = 0, -- Patch style: gap in virtual px (at scale 1) between the patch and its outline
 	auto_identify = false, -- continuously identify every visible target in range without a
 	-- keypress (LOS-gated). Off by default; pairs well with the
 	-- bodycam head-box style but works with any style
@@ -24,6 +27,9 @@ DEFAULTS = {
 	show_name = true, -- show the target's name line (all text styles: card + bodycam)
 	show_faction = true, -- show the target's faction line (all text styles: card + bodycam)
 	show_rank = true, -- show the target's rank line (card + bodycam, and the Crooks readout)
+	show_relation = true, -- show the RELATIONSHIP cue (enemy/friend/neutral) at all: the Minimal sign,
+	-- the Simple 2 triangle, the relation tint on the Card/Simple, and the Bodycam/Patch ring colour.
+	-- Off = the tag tells you who they are but never whether they are hostile
 	instant_identify = false, -- skip the scan wait/spinner entirely: the tag reveals immediately on
 	-- identify (bypasses scan_time and all the scan-time multipliers)
 	instant_exclude_hipfire = false, -- when instant_identify is on, keep the normal scan wait while HIP-firing
@@ -50,6 +56,9 @@ DEFAULTS = {
 	fov_radius = 35, -- virtual-space px (1024-wide, 768-tall): target-assist radius (MCM range 0-90).
 	-- A straight screen-pixel ring around the aim point (screen_dist_to_body); a target whose
 	-- nearest body point projects within this many px of the crosshair is a candidate.
+	fov_zoom_scaling = true, -- shrink the FOV target-assist radius by the live magnification, so the
+	-- assist covers the same WORLD cone scoped as unscoped (see assist_radius). Off = fov_radius is
+	-- a flat screen radius at every zoom level, the pre-existing behaviour
 	fov_identify_all = true, -- auto-triggers (hipfire/ADS/binocular; not auto_identify): reveal EVERY eligible target inside the FOV-assist radius (a cluster of stacked NPCs all get IDd). Off = only the single target nearest the aim point. (Manual keypress always identifies the nearest.)
 	require_los = true, -- target-assist fallback only picks targets with clear line of sight
 	los_block_seethrough = false, -- LOS: treat SEE-THROUGH surfaces (fences, glass, foliage, and invisible clip meshes) as OPAQUE, so identification is blocked through them (default off = see through them)
@@ -87,6 +96,9 @@ DEFAULTS = {
 	-- (live, from scope_magnification -> SVP/PiP binding's true value, else the camera-FOV ratio;
 	-- a future bodycam.binoc_magnification wins if present) instead of the flat binoc_range_mult
 	-- angular zoom (~19.6x), not the intended range factor (~4.4x), so it over-inflated the range.
+	binoc_clear_on_lower = false, -- lowering the binoculars WIPES every identified tag, including the
+	-- ones still inside base range. Distant ones already go on their own (out-of-range cull); this
+	-- makes glassing strictly live observation. Off by default
 	ads_mode = false, -- auto-trigger identify while aiming down sight, once a target has been held
 	-- under the aim (or inside the FOV assist range when that's on) for ads_hold_time seconds
 	ads_hold_time = 0.6, -- seconds: how long a target must stay on-aim / in FOV-assist range while
@@ -175,6 +187,7 @@ UI_STYLE_LIST = {
 	{ label = "simple" },
 	{ label = "crooks" },
 	{ label = "minimal2" },
+	{ label = "patch" },
 }
 
 -- Where the tag/marker anchors on the target's body (anchor_basis). Index order IS the stored
@@ -215,8 +228,10 @@ MCM_PAGES = {
 	-- UI Style is a nested container: its options live in sub-pages, so paths are
 	-- ii/uistyle/<sub>/<key> (see ii_mcm.script). List each sub-page's path prefix here.
 	"uistyle/general",
+	"uistyle/card",
 	"uistyle/bodycam",
 	"uistyle/crooks",
+	"uistyle/patch",
 	"targeting",
 	"hipfire",
 	"binoc",

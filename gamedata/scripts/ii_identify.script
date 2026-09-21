@@ -1100,6 +1100,11 @@ local RQT_BOTH = (rq_target and rq_target.rqtBoth) or 3
 -- aim-ray helpers) so has_los can consult it; also the FOV assist's "aiming at it" fallback.
 local aim_model_target
 
+-- assist_radius() -> the effective target-assist screen radius for this frame (fov_radius,
+-- shrunk under magnification). Forward-declared here (defined below, once scope_magnification
+-- exists) because find_nearest_in_fov above it already needs it.
+local assist_radius
+
 -- Line-of-sight check. GEOMETRY is the authority: a direct mesh hit, or a clear
 -- transparency-aware ray from the RENDER CAMERA to any body point (has_clear_ray).
 --
@@ -1199,7 +1204,7 @@ local function find_nearest_in_fov(max_dist)
 	local apos = _frame:position(db.actor)
 	local actor_id = db.actor:id()
 	local cx, cy = aim_center() -- weapon aim point under free-aim, else screen centre
-	local radius = C.fov_radius or 35
+	local radius = assist_radius()
 	local best_obj, best_d = nil, radius
 	local best_busy_obj, best_busy_d = nil, radius
 
@@ -1257,13 +1262,13 @@ local function debug_dump_candidates()
 	local cx, cy = aim_center()
 	dbg(
 		string.format(
-			"flags enabled=%s fov_assist=%s freeaim_assist=%s require_los=%s require_binoc=%s fov_radius=%d aim=(%.0f,%.0f) max_dist=%.0f",
+			"flags enabled=%s fov_assist=%s freeaim_assist=%s require_los=%s require_binoc=%s fov_radius=%.1f aim=(%.0f,%.0f) max_dist=%.0f",
 			tostring(C.enabled),
 			tostring(C.fov_assist),
 			tostring(C.freeaim_assist),
 			tostring(C.require_los),
 			tostring(C.require_binoculars),
-			C.fov_radius or 35,
+			assist_radius(),
 			cx,
 			cy,
 			C.max_dist
@@ -1281,7 +1286,7 @@ local function debug_dump_candidates()
 			local comm = safe_call(obj.character_community, obj)
 			local sx, sy = project_world(anchor_pos(obj))
 			local d = screen_dist_to_body(obj, cx, cy)
-			local within = (d ~= nil and d <= (C.fov_radius or 35))
+			local within = (d ~= nil and d <= assist_radius())
 			local los = has_los(obj)
 			dbg(
 				string.format(
@@ -1400,6 +1405,30 @@ local function is_binoc_held()
 end
 is_binoc_held = _frame:memoize(is_binoc_held)
 
+-- Is the player LOOKING AT the PDA, rather than merely holding it? Identification is an act of
+-- looking at the TARGET, so only the focused/zoomed device blocks it.
+--
+-- The 3D PDA (g_3d_pda, GAMMA's default) comes up with its screen SHOWN but input DISABLED
+-- (PDA.cpp UpdateCL: ShowDialog(false) then Enable(false)) -- the device sits low, the world is
+-- still in view, so identification stays live. Right-click (kWPN_ZOOM), left-click (kWPN_FIRE) and
+-- R (kWPN_RELOAD, the zoom toggle) each call pda->Enable(true) and raise it to the face
+-- (CPda::Action); m_bZoomed is kept in lockstep with that flag -- zooming implies Enable(true), and
+-- losing Enable clears m_bZoomed (UpdateHudAdditional). So the window's own Enable flag IS the
+-- "reading the PDA" state. m_bZoomed itself is unreachable: CPda is bound to Lua with no methods
+-- at all (torch_script.cpp class_<CPda, CGameObject> -- constructor only).
+--
+-- The classic fullscreen PDA (3D PDA off) never enters the hands; ShowPdaMenu() just shows the
+-- dialog, which is enabled by default, so the same test covers it.
+local function pda_focused()
+	local get = ActorMenu and ActorMenu.get_pda_menu
+	local menu = get and safe_call(get)
+	if not menu or not safe_call(menu.IsShown, menu) then
+		return false
+	end
+	return safe_call(menu.IsEnabled, menu) and true or false
+end
+pda_focused = _frame:memoize(pda_focused)
+
 -- Is the actor actually looking through raised binoculars right now (not
 -- just holding them)? There's no usable Lua-side zoom-state getter: the
 -- native IsZoomed is on a class hierarchy Lua can't reach, and the zoom
@@ -1423,7 +1452,16 @@ is_binoc_held = _frame:memoize(is_binoc_held)
 --   exe -- the engine fires actor_on_weapon_zoom_in/out (WeaponMagazined -> eOnWeaponZoomIn/Out)
 --   the instant the sight is raised/lowered, for EVERY weapon including 1x optics that change no
 --   FOV. Set by the handlers registered in on_game_start; read by is_ads_active below.
-local _ZOOMCFG = { binoc = 0.7, ads = 0.85, mag_min = 1.05, zoomed = false, was_boost = false, zoom_item = false }
+local _ZOOMCFG = {
+	binoc = 0.7,
+	ads = 0.85,
+	mag_min = 1.05,
+	assist_min_px = 4,
+	zoomed = false,
+	was_boost = false,
+	was_binoc = false,
+	zoom_item = false,
+}
 local _fov_baseline = 60 -- self-corrects within moments of normal (unzoomed) play either way
 
 -- Debug tracing + perf, surfaced on the Debug-draw info panel. One bundle to spare top-level
@@ -1578,6 +1616,35 @@ local function scope_magnification()
 	return nil
 end
 scope_magnification = _frame:memoize(scope_magnification)
+
+-- fov_radius is a screen-pixel tolerance measured to the target's SILHOUETTE, so a fixed pixel
+-- count is not a fixed amount of forgiveness: magnify 4x and the same 35 px covers a four times
+-- wider world-space cone, i.e. scoping in quietly makes the assist grabbier exactly where the
+-- player is aiming most precisely. Dividing by the live magnification keeps the forgiveness
+-- constant in WORLD terms. It stays usable at high zoom because the silhouette it is measured
+-- from grows by the same factor the radius shrinks by -- "within 2 px of a body filling half the
+-- screen" is still a generous target. Floored at _ZOOMCFG.assist_min_px so an extreme optic (a
+-- binocular's raw angular ratio runs ~19x) can't collapse it to direct-hit-only; fov_radius 0 is
+-- the player disabling the assist outright and stays 0.
+function assist_radius()
+	local r = C.fov_radius or 35
+	if r <= 0 then
+		return 0
+	end
+	if not C.fov_zoom_scaling then
+		return r
+	end
+	local mag = scope_magnification()
+	if not mag or mag <= 1 then
+		return r
+	end
+	local eff = r / mag
+	local floor_px = _ZOOMCFG.assist_min_px
+	if eff < floor_px then
+		return r < floor_px and r or floor_px
+	end
+	return eff
+end
 
 -- The binocular's REAL magnification from the engine, or nil on a stock exe. Unlike
 -- scope_magnification(), this deliberately does NOT fall back to the camera-FOV ratio: for
@@ -2076,6 +2143,10 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 	if tier_blocked() then
 		return
 	end
+	-- Reading the PDA: no path may identify while the player is looking at its screen.
+	if pda_focused() then
+		return
+	end
 	-- Exclude an entity that is actively hostile + engaging the actor (in combat / pulled aggro).
 	-- Choke-point gate so NO path (key / auto / dwell / sweep) can identify one; the selection
 	-- filters below also skip them so the FOV assist moves on to another target.
@@ -2175,7 +2246,8 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 	local show_name = ft and true or C.show_name
 	local show_rank = ft and (ft.rank == true) or (not ft and C.show_rank)
 	local show_weapon = ft and (ft.weapon == true) or (not ft and C.show_weapon)
-	local show_rel = ft and (ft.relationship == true) or not ft
+	-- MCM toggle wins over the tier gate: off means no relation cue at all.
+	local show_rel = C.show_relation and ((ft and ft.relationship == true) or not ft)
 	local show_dist = ft and (ft.distance == true) or false
 
 	-- Portrait for the Promin OSD readout (a ui_npc_u_* texture region). character_icon() is
@@ -2188,7 +2260,9 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 		last_seen_tg = tg, -- last identify tick, for the look-away-and-back re-scan gap (see above)
 		col = show_rel and relation_color(obj) or COL_NEUTRAL,
 		fcol = faction_color(comm),
-		sign = show_rel and relation_sign(obj) or "o",
+		-- nil, not "o": absence is how the draw code learns a line/cue is off (same idiom as
+		-- name/rank/weap above), and every SIGN_COLOR[sign] lookup degrades to COL_NEUTRAL.
+		sign = show_rel and relation_sign(obj) or nil,
 		header = show_faction and faction_label(comm) or nil,
 		name = show_name and display_name(obj, comm) or nil,
 		icon = faction_icon_id(comm),
@@ -2392,6 +2466,10 @@ local function update_auto_identify(tg)
 	if not C.auto_identify then
 		return
 	end
+	-- Reading the PDA (see pda_focused): nothing is identified while looking at its screen.
+	if pda_focused() then
+		return
+	end
 	if not db.actor or not level.iterate_nearest then
 		return
 	end
@@ -2443,7 +2521,7 @@ local function update_auto_identify(tg)
 					local aimed = not aim_only
 					if aim_only then
 						local d = screen_dist_to_body(obj, acx, acy)
-						aimed = d ~= nil and d <= (C.fov_radius or 0)
+						aimed = d ~= nil and d <= assist_radius()
 					end
 					if aimed and in_view(obj) and has_los(obj) then
 						identify_target(obj, comm, boosted, eff_max_dist, scan_mult, true)
@@ -2500,7 +2578,7 @@ local function sweep_identify_in_fov(tg)
 		return
 	end
 	local cx, cy = aim_center()
-	local radius = C.fov_radius or 35
+	local radius = assist_radius()
 	local apos = _frame:position(db.actor)
 	local actor_id = db.actor:id()
 	pcall(level.iterate_nearest, apos, eff_max_dist, function(obj)
@@ -2644,6 +2722,13 @@ end
 -- above); hipfire mode also uses target DWELL (update_hipfire_dwell). All run every frame;
 -- each self-gates on its own toggle + aim context.
 local function update_binocular_scan(tg)
+	-- Reading the PDA: disarm every auto trigger instead of just skipping it, so unzooming the
+	-- PDA can't fire a dwell that "held" for as long as the player was reading the map.
+	if pda_focused() then
+		_dwell.ads.armed, _dwell.hip.armed = false, false
+		reset_steady()
+		return
+	end
 	update_ads_dwell(tg)
 	update_hipfire_dwell(tg)
 
@@ -2825,7 +2910,7 @@ function IiTags:draw_debug()
 	end
 
 	local cx, cy = aim_center()
-	local radius = C.fov_radius or 35 -- assist tolerance: a straight screen-px ring
+	local radius = assist_radius() -- assist tolerance: a straight screen-px ring (zoom-shrunk)
 	-- Use the EFFECTIVE max range (base * binoc/ADS boost, incl. scope magnification)
 	-- so the green/red range colouring matches what would actually identify right now.
 	local dbg_binoc, dbg_ads, _, eff_max = boost_params()
@@ -2938,7 +3023,15 @@ function IiTags:draw_debug()
 
 	-- Radius value, just above the ring.
 	if d.text then
-		d.text:SetText(string.format("fov_radius %d", math.floor(C.fov_radius or 35)))
+		-- Shows the EFFECTIVE radius (what the ring above actually is); the configured value and
+		-- the live magnification are appended whenever zoom has shrunk it, so the two are never
+		-- confusable on screen.
+		local set_r = C.fov_radius or 35
+		if radius < set_r - 0.05 then
+			d.text:SetText(string.format("fov_radius %.1f (%d / %.1fx)", radius, set_r, scope_magnification() or 1))
+		else
+			d.text:SetText(string.format("fov_radius %d", math.floor(set_r)))
+		end
 		d.text:SetTextColor(GetARGB(255, 255, 220, 40))
 		d.text:SetWndPos(P(math.floor(cx + 6), math.floor(cy - radius - 18)))
 		show(d.text, true)
@@ -3001,6 +3094,10 @@ function IiTags:draw_debug()
 		if C.binocular_mode then
 			trg[#trg + 1] = "binoc"
 		end
+		if pda_focused() then
+			lines[#lines + 1] = { "PDA focused: identification blocked", 255, 170, 60 }
+		end
+
 		lines[#lines + 1] =
 			{ "triggers: " .. (#trg > 0 and table.concat(trg, ",") or "none (key only)"), 180, 180, 180 }
 
@@ -3458,6 +3555,28 @@ local function render(tg)
 		TAGS:hide_debug()
 	end
 
+	-- Reading the PDA: identification is already blocked at every entry point (see pda_focused),
+	-- and the existing tags go with it -- raising the PDA DROPS what was identified rather than
+	-- leaving cards pinned to a world the player isn't looking at, so lowering it re-scans from
+	-- scratch instead of restoring a stale set. Consistent with the dwell timers being disarmed
+	-- rather than merely paused. Runs before the PiP block so the in-scope markers are cleared
+	-- too: begin+commit publishes one EMPTY snapshot, otherwise the render thread keeps drawing
+	-- the last scoped frame's markers for as long as the PDA is up.
+	if pda_focused() then
+		if _tracks.count > 0 then
+			_tracks:clear()
+		end
+		TAGS:hide_crooks()
+		for i = 1, MAX_TAGS do
+			TAGS:hide_slot(i)
+		end
+		if PIP_AVAILABLE and not C.debug_sim_stock then
+			svp_ui_markers_begin()
+			svp_ui_markers_commit()
+		end
+		return
+	end
+
 	local apos = db.actor and _frame:position(db.actor)
 
 	-- While a true PiP scope is actively raised, the normal card/dot (always
@@ -3516,6 +3635,12 @@ local function render(tg)
 		aim_model_id = m and m:id() or nil
 	end
 
+	-- The LIVE effective identify range for this frame (base, plus whatever binocular / ADS /
+	-- magnification boost applies right now). Drives the out-of-range drop below; per-instance
+	-- e.max_dist stays the identify-time snapshot for everything else.
+	local _, _, _, live_max = boost_params()
+	live_max = live_max or C.max_dist or 50
+
 	for id, e in pairs(tracked) do
 		-- Per-instance range/speed, captured at identify time in try_identify()
 		-- (see the binocular-boost comment there) rather than read live from
@@ -3539,13 +3664,28 @@ local function render(tg)
 			remove = true
 		end
 
+		-- Out of range: a tag whose target now sits beyond the CURRENT effective identify range is
+		-- dropped, not left floating. e.max_dist above is deliberately the range snapshotted at
+		-- identify time, so it can't notice the range shrinking under it -- the common case being
+		-- magnification going away (scope lowered, binoculars down), which collapses the effective
+		-- range by the whole zoom factor and would otherwise strand every distant tag you just
+		-- earned. Also covers either party simply walking apart. Measured against the same live
+		-- boost_params() range identification itself uses, so what stays tagged is exactly what
+		-- could be re-acquired right now.
+		if not remove and obj and apos then
+			local tpos = _frame:position(obj)
+			if tpos and tpos:distance_to(apos) > live_max then
+				remove = true
+			end
+		end
+
 		-- Is this target under the aim right now? A body point inside fov_radius OR the crosshair
 		-- directly on the model (the same direct-hit case identification honours). Drives the
 		-- hide_off_aim MEMBERSHIP gate here and the Crooks gaze re-point below. Only when needed.
 		local under_aim = nil
 		if not remove and need_aim and obj then
 			local ad = screen_dist_to_body(obj, aim_cx, aim_cy)
-			under_aim = (ad ~= nil and ad <= (C.fov_radius or 0)) or id == aim_model_id
+			under_aim = (ad ~= nil and ad <= assist_radius()) or id == aim_model_id
 		end
 		-- hide_off_aim: aim AWAY = drop the target from the list (a membership gate, not a display
 		-- gate). Aiming back finds it gone, so identification re-runs the whole scan from scratch
@@ -3659,6 +3799,7 @@ local function render(tg)
 						or C.ui_style == 4
 						or C.ui_style == 5
 						or C.ui_style == 7
+						or C.ui_style == 8
 					local dscale = scaling_style and mini_dist_scale_factor(pos, sy) or 1
 					if scaling_style then
 						-- Offsets describe the billboard plane in reference units. Keep them
@@ -3773,33 +3914,40 @@ local function teardown_ui()
 	_tracks:clear()
 end
 
--- When the ADS range boost ends (you zoom out / lower the sight), the effective
--- identify range snaps back from the extended (ads_range_mult) range to the base.
--- Any tag identified at that extended range that now sits beyond the base range is
--- dropped immediately -- rather than lingering on its reveal timer -- and survivors are
--- re-snapshotted to the base range (e.max_dist). Fires only on the ADS-boost active->inactive edge.
+-- When the ADS range boost ends (you zoom out / lower the sight), the effective identify range
+-- snaps back from the extended (ads_range_mult) range to the base. Survivors are re-snapshotted to
+-- that base range so their per-instance e.max_dist -- and the draw gate that reads it -- stay
+-- coherent with what is actually identifiable now. Fires only on the ADS-boost active->inactive edge.
 --
--- Deliberately NOT applied to binoculars: those keep a just-glassed distant tag
--- readable after you lower them (see boost_params()'s snapshot comment), a
--- dedicated-observation UX that differs from ADS's transient combat aid.
-local function update_ads_range_cull()
+-- DROPPING the tags that no longer fit is not this function's job: render's per-frame out-of-range
+-- check owns that, continuously and for every cause (boost released, magnification lost, either
+-- party walking away), which is also why binoculars need no special case here any more.
+local function update_ads_range_snapshot()
 	local _, ads, _, eff_max_dist = boost_params()
 	local ads_boost = ads and C.ads_boost
 	if _ZOOMCFG.was_boost and not ads_boost then
-		local apos = db.actor and _frame:position(db.actor)
-		if apos then
-			for id, e in pairs(tracked) do
-				local obj = level.object_by_id(id)
-				local pos = obj and safe_call(obj.position, obj)
-				if pos and pos:distance_to(apos) > eff_max_dist then
-					_tracks:remove(id) -- out of the (now unboosted) range: clear it
-				else
-					e.max_dist = eff_max_dist
-				end
-			end
+		for _, e in pairs(tracked) do
+			e.max_dist = eff_max_dist
 		end
 	end
 	_ZOOMCFG.was_boost = ads_boost
+end
+
+-- Binoculars lowered: optionally wipe every identified tag (binoc_clear_on_lower, off by default).
+-- Narrower than it sounds now that render culls out-of-range tags continuously: lowering the
+-- binoculars already collapses the effective range by the zoom factor, so everything you glassed
+-- BEYOND base range goes on its own. What this option adds is the rest -- the targets still inside
+-- base range, which would otherwise keep their tags. On = glassing is strictly live observation:
+-- the whole set goes the moment the optic leaves your eyes, near targets included.
+--
+-- Fires on the active->inactive EDGE only (one boolean compare on every other frame), and
+-- updates was_binoc unconditionally so toggling the option mid-glass can't strand a stale edge.
+local function update_binoc_clear()
+	local binoc = is_binoc_active()
+	if _ZOOMCFG.was_binoc and not binoc and C.binoc_clear_on_lower and _tracks.count > 0 then
+		_tracks:clear()
+	end
+	_ZOOMCFG.was_binoc = binoc
 end
 
 local function actor_on_update()
@@ -3860,7 +4008,8 @@ local function actor_on_update()
 	local tg = time_global()
 	update_binocular_scan(tg)
 	update_auto_identify(tg)
-	update_ads_range_cull()
+	update_ads_range_snapshot()
+	update_binoc_clear()
 	update_loot_xp()
 	render(tg)
 	_frame:finish()
