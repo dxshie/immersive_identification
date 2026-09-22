@@ -2,6 +2,65 @@
 
 ## Unreleased
 
+- **New installer component: GAMMA Patches**, alongside the existing GRIP Patches. The two mods
+  that supply GAMMA's faction patch art ship **different atlases under the same file name and
+  the same texture ids** -- Kos' GRIP is 1024x512 with 128x128 tiles, G.A.M.M.A. UI is 512x256
+  with 64x64 -- so one set of coordinates cannot serve both, and the wrong one renders every
+  patch cropped to a corner. There is now a component per source, in their own installer group
+  where **you can pick at most one**: ticking both would leave whichever loaded last silently
+  winning. Pick the one matching the mod that wins `ui_mm_faction_patches` in your load order,
+  and remember **Custom faction patches** (UI Style / General) still has to be switched on.
+- **Faction patch spacing and alignment fixed.** Two follow-ups to the aspect-correction work:
+  the **Card** and **Crooks** layouts reserved space for the emblem in uncorrected units while
+  drawing it corrected, leaving dead space between the patch and the text -- a 9 px gap instead
+  of 4 on the Card and 16.5 instead of 10 on Crooks at 16:9, and worse on ultrawide. Both now
+  reserve the width the emblem actually occupies, at any aspect ratio. The **Crooks** emblem was
+  also centred on the name line alone, so it sat visibly high whenever the rank line was shown;
+  it now centres on the whole readout. The Card emblem gained a 1 px optical nudge downward,
+  since glyphs sit low inside their declared line boxes and exact centring reads as floating.
+- **Card emblem resized to match.** Its box was tuned back when the emblem was drawn as a
+  virtual square and therefore came out stretched wide; once it became honestly square it read
+  as shrunken. Raised from 16 to 20 px, which lands within a couple of pixels of the old
+  on-screen width on 16:9 while now being square (and is bigger than before on 4:3). It is also
+  clamped to the plate's inner height, so turning every text line off no longer lets it spill
+  past the card's edge. The constant is `CARD_ICON` in `ii_ui.script` if you want it different.
+- **Faction patches no longer get distorted.** The emblem is now drawn fitted rather than
+  stretched to whatever box the style gives it, so it keeps its own proportions. This fixes two
+  separate things: on any screen wider than 4:3 the **Card** and **Crooks** emblems were squashed
+  horizontally (they never applied the aspect correction that Simple and Patch already did), and
+  non-square patch art was squashed into a square box everywhere. Art is letterboxed, never
+  cropped, so a wide patch keeps its edges instead of losing them. The real shape is read from the
+  texture region the game declares, so it works for a single tile of an atlas, and it is read only
+  when the texture actually changes.
+- **New installer component: GRIP Patches.** Uses Kos' GRIP's faction patch artwork for
+  the tag's faction emblem. It registers the mod's `ii_patch_*` ids as regions of that mod's
+  `ui_mm_faction_patches` atlas -- nothing is copied, only referenced, so it needs that mod
+  installed and is inert without it. Switch on **Custom faction patches** (UI Style / General)
+  as well; the component alone changes nothing. Covers every faction in the atlas, with
+  zombified stalkers reusing its greyed stalker patch; trader, monster and arena have no tile
+  there and show no patch. Built against the 128x128-tile atlas; if your patches come out
+  cropped to a corner you have the older half-scale variant, and the fix is documented in the
+  component's XML and SPEC.md 7.2.
+- **New option: Custom faction patches** (UI Style → General, off by default). Use your own
+  faction patch art instead of the game's built-in faction icons: the tag asks for the texture
+  id `ii_patch_<faction>` -- `ii_patch_duty`, `ii_patch_freedom`, `ii_patch_stalker` and so on --
+  which you register yourself in a `textures_descr` XML alongside your `.dds` files.
+  `examples/custom_faction_patches/` is a ready-made template with every faction this mod knows.
+  It applies to every style that draws an emblem (Card, Simple, Patch, and the Crooks readout),
+  and takes effect immediately -- including on tags already on screen -- so you can swap a `.dds`
+  and check it without re-identifying anything. It is all-or-nothing: there is no way to ask the
+  engine whether a texture exists, so a faction you have not supplied art for shows no patch.
+- **Add-on API: drawing primitives, and the built-in styles now use them too.** `ctx` gained
+  `place` / `place_mid` / `place_kx` (size + position + tint + show in one call, with the
+  aspect correction folded into `place_kx`), `outline` (the four-strip rectangle Bodycam and
+  Patch draw with), `dot` (the round marker Card, Minimal and Simple draw with) and
+  `relation_color`. These are not a separate modder-only layer -- the built-in styles were
+  migrated onto the same functions, so the public API is exercised every frame and the six
+  different hand-rolled spellings of the aspect-correction rule collapsed into three named
+  helpers. The render record also gained `dist` (metres to the target) and `id`, so an add-on
+  can fade by range or look the object up.
+  **Fixes:** `ctx.draw_shadowed_text` was silently `nil` -- it was attached to the context table
+  before it was defined, so any style calling it errored on its first draw.
 - **Modder documentation for the add-on API.** `MODDERS.md` is a full guide to writing your own
   UI style -- the hooks, every field of the render record, making widgets, the coordinate system
   and aspect correction, honouring the player's settings, performance rules, debugging and a
@@ -54,7 +113,7 @@
   cue on or off, so a tag can tell you *who* someone is without telling you how they feel
   about you. Every style respects it: Minimal drops its -/+/o sign, Simple 2 drops its
   triangle (and the row closes up around the circle), the Card and Simple lose their relation
-  tint, Patch's ring goes neutral, and Bodycam / Minimal 2 -- whose only cue *is* the relation
+  tint, Patch drops its ring entirely, and Bodycam / Minimal 2 -- whose only cue *is* the relation
   colour -- fall back to the faction colour rather than rendering a marker that says nothing.
 - **Colour by relation** no longer doubles as the Minimal sign toggle. It is now purely about
   colour; use the new **Show relation** to hide the cue itself. If you were turning

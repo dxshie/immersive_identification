@@ -591,12 +591,26 @@ local function held_weapon_label(obj)
 	return label
 end
 
--- Faction patch texture id: the same "<community_id>_icon" convention the
--- game's own character/relations UI uses (src/xrGame/ui/UICharacterInfo.cpp),
--- so this reuses whatever emblem art already ships with the game/modpack
--- instead of needing bundled icons for every faction.
+-- Faction patch texture ids.
+--
+-- Default: the same "<community_id>_icon" convention the game's own character/relations UI
+-- uses (src/xrGame/ui/UICharacterInfo.cpp), so the tag reuses whatever emblem art already
+-- ships with the game/modpack instead of needing bundled icons for every faction.
+--
+-- custom_patches on: "ii_patch_<community_id>" instead, which the player (or a texture addon)
+-- registers themselves in a configs/ui/textures_descr XML. Nothing is shipped for these ids --
+-- an unregistered one just draws nothing, and there is no way to ask the engine whether a
+-- texture id exists, so the option is deliberately all-or-nothing rather than per-faction.
+--
+-- BOTH ids are built once per identify and the choice is made per frame in render(). That
+-- makes the toggle live -- tags already on screen switch over immediately, which matters when
+-- you are iterating on patch art -- without a per-target, per-frame string concatenation.
 local function faction_icon_id(comm)
 	return comm .. "_icon"
+end
+
+local function custom_patch_id(comm)
+	return "ii_patch_" .. comm
 end
 
 local function relation_color(obj)
@@ -2266,6 +2280,7 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 		header = show_faction and faction_label(comm) or nil,
 		name = show_name and display_name(obj, comm) or nil,
 		icon = faction_icon_id(comm),
+		icon_custom = custom_patch_id(comm), -- used instead when custom_patches is on (live, see render)
 		rank = show_rank and rank_label(obj) or nil,
 		rank_col = rank_color(obj),
 		rank_level = show_rank and RANK_LEVEL[safe_call(obj.rank_name, obj) or ""] or nil, -- for the notification card
@@ -2807,6 +2822,7 @@ end
 -- style = the UI_STYLE_LIST index; margins = inset from the screen edges; gap = px between
 -- the logo and the name; icon = logo size (square). Bundled into one table (local budget).
 local CROOKS = { style = 6, margin_x = 34, margin_y = 40, gap = 10, icon = 26, rank_dy = 20 }
+local COL_WHITE_PATCH = { 255, 255, 255 } -- reused tint for the Crooks emblem (no per-frame table)
 
 -- The `---@class` annotation has to attach to an actual declaration, and
 -- `class "IiTags" (CUIScriptWnd)` below is a bare function-call statement
@@ -2857,6 +2873,7 @@ local _ui = ii_ui.install(IiTags, {
 	sign_colors = SIGN_COLOR,
 })
 local show, set_text = _ui.show, _ui.set_text
+local place_fit, set_patch = _ui.place_fit, _ui.set_patch
 local draw_shadowed_text = _ui.draw_shadowed_text
 
 -- Target-assist debug visualiser (MCM "Debug draw"). Draws, in the 1024x768 virtual
@@ -3490,11 +3507,15 @@ function IiTags:draw_crooks()
 		end
 		ck.has_icon = icon ~= nil and icon ~= ""
 		if ck.has_icon then
-			pcall(ck.icon.InitTexture, ck.icon, icon)
+			set_patch(ck, ck.icon, icon)
 		end
 	end
 
-	local icon_span = ck.has_icon and (CROOKS.icon + CROOKS.gap) or 0
+	-- Reserve the width the emblem will ACTUALLY occupy: it is drawn aspect-corrected, so
+	-- reserving the uncorrected CROOKS.icon left icon*(1-kx) of dead space before the text
+	-- (a 16.5 px gap instead of the intended 10 on 16:9).
+	local icon_w = CROOKS.icon * C._ui_kx
+	local icon_span = ck.has_icon and (icon_w + CROOKS.gap) or 0
 	local total = icon_span + ck.nw
 	local pos = C.crooks_pos or 1
 	local start_x
@@ -3510,13 +3531,21 @@ function IiTags:draw_crooks()
 	-- block up by the rank line's height to keep it inside the bottom margin.
 	local y = 768 - CROOKS.margin_y - (C.crooks_y or 0) - (has_rank and CROOKS.rank_dy or 0)
 	local text_x = math.floor(start_x + icon_span)
-
 	if ck.has_icon then
-		-- Vertically centre the (square) emblem on the ~18px name line.
-		ck.icon:SetWndPos(P(math.floor(start_x), math.floor(y - (CROOKS.icon - 18) / 2)))
-		ck.icon:SetWndSize(S(CROOKS.icon, CROOKS.icon))
-		ck.icon:SetTextureColor(GetARGB(255, 255, 255, 255))
-		show(ck.icon, true)
+		-- Centred on the WHOLE readout, not just the name line: with a rank line present the
+		-- block runs y .. y + rank_dy + 16, and centring on the 18 px name alone left the
+		-- emblem sitting visibly high beside it. FITTED, so the art keeps its proportions.
+		local block_h = has_rank and (CROOKS.rank_dy + 16) or 18
+		place_fit(
+			ck.icon,
+			start_x + icon_w / 2,
+			y + block_h / 2,
+			CROOKS.icon,
+			CROOKS.icon,
+			ck.icon_aspect,
+			COL_WHITE_PATCH,
+			255
+		)
 	else
 		show(ck.icon, false)
 	end
@@ -3749,7 +3778,8 @@ local function render(tg)
 				_last_id.name, _last_id.faction = e.name, e.header
 				_last_id.rank, _last_id.weap = e.rank, e.weap
 				_last_id.rank_level = e.rank_level
-				_last_id.icon = e.icon -- faction emblem texture id (notification card + Crooks readout)
+				-- Same live pick as the per-entity tag above.
+				_last_id.icon = (C.custom_patches and e.icon_custom) or e.icon
 				_last_id.portrait = e.portrait
 				_last_id.x = pos and pos.x or nil
 				_last_id.y = pos and pos.y or nil
@@ -3827,12 +3857,19 @@ local function render(tg)
 					end
 					a.hx, a.hy, a.header, a.name = sx + off_x, sy + off_y, e.header, nm
 					a.a = math.floor(255 * phase_alpha + 0.5)
-					a.col, a.icon, a.scanning = e.col, e.icon, scanning
+					-- Patch id picked HERE, not at identify time, so the custom_patches toggle applies
+					-- to tags already on screen. Both strings were built once per identify.
+					a.col, a.scanning = e.col, scanning
+					a.icon = (C.custom_patches and e.icon_custom) or e.icon
 					if scaling_style then
 						a.scale = C.card_scale * math.min(dscale, MARKER.max_scale)
 					else
 						a.scale = C.card_scale
 					end
+					-- Metres to the target, and its engine id. Neither is used by a built-in style; both
+					-- are here for add-on styles (ii_api), which otherwise cannot fade by range, show a
+					-- distance, or look anything up about the target -- `dist` is already computed above.
+					a.dist, a.id = dist, id
 					a.rank = e.rank
 					a.rank_col = e.rank_col
 					a.fcol, a.sign = e.fcol, e.sign

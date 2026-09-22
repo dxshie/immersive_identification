@@ -42,6 +42,33 @@
 						</plugin>
 					</plugins>
 				</group>
+
+				<!-- Separate group, and SelectAtMostOne: both plugins register the SAME
+				     ii_patch_* ids over the SAME atlas file name, so ticking both would leave
+				     whichever parsed last silently winning. They differ only in tile geometry,
+				     because the two mods ship different atlases under that one name. -->
+				<group name="Faction patches (pick the one matching your atlas)" type="SelectAtMostOne">
+					<plugins order="Explicit">
+						<plugin name="GRIP Patches">
+							<description>Uses Kos' GRIP (GAMMA Remastered Icon Pack) faction patch artwork for the tag's faction emblem instead of the game's own faction icons. GRIP: https://discord.com/channels/912320241713958912/1530072690155585688/1530072690155585688 -- its atlas is 1024x512 with 128x128 tiles. This component only registers the mod's ii_patch_* ids as regions of that atlas; no texture is copied, only referenced, so it needs GRIP installed and does nothing without it. PICK ONLY ONE patch component: G.A.M.M.A. UI ships a DIFFERENT atlas under the same file name and the same texture ids (512x256, 64x64 tiles), so choosing the wrong one renders every patch cropped to a corner. You must also switch on "Custom faction patches" on the mod's UI Style / General MCM page; the component alone changes nothing. Covers every faction in the atlas (zombified stalkers reuse its greyed stalker patch); trader, monster and arena have no tile there and show no patch.</description>
+							<files>
+								<folder source="GRIP Patches/gamedata" destination="gamedata" />
+							</files>
+							<typeDescriptor>
+								<type name="Optional" />
+							</typeDescriptor>
+						</plugin>
+						<plugin name="GAMMA Patches">
+							<description>Uses the G.A.M.M.A. UI faction patch artwork for the tag's faction emblem instead of the game's own faction icons. Its atlas is 512x256 with 64x64 tiles. This component only registers the mod's ii_patch_* ids as regions of that atlas; no texture is copied, only referenced, so it needs the G.A.M.M.A. UI mod installed and does nothing without it. PICK ONLY ONE patch component: Kos' GRIP ships a DIFFERENT atlas under the same file name and the same texture ids (1024x512, 128x128 tiles), so choosing the wrong one renders every patch cropped to a corner. If both mods are installed, pick the one your load order lets win. You must also switch on "Custom faction patches" on the mod's UI Style / General MCM page; the component alone changes nothing. Covers every faction in the atlas (zombified stalkers reuse its greyed stalker patch); trader, monster and arena have no tile there and show no patch.</description>
+							<files>
+								<folder source="GAMMA Patches/gamedata" destination="gamedata" />
+							</files>
+							<typeDescriptor>
+								<type name="Optional" />
+							</typeDescriptor>
+						</plugin>
+					</plugins>
+				</group>
 			</optionalFileGroups>
 		</installStep>
 	</installSteps>

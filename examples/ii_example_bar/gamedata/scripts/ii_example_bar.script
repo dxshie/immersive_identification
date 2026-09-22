@@ -6,8 +6,8 @@
 --
 --  Demonstrates the whole shape of an add-on -- registration, the three
 --  hooks, reusing the host mod's widget templates, honouring the player's
---  content toggles, distance scaling, and aspect correction -- in as little
---  code as possible. See MODDERS.md in the host mod's repo.
+--  content toggles, and distance scaling -- in as little code as possible.
+--  See MODDERS.md in the host mod's repo.
 --
 --  Install like any Anomaly mod. Then pick it in
 --  MCM -> Immersive Identification -> UI Style -> General -> UI style.
@@ -35,38 +35,21 @@ local function on_hide(state, ctx)
 end
 
 local function on_draw(state, a, ctx)
-	-- Hoisted: every `a.b.c` is a hash lookup, and this runs per target per frame.
-	local kx = ctx.config._ui_kx
-	local scale = a.scale
+	local w, h = BAR_W * a.scale, BAR_H * a.scale
+	local y = a.hy + DROP * a.scale
 
-	-- Widths are kx-corrected so the bar keeps its proportions on a 16:9 or 21:9
-	-- screen; heights never are. Everything scales by a.scale, which carries the
-	-- player's "Card scale" plus distance scaling (we opted into that below).
-	local w = BAR_W * scale * kx
-	local h = BAR_H * scale
-	local x = a.hx - w / 2
-	local y = a.hy + DROP * scale
+	-- ctx.place_kx centres on the point and aspect-corrects the WIDTH, so the bar keeps
+	-- its proportions on any screen -- that correction is the single easiest thing to get
+	-- wrong by hand. a.a already carries the fade-in/hold/fade-out curve.
+	--
+	-- relation_color gives the red/green/tan relationship colour, or the fallback when
+	-- there is none to show (the player turned "Show relation" off).
+	ctx.place_kx(state.bar, a.hx, y + h / 2, w, h, ctx.relation_color(a, a.fcol), a.a)
 
-	-- a.sign is nil when the player turned "Show relation" off, which also nils the
-	-- colour lookup -- fall back to the faction colour so the bar still says something.
-	local col = a.sign and ctx.sign_colors[a.sign] or a.fcol
-
-	-- ctx.position / ctx.size return SHARED scratch: use them inline as the argument,
-	-- never store the result. a.a already carries the fade-in/hold/fade-out curve.
-	state.bar:SetWndSize(ctx.size(w, h))
-	state.bar:SetWndPos(ctx.position(x, y))
-	state.bar:SetTextureColor(GetARGB(a.a, col[1], col[2], col[3]))
-	ctx.show(state.bar, true)
-
-	-- Rank bar, but only when the player wants rank shown: a.rank is nil both when
-	-- "Show rank" is off and for monsters, which have no rank at all.
+	-- a.rank is nil both when "Show rank" is off and for monsters, which have no rank.
 	if a.rank then
-		local rh = RANK_H * scale
-		local rc = a.rank_col
-		state.rank:SetWndSize(ctx.size(w, rh))
-		state.rank:SetWndPos(ctx.position(x, y + h + GAP * scale))
-		state.rank:SetTextureColor(GetARGB(a.a, rc[1], rc[2], rc[3]))
-		ctx.show(state.rank, true)
+		local rh = RANK_H * a.scale
+		ctx.place_kx(state.rank, a.hx, y + h + GAP * a.scale + rh / 2, w, rh, a.rank_col, a.a)
 	else
 		ctx.show(state.rank, false)
 	end

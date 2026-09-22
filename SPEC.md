@@ -72,15 +72,16 @@ Eight visual styles:
   outline** — "who they are" plus "friend or foe", with no text and no dot (`draw_slot`'s
   `ui_style == 8` branch). The patch is the same `<community>_icon` texture the Card style
   uses, drawn on the reused `tag_icon` static; the ring is four `tag_box_*` strips via the
-  shared `draw_rect_outline` helper. The ring colour is **always** relation-based (like
-  Minimal 2's dot), regardless of `color_by_relation`; `show_faction` off leaves the bare
-  ring as a locator, and `show_relation` off drops the ring to **neutral** — unlike Minimal 2
-  and Bodycam the patch itself still carries the faction, so the ring can go quiet without
-  emptying the tag. **Always** distance-scales (near = bigger, far = smaller) and follows
-  camera zoom, like Simple / Simple 2 / Minimal 2 — patch size, ring thickness, and the gap
-  between them all scale together, so the marker keeps its proportions at any range. Sized by
-  `patch_size` / `patch_thickness` / `patch_padding` (virtual px at the reference distance;
-  defaults 13 / 2 / 0). A thickness of **0** drops the ring entirely and stops it padding the
+  shared `outline` primitive. The ring colour is **always** relation-based (like Minimal 2's
+  dot), regardless of `color_by_relation`. The ring is this style's **only** relation cue, so
+  `show_relation` off **removes it entirely** rather than recolouring it — a neutral ring would
+  be decoration claiming to carry meaning — and the layout closes up as if no ring were
+  configured. `show_faction` off drops the patch, so with both off the style draws nothing,
+  which is what the player asked for. **Always** distance-scales (near = bigger, far = smaller)
+  and follows camera zoom, like Simple / Simple 2 / Minimal 2 — patch size, ring thickness, and
+  the gap between them all scale together, so the marker keeps its proportions at any range.
+  Sized by `patch_size` / `patch_thickness` / `patch_padding` (virtual px at the reference
+  distance; defaults 13 / 2 / 0). A thickness of **0** also drops the ring and stops it padding the
   layout, leaving the bare patch. Patch width and horizontal padding are `UI_KX`-corrected so
   the patch stays square on wide screens. Sits just above the head anchor, like Simple 2.
 
@@ -125,8 +126,10 @@ fomod/
   info.xml                      Name/Author/Version 2.55.1/Website
   ModuleConfig.xml              Installer: base + 2 optional components
 FactionID Neutralized/          Optional: no-op override of FactionID's HUD script
+GRIP Patches/                   Optional: maps ii_patch_* onto Kos' GRIP's faction atlas
+GAMMA Patches/                  Optional: same, for G.A.M.M.A. UI's (different) atlas
 Perception Skill Integration/   Optional: adds a "perception" skill to Skill System
-examples/                       Two complete example add-on mods (see MODDERS.md)
+examples/                       Example add-ons: two UI styles + a faction-patch template
 types/                          EmmyLua engine stubs for the LSP
 flake.nix, .luarc.json          Nix dev tooling (xmllint / LuaLS / packaging)
 ```
@@ -377,7 +380,7 @@ is on):
 
 `instant_identify` zeroes the wait, but the **per-mode excludes** (`instant_exclude_hipfire/ads/binoc`)
 keep the normal scan wait for a chosen aim mode. Under the WD tier system only the night penalty
-applies (the process tier sets a fixed base time; §7.3).
+applies (the process tier sets a fixed base time; §7.4).
 
 Gating (`try_identify`): `enabled` + actor exists; if `require_binoculars`,
 `is_binoc_active()` must be true; target exists, is not the actor, is alive, has a
@@ -520,9 +523,35 @@ reuses `tag_icon` for the patch and the `tag_box_*` edges for its relation ring.
   `COL_NEUTRAL` for free (indexing with a nil key is legal in Lua and returns nil). Card and
   Simple then go neutral automatically via `col`; the styles whose *only* cue is relation fall
   back to something that still says something — Minimal drops the glyph, Simple 2 drops the
-  triangle and re-centres the row, Minimal 2 and Bodycam switch to the faction colour, Patch
-  drops its ring to neutral. Because it is snapshotted, an already-revealed tag keeps its old
-  relation state until re-identified (as with every `show_*` toggle).
+  triangle and re-centres the row, Minimal 2 and Bodycam switch to the faction colour, and Patch
+  drops its ring outright, since the ring is that style's only relation cue and a neutral one
+  would be decoration claiming to carry meaning. Because it is snapshotted, an already-revealed
+  tag keeps its old relation state until re-identified (as with every `show_*` toggle).
+- **Faction patch ids** (`faction_icon_id` / `custom_patch_id`): the emblem every style draws is
+  a registered **texture id**, not a path. By default `<community>_icon` — the convention the
+  game's own character/relations UI uses (`UICharacterInfo.cpp`) — so the mod ships no emblem art
+  and inherits whatever the modpack has. With **`custom_patches`** on it is
+  `ii_patch_<community>`, which the player registers in their own `configs/ui/textures_descr`
+  XML; `examples/custom_faction_patches/` is a template. Nothing ships for those ids and there is
+  no engine call to ask whether a texture id exists, so the option is deliberately
+  **all-or-nothing** rather than per-faction: an unregistered id draws nothing. Both ids are
+  built once per identify (`icon`, `icon_custom` on the tracked entry) and the choice is made
+  **per frame** in `render`, so the toggle applies to tags already on screen — what makes
+  iterating on patch art bearable — without a per-target, per-frame string concatenation. Every
+  consumer is covered: the Card/Simple/Patch tags, the Crooks readout and the OSD snapshot all
+  read the same field.
+- **Patch aspect ratio** (`texture_aspect` / `set_patch` / `place_fit`): the emblem is drawn
+  **fitted**, never stretched. `set_patch` swaps the texture and, only on a real id change, reads
+  `CUIStatic:GetTextureRect()` — which returns the *region* declared in `textures_descr`, so it is
+  the art's true shape even for one tile of an atlas — and caches the ratio on the slot.
+  `place_fit` then letterboxes that ratio inside the box the style allotted and applies the
+  `UI_KX` width correction on top. Letterbox rather than the engine's `tmCover`, which would crop
+  a patch's edges off. Two distortions are removed at once: a square patch stretched by the
+  anisotropic virtual→screen stretch (Card and the Crooks readout never corrected for it), and
+  non-square art squashed into a square box. The drawn size never exceeds the box (`UI_KX` ≤ 1
+  above 4:3), so callers that reserved layout space — the Card's icon span, Simple's row slot —
+  stay valid, and a nil aspect falls back to filling the box. Covers all four emblem sites:
+  Card, Simple, Patch and Crooks.
 - **UI styles** (`ui_style`): 1 Card, 2 Minimal, 3 Bodycam, 4 Simple 2, 5 Simple, 6 Crooks, 7 Minimal 2 (bare relation dot), 8 Patch (faction patch + relation ring).
 - **`draw_slot`** branches: for **Crooks** (`ui_style==6`) it hides the per-entity slot and bails
   (Crooks is a single static readout — see below); otherwise scanning spinner only → minimal
@@ -667,6 +696,7 @@ Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `
 | `show_faction` | check | true | — | show faction line |
 | `show_rank` | check | true | — | show rank line (Card/Bodycam/Crooks) |
 | `show_relation` | check | true | — | show the enemy/friend/neutral cue at all — see **Relation gating** below |
+| `custom_patches` | check | false | — | ask for `ii_patch_<community>` texture ids instead of the game's `<community>_icon` — see **Faction patch ids** below |
 | `show_weapon` | check | true | — | show weapon+caliber line |
 | `color_by_relation` | check | true | — | tint by relation vs flat neutral (colour only; `show_relation` is the content gate) |
 | `mini_dist_scale` | check | true | — | Minimal dot: scale with distance |
@@ -754,7 +784,7 @@ Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `
 | `debug_log` | check | false | — | write aim/trace diagnostics to a dedicated log file |
 | `debug_draw` | check | false | — | on-screen target-assist visualiser: the FOV ring (one stretched `ii_ring` circle outline), bone dots, and a bottom-right info panel (perf CPS + mod-loop ms; identify trace — active triggers, the last commit's source/target, and a live "gate" line explaining why the aimed candidate is / isn't being identified; aim mesh-hit see/ray/LOS + front material; the FOV-radius target list) |
 | `debug_sim_stock` | check | false | — | pretend the custom engine bindings are absent (test stock fallbacks) |
-| **Wearable Devices** (page `wdcompat`; only bites when the WD compat add-on is installed, §7.3; the page is hidden otherwise) | | | | |
+| **Wearable Devices** (page `wdcompat`; only bites when the WD compat add-on is installed, §7.4; the page is hidden otherwise) | | | | |
 | `wd_ignore` | check | false | — | master toggle: bypass the WD compat entirely (identify as if WD isn't installed); disables the rest of this page |
 | `wd_require_kit` | check | true | — | block identification entirely unless the full scanner kit is worn/assembled |
 | `wd_proc_t1/t2/t3` | track | 1.5 / 1.0 / 0.5 | 0.1, 5, 0.1, 1 | process-module tier base scan time (s) |
@@ -764,7 +794,7 @@ Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `
 
 The `wd_*` keys back the tier system's defaults and are exposed to the add-on via the
 `ii_identify.get_wd_tier_cfg()` global (the add-on's driver can't read the local `C`).
-See §7.3.
+See §7.4.
 
 ---
 
@@ -780,7 +810,8 @@ and are tinted at runtime via `SetTextureColor`.
 
 Image widgets: `tag_shadow` (80×40, ii_shadow), `tag_plate` (80×40, ii_white,
 charcoal 24/22/19), `tag_accent` (3×26, relation bar), `tag_icon` (20×20, swapped
-to `<community>_icon` at runtime), `tag_line`/`tag_line_sh` (64×2, leader line),
+to `<community>_icon` -- or `ii_patch_<community>` under `custom_patches` -- at runtime),
+`tag_line`/`tag_line_sh` (64x2, leader line),
 `tag_glow` (40×40, ii_dot), `tag_node` (10×10, ii_node, baked black ring),
 `tag_spinner` (20×20, ii_spinner), `tag_box_top`/`tag_box_bottom`/`tag_box_left`/
 `tag_box_right` (thin ii_white strips forming the Bodycam head-outline box and the
@@ -824,16 +855,17 @@ Zombified, Sin, Trader, Mutant, UNISG, Arena).
 
 - **Required:** `gamedata → gamedata` (self-contained drop-in, no required
   choices).
-- **One step** "Optional Components" → group "Compatibility" (`SelectAny`), three
-  optional plugins:
-  1. **Neutralize FactionID HUD** → installs `FactionID Neutralized/gamedata`.
-     `type = Recommended`, so it is **pre-checked** — nearly every target setup (GAMMA
-     included) ships FactionID, and leaving it on means two faction indicators at once.
-     Still deselectable, and inert without FactionID (see §7.1).
-  2. **Skill System: Perception** → installs `Perception Skill Integration/gamedata`.
-     `type = Optional` (unchecked).
-  3. **st-wearable-devices Compatibility** → installs `WD Compatibility/gamedata` (§7.3).
-     `type = Optional` (unchecked).
+- **Two groups.** "Compatibility" (`SelectAny`) holds the three soft-compat plugins; "Faction
+  patches" (**`SelectAtMostOne`**) holds the two patch sources, which are mutually exclusive
+  because they register the same ids over the same atlas name (§7.2).
+  1. **Neutralize FactionID HUD** → `FactionID Neutralized/gamedata`. `type = Recommended`, so
+     it is **pre-checked** — nearly every target setup (GAMMA included) ships FactionID, and
+     leaving it on means two faction indicators at once. Deselectable, and inert without
+     FactionID (§7.1).
+  2. **Skill System: Perception** → `Perception Skill Integration/gamedata`. `Optional`.
+  3. **st-wearable-devices Compatibility** → `WD Compatibility/gamedata` (§7.4). `Optional`.
+  4. **GRIP Patches** → `GRIP Patches/gamedata`. `Optional`. Kos' GRIP's atlas (§7.2).
+  5. **GAMMA Patches** → `GAMMA Patches/gamedata`. `Optional`. G.A.M.M.A. UI's atlas (§7.2).
 ---
 
 ## 7. Compatibility add-ons
@@ -850,7 +882,37 @@ script that shadows nothing, registers no callbacks and returns nil from `on_mcm
 already takes in the intended case, since the stub replaces FactionID there too), which is why it
 is safe to ship pre-checked.
 
-### 7.2 Perception Skill Integration
+### 7.2 Faction patch components (GRIP Patches / GAMMA Patches)
+
+Two `textures_descr` XMLs, one per source mod, each registering the mod's
+**`ii_patch_<community>`** ids (the ones `custom_patches` switches to — see §3's *Faction patch
+ids*) as regions of **`ui\ui_mm_faction_patches`**. No texture is copied or redistributed, only
+referenced, so a component is inert without its atlas present.
+
+**They are alternatives, not additive.** Both mods ship that same file name with the same
+`ui_mm_faction_*` ids but **different atlases**:
+
+| component | source mod | atlas | tiles |
+|---|---|---|---|
+| **GRIP Patches** | Kos' GRIP ([link](https://discord.com/channels/912320241713958912/1530072690155585688/1530072690155585688)) | 1024×512 | 128×128 |
+| **GAMMA Patches** | G.A.M.M.A. UI | 512×256 | 64×64 |
+
+Nothing distinguishes the two from script — same filename, same ids — so the FOMOD puts them in
+their own **`SelectAtMostOne`** group. Ticking both would leave whichever parsed last silently
+winning; picking the one that does *not* match the atlas your load order resolves renders every
+patch cropped to a corner (see §3's *Faction patch ids* for why that is the signature).
+
+Two things must both be true for either to show: the component installed, **and**
+`custom_patches` switched on in MCM. Neither alone does anything, which both FOMOD descriptions
+say explicitly.
+
+Mapping notes, identical in both: the tile these mods label `army` is registered as
+**`military`**, the actual Anomaly community id; zombified stalkers have no tile of their own so
+they reuse the atlas' greyed `stalker_inactive`; and **`trader`, `monster` and `arena` have no
+tile in either atlas and therefore show no patch** — the all-or-nothing limit from §3, since
+there is no engine call to test whether a texture id resolves.
+
+### 7.3 Perception Skill Integration
 
 A soft-compat overlay for the third-party **Skill System (`haru_skills`)** mod.
 Ships **no scripts** — all logic is in `ii_identify.script`; these are pure
@@ -873,7 +935,7 @@ overlays, with **zero edits** to the host mod:
 
 Without this component (and the host mod) there is no XP and no effect.
 
-### 7.3 st-wearable-devices Compatibility (`WD Compatibility/`)
+### 7.4 st-wearable-devices Compatibility (`WD Compatibility/`)
 
 Gates identification behind wearable scanner gear from the **st-wearable-devices**
 (WD) mod, via a small **provider seam** in core: `ii_identify` calls the optional
@@ -1020,6 +1082,8 @@ label) · `name` · `rank` · `weap` · `icon` (faction emblem texture id) · `c
 colour) · `fcol` (faction colour) · `rank_col` · `sign` (`"-"`/`"+"`/`"o"`, **`nil` when
 `show_relation` is off** — see §3's relation gating) · `stack_offset` · and, with `want_box`,
 `box_cx` / `box_cy` / `box_hw` / `box_hh` (nil when the target does not project this frame).
+Also `dist` (metres to the target) and `id` (its engine object id) — neither is used by a
+built-in style; both exist so an add-on can fade by range or look the object up.
 
 Text fields are `nil` when their `show_*` toggle is off, so presence *is* the show decision —
 the same idiom the built-in styles use. Honour them and your style inherits the content toggles
@@ -1027,13 +1091,28 @@ for free.
 
 ### 8.3 The context (`ctx`)
 
-`config` (the **live** config table — `_ui_kx` for aspect correction, and every setting) ·
-`position(x, y)` / `size(w, h)` (the reused `vector2` helpers — do **not** cache their return) ·
-`show(w, bool)` and `set_text(w, str)` (change-guarded: they skip the native call when nothing
-changed, which is why the built-in styles are cheap — use them instead of raw `Show`/`SetText`) ·
-`draw_shadowed_text(main, sh, x, y, alpha, r, g, b, shadow_a)` · `xml` (this mod's parsed
-`ii_tags.xml`, so you can reuse `tag_icon`, `tag_node`, `tag_box_*`, …) · `parent` (the `IiTags`
-window to parent widgets to) · `neutral` · `sign_colors` · `api_version`.
+**Drawing primitives** — the same code the built-in styles run every frame, which is why they
+are exported rather than reimplemented: `place(w, x, y, width, height, col, alpha)` (size +
+position + tint + show, top-left, raw px) · `place_mid(…)` (centred) · `place_kx(…)` (centred and
+width aspect-corrected, so `_ui_kx` never reaches the caller) · `outline(edges, cx, cy, hw, hh,
+thickness, col, alpha)` (four-strip rectangle, corners butted, vertical edges corrected — Bodycam
+and Patch draw with it) · `dot(node, glow, cx, cy, size, col, alpha, snap)` (round marker plus
+optional 2.8×/55% halo, `snap` for markers that do not distance-scale — Card, Minimal and Simple
+draw with it) · `draw_shadowed_text(main, sh, x, y, alpha, r, g, b, shadow_a)`. `col` is a
+`{r,g,b}`, matching `a.fcol` / `a.col` / `a.rank_col` / `sign_colors` directly.
+
+**Everything else** — `relation_color(a, fallback)` (relation colour, or the fallback when
+`sign` is nil) · `show(w, bool)` and `set_text(w, str)` (change-guarded: they skip the native
+call when nothing changed) · `config` (the **live** settings table; `_ui_kx` plus every MCM
+option) · `xml` (this mod's parsed `ii_tags.xml`, to reuse `tag_icon`, `tag_node`, `tag_box_*`,
+…) · `parent` (the `IiTags` window) · `position(x, y)` / `size(w, h)` (the reused `vector2`
+helpers — do **not** cache their return) · `neutral` · `sign_colors` · `api_version`.
+
+> **Population order matters.** `API_CTX` is a table literal near the top of `install()`; a
+> member assigned there from a helper defined *further down* silently stores nil, because at
+> that line the identifier is not a local yet and resolves as an absent global. `outline`, `dot`
+> and `draw_shadowed_text` are therefore attached after their definitions. The API test harness
+> asserts every documented member is non-nil, which is how this was caught.
 
 ### 8.4 What the mod still does for you
 

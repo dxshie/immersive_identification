@@ -29,6 +29,10 @@ Everything [ii_example_bar](../ii_example_bar) does, plus:
 - **Shipping your own widget XML** rather than reusing the host mod's templates — including the
   `stretch="1"` requirement, which is load-bearing (see the comment in the XML).
 - **Text widgets** and their drop-shadow twins, via `ctx.draw_shadowed_text`.
+- **Applying the settings that are not pre-applied for you.** A `want_box` style is governed by
+  the player's *UI Style → Bodycam* page: area and padding are already baked into `a.box_*`, but
+  *Box outline thickness*, *Box opacity* and *Box colour* are read from `ctx.config` by hand.
+  Skip that and your outline silently ignores its own settings page.
 - **Caching**: the XML is parsed once for the session rather than once per tag slot, and
   `ctx.set_text` skips the native call when the string has not changed.
 - **Not** setting `dist_scale`: the box extents come from a world projection, so the frame

@@ -53,7 +53,7 @@
               while IFS= read -r -d "" f; do
                 echo "== $f =="
                 "${pkgs.libxml2}/bin/xmllint" --noout "$f" || status=1
-              done < <(find gamedata fomod examples "FactionID Neutralized" "Perception Skill Integration" "WD Compatibility" -name "*.xml" -print0)
+              done < <(find gamedata fomod examples "FactionID Neutralized" "GAMMA Patches" "GRIP Patches" "Perception Skill Integration" "WD Compatibility" -name "*.xml" -print0)
               if [ "$status" -eq 0 ]; then
                 echo "All XML valid."
               fi
@@ -78,7 +78,7 @@
             type = "app";
             program = toString (pkgs.writeShellScript "format" ''
               set -euo pipefail
-              find gamedata examples "FactionID Neutralized" "Perception Skill Integration" "WD Compatibility" \
+              find gamedata examples "FactionID Neutralized" "GAMMA Patches" "GRIP Patches" "Perception Skill Integration" "WD Compatibility" \
                 -name "*.script" -print0 \
                 | xargs -0 -r "${pkgs.stylua}/bin/stylua"
               echo "Formatted all .script files."
@@ -89,7 +89,7 @@
             type = "app";
             program = toString (pkgs.writeShellScript "check-format" ''
               set -euo pipefail
-              find gamedata examples "FactionID Neutralized" "Perception Skill Integration" "WD Compatibility" \
+              find gamedata examples "FactionID Neutralized" "GAMMA Patches" "GRIP Patches" "Perception Skill Integration" "WD Compatibility" \
                 -name "*.script" -print0 \
                 | xargs -0 -r "${pkgs.stylua}/bin/stylua" --check
               echo "All .script files are formatted."
@@ -118,7 +118,7 @@
                 if ! head -1 "$rus" | grep -qi 'windows-1251'; then
                   echo "== $rus: expected windows-1251 XML declaration =="; status=1
                 fi
-              done < <(find gamedata examples "FactionID Neutralized" "Perception Skill Integration" "WD Compatibility" -path "*/text/eng/*.xml" -print0)
+              done < <(find gamedata examples "FactionID Neutralized" "GAMMA Patches" "GRIP Patches" "Perception Skill Integration" "WD Compatibility" -path "*/text/eng/*.xml" -print0)
               if [ "$status" -eq 0 ]; then echo "All string tables in eng/rus parity."; fi
               exit "$status"
             '');
@@ -135,7 +135,7 @@
               fi
               out="./package/immersive-identification-fomod-v''${version}.zip"
               rm -f "$out"
-              "${pkgs.p7zip}/bin/7z" a -tzip -x'!.gitkeep' "$out" fomod gamedata README.md "FactionID Neutralized" "Perception Skill Integration" "WD Compatibility"
+              "${pkgs.p7zip}/bin/7z" a -tzip -x'!.gitkeep' "$out" fomod gamedata README.md "FactionID Neutralized" "GAMMA Patches" "GRIP Patches" "Perception Skill Integration" "WD Compatibility"
               echo "built $out"
             '');
           };

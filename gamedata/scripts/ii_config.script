@@ -27,6 +27,10 @@ DEFAULTS = {
 	show_name = true, -- show the target's name line (all text styles: card + bodycam)
 	show_faction = true, -- show the target's faction line (all text styles: card + bodycam)
 	show_rank = true, -- show the target's rank line (card + bodycam, and the Crooks readout)
+	custom_patches = false, -- use your own faction patch art: the tag asks for the texture id
+	-- "ii_patch_<community>" (e.g. ii_patch_duty) instead of the game's own "<community>_icon".
+	-- You register those ids yourself in a configs/ui/textures_descr XML; nothing ships for them,
+	-- and an unregistered id simply draws nothing. Off by default
 	show_relation = true, -- show the RELATIONSHIP cue (enemy/friend/neutral) at all: the Minimal sign,
 	-- the Simple 2 triangle, the relation tint on the Card/Simple, and the Bodycam/Patch ring colour.
 	-- Off = the tag tells you who they are but never whether they are hostile

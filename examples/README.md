@@ -1,8 +1,9 @@
 # Example add-ons
 
-Two complete, installable mods that register their own UI style with Immersive Identification
-through `ii_api`. Neither one edits or overwrites any file of the host mod — this is the whole
-integration surface.
+Complete, installable examples of extending Immersive Identification without editing it. The
+first two register their own UI style through `ii_api`; the third needs no scripting at all.
+None of them edits or overwrites any file of the host mod — this is the whole integration
+surface.
 
 Read [MODDERS.md](../MODDERS.md) for the guide; these are the same ideas as working code.
 
@@ -10,13 +11,15 @@ Read [MODDERS.md](../MODDERS.md) for the guide; these are the same ideas as work
 |---|---|
 | **[ii_example_bar](./ii_example_bar)** | The minimum viable style. Registration, the three hooks, reusing the host mod's widget templates, the content toggles, distance scaling, aspect correction. **Start here.** |
 | **[ii_example_frame](./ii_example_frame)** | `want_box` (the target's projected head/body extents, which drawing code cannot compute itself), shipping your own widget XML, text widgets with drop shadows, and caching. |
+| **[custom_faction_patches](./custom_faction_patches)** | Not a style at all — a template for replacing the faction emblems with your own art, via the **Custom faction patches** MCM option. No Lua involved. |
 
 ## Trying one
 
 Copy the example's `gamedata/` folder into a new mod folder in your mod manager, enable it
 **below** Immersive Identification, and launch. Then:
 
-**MCM → Immersive Identification → UI Style → General → UI style** — pick *Example Bar* or
+For the two style examples: **MCM → Immersive Identification → UI Style → General → UI style**
+— pick *Example Bar* or
 *Example Frame*.
 
 If it does not appear in the dropdown, see the debugging section of

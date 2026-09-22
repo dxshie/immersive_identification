@@ -2,21 +2,24 @@
 --  Example add-on: "Example Frame" UI style for Immersive Identification
 -- ======================================================================
 --  A four-strip outline rectangle locked to the target's head (or full body,
---  per the player's Bodycam box-area setting), with the name beside it.
+--  per the player's Bodycam box-area setting), with the name and range
+--  beside it.
 --
 --  Demonstrates the parts the simpler ii_example_bar leaves out:
 --    * want_box -- getting the target's projected box extents, which drawing
 --      code cannot compute itself (it has no world access),
+--    * ctx.outline, the same rectangle primitive the Bodycam and Patch styles
+--      draw with (corner butting and edge correction included),
 --    * shipping your OWN widget XML instead of reusing the host mod's,
 --    * text widgets and their drop-shadow twins,
---    * caching so a per-frame hook stays cheap.
+--    * a.dist, and honouring the UI Style -> Bodycam settings that are NOT
+--      pre-applied for you.
 --
 --  See MODDERS.md in the host mod's repo. Install like any Anomaly mod, then
 --  pick it in MCM -> Immersive Identification -> UI Style -> General.
 -- ======================================================================
 
-local EDGE = 2 -- outline thickness in virtual px (not distance-scaled, like Bodycam's)
-local TEXT_PAD = 8 -- gap from the box's right edge to the name
+local TEXT_PAD = 8 -- gap from the box's right edge to the text
 
 -- Parsed once for the whole session, not per slot: CScriptXmlInit():ParseFile() is
 -- expensive and the templates it yields are identical for every slot.
@@ -31,22 +34,24 @@ end
 
 local function on_create(state, ctx)
 	local x = templates()
-	state.top = x:InitStatic("iiex_edge_h", ctx.parent)
-	state.bottom = x:InitStatic("iiex_edge_h", ctx.parent)
-	state.left = x:InitStatic("iiex_edge_v", ctx.parent)
-	state.right = x:InitStatic("iiex_edge_v", ctx.parent)
+	-- ctx.outline takes the four edges as one table, keyed top/bottom/left/right.
+	state.edges = {
+		top = x:InitStatic("iiex_edge_h", ctx.parent),
+		bottom = x:InitStatic("iiex_edge_h", ctx.parent),
+		left = x:InitStatic("iiex_edge_v", ctx.parent),
+		right = x:InitStatic("iiex_edge_v", ctx.parent),
+	}
 	-- Created last = drawn last = on top of the frame.
-	state.name_sh = ctx.xml:InitTextWnd("tag_name_sh:text", ctx.parent)
-	state.name = ctx.xml:InitTextWnd("tag_name:text", ctx.parent)
+	state.label_sh = ctx.xml:InitTextWnd("tag_name_sh:text", ctx.parent)
+	state.label = ctx.xml:InitTextWnd("tag_name:text", ctx.parent)
 end
 
 local function on_hide(state, ctx)
-	ctx.show(state.top, false)
-	ctx.show(state.bottom, false)
-	ctx.show(state.left, false)
-	ctx.show(state.right, false)
-	ctx.show(state.name, false)
-	ctx.show(state.name_sh, false)
+	for _, edge in pairs(state.edges) do
+		ctx.show(edge, false)
+	end
+	ctx.show(state.label, false)
+	ctx.show(state.label_sh, false)
 end
 
 local function on_draw(state, a, ctx)
@@ -57,51 +62,37 @@ local function on_draw(state, a, ctx)
 		return
 	end
 
-	local kx = ctx.config._ui_kx
-	local x0, y0 = a.box_cx - a.box_hw, a.box_cy - a.box_hh
-	local w, h = a.box_hw * 2, a.box_hh * 2
+	local cfg = ctx.config
 
-	-- Vertical edges: correct the WIDTH only, so both pairs render the same on-screen
-	-- thickness (a raw px width is stretched differently on the X axis). The box
-	-- extents themselves need no correction -- they come from a world projection that
-	-- already accounts for it.
-	local tw = math.max(1, EDGE * kx)
-	-- Sides fill only the gap between top and bottom, so the corners butt instead of
-	-- overlapping. Overlapping corners double-draw and visibly darken.
-	local vh = math.max(1, h - 2 * EDGE)
+	-- A want_box style is governed by the player's UI Style -> Bodycam page. Area and
+	-- padding are already applied to a.box_*, but thickness, opacity and colour source
+	-- are NOT -- read them yourself or your outline ignores its own settings page.
+	-- box_color_source: 1 = faction, 2 = relationship.
+	local col = a.fcol
+	if cfg.box_color_source == 2 then
+		col = ctx.relation_color(a, a.fcol)
+	end
+	local alpha = math.floor(a.a * (cfg.box_opacity or 1))
 
-	local col = a.sign and ctx.sign_colors[a.sign] or a.fcol
-	local argb = GetARGB(a.a, col[1], col[2], col[3])
+	-- One call for the whole rectangle: ctx.outline butts the corners instead of
+	-- overlapping them (overlap double-draws and darkens) and corrects the vertical
+	-- edges' width so all four render the same on-screen thickness.
+	ctx.outline(state.edges, a.box_cx, a.box_cy, a.box_hw, a.box_hh, cfg.box_thickness or 2, col, alpha)
 
-	state.top:SetWndSize(ctx.size(w, EDGE))
-	state.top:SetWndPos(ctx.position(x0, y0))
-	state.top:SetTextureColor(argb)
-	ctx.show(state.top, true)
-
-	state.bottom:SetWndSize(ctx.size(w, EDGE))
-	state.bottom:SetWndPos(ctx.position(x0, y0 + h - EDGE))
-	state.bottom:SetTextureColor(argb)
-	ctx.show(state.bottom, true)
-
-	state.left:SetWndSize(ctx.size(tw, vh))
-	state.left:SetWndPos(ctx.position(x0, y0 + EDGE))
-	state.left:SetTextureColor(argb)
-	ctx.show(state.left, true)
-
-	state.right:SetWndSize(ctx.size(tw, vh))
-	state.right:SetWndPos(ctx.position(x0 + w - tw, y0 + EDGE))
-	state.right:SetTextureColor(argb)
-	ctx.show(state.right, true)
-
-	-- a.name is nil when the player turned "Show name" off.
+	-- a.name is nil when the player turned "Show name" off. a.dist is metres to the
+	-- target; it is rebuilt into a string only when the rounded value actually changes,
+	-- since building a string every frame would allocate every frame.
 	if a.name then
-		-- ctx.set_text skips the native SetText when the string has not changed, which
-		-- is most frames -- the name only moves, it rarely differs.
-		ctx.set_text(state.name, a.name)
-		ctx.set_text(state.name_sh, a.name)
+		local metres = math.floor(a.dist + 0.5)
+		if state.metres ~= metres or state.name ~= a.name then
+			state.metres, state.name = metres, a.name
+			state.text = string.format("%s  %dm", a.name, metres)
+		end
+		ctx.set_text(state.label, state.text)
+		ctx.set_text(state.label_sh, state.text)
 		ctx.draw_shadowed_text(
-			state.name,
-			state.name_sh,
+			state.label,
+			state.label_sh,
 			a.box_cx + a.box_hw + TEXT_PAD,
 			a.box_cy - a.box_hh,
 			a.a,
@@ -111,8 +102,8 @@ local function on_draw(state, a, ctx)
 			math.floor(180 * a.a / 255)
 		)
 	else
-		ctx.show(state.name, false)
-		ctx.show(state.name_sh, false)
+		ctx.show(state.label, false)
+		ctx.show(state.label_sh, false)
 	end
 end
 

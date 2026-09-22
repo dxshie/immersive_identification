@@ -1,0 +1,51 @@
+<w>
+	<!-- GRIP Patches: point Immersive Identification's custom faction patches at the
+	     GAMMA faction patch atlas.
+
+	     This registers the mod's own "ii_patch_<community>" ids as regions of
+	     ui\ui_mm_faction_patches. That atlas is shipped by Kos' GRIP (GAMMA
+	     Remastered Icon Pack) and by G.A.M.M.A. UI; either will do, which is why
+	     this keys off the atlas and not off a particular mod. GRIP:
+	     https://discord.com/channels/912320241713958912/1530072690155585688/1530072690155585688
+	     Their own ui_mm_faction_patches.xml maps the same tiles under
+	     ui_mm_faction_* ids for the main menu; these are the same coordinates under
+	     our ids. No texture is shipped or copied here, only referenced, so this
+	     component is inert without that atlas.
+
+	     Turn it on with "Custom faction patches" on the mod's UI Style / General MCM
+	     page. Without that toggle the mod keeps asking for the game's own
+	     "<community>_icon" ids and this file does nothing.
+
+	     COORDINATES: 128x128 tiles. Active patches occupy x = 0/128/256, greyed
+	     "inactive" ones x = 384/512/640. An OLDER G.A.M.M.A. UI shipped the same atlas
+	     at half scale (64x64 tiles on a 512x256 file). If your patches come out cropped
+	     to a corner, you have that older atlas and every x/y/width/height below needs
+	     halving. Compare against the ui_mm_faction_* entries in G.A.M.M.A. UI's own
+	     ui_mm_faction_patches.xml, which is always authoritative for the file you have.
+
+	     NAMES: the tile G.A.M.M.A. calls "army" is mapped to `military`, which is the
+	     actual Anomaly community id. -->
+
+	<file name="ui\ui_mm_faction_patches">
+		<texture id="ii_patch_stalker" x="0" y="0" width="128" height="128" />
+		<texture id="ii_patch_bandit" x="128" y="0" width="128" height="128" />
+		<texture id="ii_patch_csky" x="256" y="0" width="128" height="128" />
+
+		<texture id="ii_patch_dolg" x="0" y="128" width="128" height="128" />
+		<texture id="ii_patch_freedom" x="128" y="128" width="128" height="128" />
+		<texture id="ii_patch_killer" x="256" y="128" width="128" height="128" />
+
+		<texture id="ii_patch_military" x="0" y="256" width="128" height="128" />
+		<texture id="ii_patch_ecolog" x="128" y="256" width="128" height="128" />
+		<texture id="ii_patch_monolith" x="256" y="256" width="128" height="128" />
+
+		<texture id="ii_patch_greh" x="0" y="384" width="128" height="128" />
+		<texture id="ii_patch_renegade" x="128" y="384" width="128" height="128" />
+		<texture id="ii_patch_isg" x="256" y="384" width="128" height="128" />
+
+		<!-- Zombified stalkers have no tile of their own in the atlas. The greyed-out
+		     "inactive" stalker patch reads correctly for them, so it is reused here.
+		     Delete this line if you would rather they showed no patch. -->
+		<texture id="ii_patch_zombied" x="384" y="0" width="128" height="128" />
+	</file>
+</w>

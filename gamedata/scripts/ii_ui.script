@@ -4,7 +4,18 @@ function install(IiTags, context)
 	local CROOKS, MARKER = context.crooks, context.marker
 	local COL_NEUTRAL, SIGN_COLOR = context.neutral, context.sign_colors
 	local CARD_OFF_X, CARD_OFF_Y = 60, 34
+	-- Card emblem box, virtual px at scale 1. Tuning value: it was 16 back when the emblem was
+	-- drawn as a virtual square and so came out STRETCHED WIDE on anything past 4:3. Now that it
+	-- is fitted and aspect-corrected it is honestly square, which at 16 read as a shrunken logo,
+	-- hence the bump. The card reserves this plus 4 px, so raising it widens the plate to match.
+	local CARD_ICON = 20
+	-- Downward nudge for the card emblem, virtual px at scale 1. Optical, not geometric: the
+	-- text lines are declared 16-18 px but the glyphs sit low inside those boxes, so an emblem
+	-- centred on the plate's exact middle looks like it floats above the text.
+	local CARD_ICON_DY = 1
 	local RANK_FALLBACK = { 150, 150, 150 }
+	-- Fixed tints the styles reuse, kept as constants so no draw path builds a colour table.
+	local COL_WHITE, COL_BLACK, COL_PLATE = { 255, 255, 255 }, { 0, 0, 0 }, { 24, 22, 19 }
 	local visibility, text = {}, {}
 	local function show(widget, value)
 		if visibility[widget] ~= value then
@@ -19,10 +30,108 @@ function install(IiTags, context)
 		end
 	end
 
+	-- ------------------------------------------------------------------
+	-- Drawing primitives. Every style, built-in or add-on, goes through these
+	-- rather than hand-writing SetWndSize/SetWndPos/SetTextureColor/Show and its
+	-- own aspect correction -- that four-line block appeared ~19 times here, with
+	-- six different spellings of the C._ui_kx rule between them. All are exported
+	-- on API_CTX, so the public API is the same code the built-ins run every frame.
+	-- ------------------------------------------------------------------
+
+	-- Top-left placement in raw virtual px. Use for geometry that is already in the
+	-- correct space, e.g. extents that came from a world projection (the Bodycam box).
+	local function place(w, x, y, width, height, col, alpha)
+		w:SetWndSize(S(width, height))
+		w:SetWndPos(P(x, y))
+		w:SetTextureColor(GetARGB(alpha, col[1], col[2], col[3]))
+		show(w, true)
+	end
+
+	-- Centred on (cx, cy), raw virtual px. The `- width / 2` that appeared 14 times.
+	local function place_mid(w, cx, cy, width, height, col, alpha)
+		place(w, cx - width / 2, cy - height / 2, width, height, col, alpha)
+	end
+
+	-- Centred, with the WIDTH aspect-corrected so a shape authored square comes out
+	-- square. Pass the logical width; the C._ui_kx squeeze is applied here, which is
+	-- why callers no longer have to remember that it goes on widths and never heights.
+	-- Do NOT use for a widget you also rotate (SetHeading): rotation and a non-uniform
+	-- scale do not commute, and a pre-squeezed shape turns elliptical at every angle.
+	local function place_kx(w, cx, cy, width, height, col, alpha)
+		local wx = width * C._ui_kx
+		place(w, cx - wx / 2, cy - height / 2, wx, height, col, alpha)
+	end
+
+	-- The relation colour for this target, or `fallback` when there is none to show
+	-- (`sign` is nil whenever show_relation is off). The single most repeated decision
+	-- in every style that carries a friend-or-foe cue.
+	local function relation_color(a, fallback)
+		local sign = a.sign
+		return (sign and SIGN_COLOR[sign]) or fallback or COL_NEUTRAL
+	end
+
+	-- Aspect ratio (width/height) of a static's CURRENT texture region, or nil when the
+	-- engine will not report one. The region is what textures_descr declared, so this is
+	-- the art's true shape even for a single tile of an atlas. Read once per texture
+	-- SWAP and cached by the caller -- it is a luabind call, not something to do per frame.
+	local function texture_aspect(widget)
+		local ok, r = pcall(widget.GetTextureRect, widget)
+		if not ok or not r then
+			return nil
+		end
+		local x1, y1, x2, y2 = r.x1, r.y1, r.x2, r.y2
+		if not (x1 and y1 and x2 and y2) then
+			return nil
+		end
+		local tw, th = x2 - x1, y2 - y1
+		if tw > 0 and th > 0 then
+			return tw / th
+		end
+		return nil
+	end
+
+	-- Swaps a patch texture and re-reads its aspect, only when the id actually changed.
+	-- `state` is any table to cache on (a tag slot, or the Crooks readout).
+	local function set_patch(state, widget, icon_id)
+		if state.icon_key ~= icon_id then
+			pcall(widget.InitTexture, widget, icon_id)
+			state.icon_key = icon_id
+			state.icon_aspect = texture_aspect(widget)
+		end
+	end
+
+	-- Centred placement that preserves the art's own proportions. The image is FITTED
+	-- inside the box -- letterboxed, never cropped, since cropping a faction patch would
+	-- eat its edges -- and the width is aspect-corrected on top of that. So a square patch
+	-- stays square on any screen, and a non-square one keeps its shape instead of being
+	-- stretched to whatever box the style hands it.
+	--
+	-- box_w/box_h are logical, pre-correction units, the same ones place_kx takes. The
+	-- drawn width never exceeds the box (C._ui_kx is <= 1 on anything wider than 4:3), so
+	-- a caller that reserved box_w of layout space stays safe. A nil aspect (no region
+	-- reported) falls back to filling the box, i.e. the old behaviour.
+	local function place_fit(w, cx, cy, box_w, box_h, aspect, col, alpha)
+		local dw, dh = box_w, box_h
+		if aspect and aspect > 0 then
+			if aspect * box_h >= box_w then
+				dh = box_w / aspect
+			else
+				dw = box_h * aspect
+			end
+		end
+		place_kx(w, cx, cy, dw, dh, col, alpha)
+	end
+
 	-- Handed to every ii_api style hook. Built once and reused: `config` is the LIVE config
 	-- table (so C._ui_kx and every setting read current values), and the helpers are the same
 	-- ones the built-in styles use, so an add-on gets identical widget handling for free.
 	-- `xml` / `parent` are filled in by InitControls, which always runs before any draw.
+	--
+	-- Only names that are ALREADY locals at this point may appear here. A member assigned
+	-- from a helper defined further down silently becomes nil, because at this line that
+	-- identifier is not a local yet and resolves as an (absent) global -- which is exactly
+	-- what happened to draw_shadowed_text. Those are attached below, next to their
+	-- definitions, and ii_api's test harness asserts every documented member is non-nil.
 	local API_CTX = {
 		api_version = 1,
 		config = C,
@@ -30,7 +139,13 @@ function install(IiTags, context)
 		size = S,
 		show = show,
 		set_text = set_text,
-		draw_shadowed_text = draw_shadowed_text,
+		place = place,
+		place_mid = place_mid,
+		place_kx = place_kx,
+		place_fit = place_fit,
+		texture_aspect = texture_aspect,
+		set_patch = set_patch,
+		relation_color = relation_color,
 		neutral = COL_NEUTRAL,
 		sign_colors = SIGN_COLOR,
 	}
@@ -130,10 +245,8 @@ function install(IiTags, context)
 				glow = glow,
 				node = node,
 				spinner = spinner,
-				box_top = box_top,
-				box_bottom = box_bottom,
-				box_left = box_left,
-				box_right = box_right,
+				-- Grouped so the outline primitive can take the four edges as one value.
+				box = { top = box_top, bottom = box_bottom, left = box_left, right = box_right },
 				s2_circle = s2_circle,
 				s2_tri = s2_tri,
 				s2_bar = s2_bar,
@@ -228,16 +341,13 @@ function install(IiTags, context)
 		end
 	end
 	
-	-- Bodycam box edges: hidden every frame by default (see draw_slot), only shown
-	-- by the bodycam reveal branch, so switching away from bodycam or into a
-	-- scanning/other-style frame leaves no stale edges behind. Kept out of
-	-- CARD_WIDGET_KEYS deliberately -- the card path shows its widgets one-by-one
+	-- Outline edges: hidden every frame by default (see draw_slot), only shown by the
+	-- branches that draw a box, so switching styles leaves no stale edges behind. Kept
+	-- out of CARD_WIDGET_KEYS deliberately -- the card path shows its widgets one-by-one
 	-- and never calls hide_card_widgets, so a shared list wouldn't cover it.
-	local BOX_WIDGET_KEYS = { "box_top", "box_bottom", "box_left", "box_right" }
-	
 	local function hide_box_widgets(s)
-		for _, k in ipairs(BOX_WIDGET_KEYS) do
-			show(s[k], false)
+		for _, w in pairs(s.box) do
+			show(w, false)
 		end
 	end
 	
@@ -312,23 +422,24 @@ function install(IiTags, context)
 	local BODYCAM_TEXT_PAD = 8
 	local BODYCAM_LINE_H = 19
 	
-	-- Draws an unfilled rectangle outline (four thin strips) centred on (cx,cy)
-	-- with the given screen-space half-width/half-height, in the fixed 1024x768
-	-- virtual space. hw/hh are already in virtual units -- Bodycam gets them from a
-	-- world2ui projection of the head's real-world extents (see screen_box), Patch
-	-- style from its own kx-corrected sizing -- so they need NO C._ui_kx squeeze here:
-	-- the engine's virtual->screen stretch maps position and size together, landing
-	-- each edge exactly on the projected point.
+	-- Draws an unfilled rectangle outline from four thin strips, centred on (cx,cy) with
+	-- the given half-width/half-height, in the fixed 1024x768 virtual space. `edges` is a
+	-- table of four widgets keyed top/bottom/left/right.
 	--
-	-- Thickness `t` and the already-opacity-folded alpha `a` are the caller's: Bodycam
-	-- passes its fixed (never distance-scaled) C.box_thickness, Patch style scales its own
-	-- with distance so the ring keeps its proportions. The vertical edges'
-	-- WIDTH is pre-divided by C._ui_kx so they render the same on-screen thickness as
-	-- the horizontal edges (a raw px width is stretched differently on the X axis --
-	-- see C._ui_kx). Edges butt at the corners with NO overlap: top/bottom span the
-	-- full width, left/right fill only the gap between them -- so a thick outline
-	-- no longer double-draws (and darkens) at the corners.
-	local function draw_rect_outline(s, cx, cy, hw, hh, t, a, r, g, b)
+	-- hw/hh are taken as already being in virtual units and get NO C._ui_kx squeeze --
+	-- Bodycam's come from a world2ui projection of the head's real extents (see
+	-- screen_box), Patch style's from its own corrected sizing. The engine's
+	-- virtual->screen stretch maps position and size together, landing each edge exactly
+	-- on the projected point.
+	--
+	-- Thickness `t` and the alpha are the caller's: Bodycam passes its fixed (never
+	-- distance-scaled) C.box_thickness with box_opacity folded in, Patch scales its own
+	-- with distance so the ring keeps its proportions. The vertical edges' WIDTH is
+	-- corrected so they render the same on-screen thickness as the horizontal ones (a raw
+	-- px width is stretched differently on the X axis). Edges butt at the corners with NO
+	-- overlap -- top/bottom span the full width, left/right fill only the gap between them
+	-- -- so a thick outline does not double-draw and darken at its corners.
+	local function outline(edges, cx, cy, hw, hh, t, col, alpha)
 		if t < 1 then
 			t = 1
 		end
@@ -336,58 +447,55 @@ function install(IiTags, context)
 		local x0, y0 = cx - hw, cy - hh
 		local w, h = hw * 2, hh * 2
 		local vh = math.max(1, h - 2 * t) -- vertical edges fill between top & bottom
-	
-		-- Flat CUIStatic edges (the depth-aware world-anchored overlay path was removed).
-		local col = GetARGB(a, r, g, b)
-		s.box_top:SetWndSize(S(w, t))
-		s.box_top:SetWndPos(P(x0, y0))
-		s.box_top:SetTextureColor(col)
-		show(s.box_top, true)
-	
-		s.box_bottom:SetWndSize(S(w, t))
-		s.box_bottom:SetWndPos(P(x0, y0 + h - t))
-		s.box_bottom:SetTextureColor(col)
-		show(s.box_bottom, true)
-	
-		s.box_left:SetWndSize(S(tw, vh))
-		s.box_left:SetWndPos(P(x0, y0 + t))
-		s.box_left:SetTextureColor(col)
-		show(s.box_left, true)
-	
-		s.box_right:SetWndSize(S(tw, vh))
-		s.box_right:SetWndPos(P(x0 + w - tw, y0 + t))
-		s.box_right:SetTextureColor(col)
-		show(s.box_right, true)
+
+		place(edges.top, x0, y0, w, t, col, alpha)
+		place(edges.bottom, x0, y0 + h - t, w, t, col, alpha)
+		place(edges.left, x0, y0 + t, tw, vh, col, alpha)
+		place(edges.right, x0 + w - tw, y0 + t, tw, vh, col, alpha)
 	end
 	
 	local SPIN_D = 20 -- spinner diameter, px, at scale 1
 	local SPIN_PERIOD_MS = 900 -- one full rotation
 	
+	-- One round marker: a `size`-diameter dot, optionally behind a soft halo 2.8x its
+	-- size at 55% of its alpha. Widths are aspect-corrected so it stays circular.
+	--
+	-- `snap` rounds to whole pixels and floors each width at 2. That is for markers whose
+	-- size does NOT track the camera: at a fixed small size, fractional positions make the
+	-- dot shimmer as the view moves. Distance-scaled markers pass false and keep
+	-- fractional placement, which is what lets them shrink smoothly. `glow` may be nil.
+	local function dot_part(w, cx, cy, d, col, alpha, snap)
+		local dx = d * C._ui_kx
+		if snap then
+			dx = math.max(2, math.floor(dx + 0.5))
+		end
+		local x, y = cx - dx / 2, cy - d / 2
+		if snap then
+			x, y = math.floor(x), math.floor(y)
+		end
+		place(w, x, y, dx, d, col, alpha)
+	end
+
+	local function dot(node, glow, cx, cy, size, col, alpha, snap)
+		dot_part(node, cx, cy, size, col, alpha, snap)
+		if glow then
+			dot_part(glow, cx, cy, size * 2.8, col, math.floor(alpha * 0.55), snap)
+		end
+	end
+
+	-- Reused so draw_node_glow's r,g,b -> colour-table conversion allocates nothing; it
+	-- runs several times per slot per frame. Same scratch discipline as ii_identify's _v.
+	local _rgb = { 0, 0, 0 }
+
+	-- The card/minimal/simple node: `scale` is the style's scale factor, not a diameter.
+	-- world_scaled = the style distance-scales, so no pixel snapping and no clamp; the
+	-- flat-scaled styles clamp the node so a large card_scale doesn't bloat the dot.
 	local function draw_node_glow(s, hx, hy, scale, alpha, r, g, b, world_scaled)
 		local node_scale = world_scaled and scale or math.min(scale, MARKER.card_node_max)
-		local ns = 7 * node_scale
-		local nsx = world_scaled and ns * C._ui_kx or math.max(2, math.floor(ns * C._ui_kx + 0.5))
-		s.node:SetWndSize(S(nsx, ns))
-		if world_scaled then
-			s.node:SetWndPos(P(hx - nsx / 2, hy - ns / 2))
-		else
-			s.node:SetWndPos(P(math.floor(hx - nsx / 2), math.floor(hy - ns / 2)))
-		end
-		s.node:SetTextureColor(GetARGB(alpha, r, g, b))
-		show(s.node, true)
-	
-		local gs = ns * 2.8
-		local gsx = world_scaled and gs * C._ui_kx or math.max(2, math.floor(gs * C._ui_kx + 0.5))
-		s.glow:SetWndSize(S(gsx, gs))
-		if world_scaled then
-			s.glow:SetWndPos(P(hx - gsx / 2, hy - gs / 2))
-		else
-			s.glow:SetWndPos(P(math.floor(hx - gsx / 2), math.floor(hy - gs / 2)))
-		end
-		s.glow:SetTextureColor(GetARGB(math.floor(alpha * 0.55), r, g, b))
-		show(s.glow, true)
+		_rgb[1], _rgb[2], _rgb[3] = r, g, b
+		dot(s.node, s.glow, hx, hy, 7 * node_scale, _rgb, alpha, not world_scaled)
 	end
-	
+
 	-- Positions/tints/shows one text line plus its 1px-offset shadow copy.
 	local function draw_shadowed_text(main, sh, x, y, alpha, r, g, b, shadow_a)
 		sh:SetWndPos(P(x + 1, y + 1))
@@ -397,6 +505,12 @@ function install(IiTags, context)
 		main:SetTextColor(GetARGB(alpha, r, g, b))
 		show(main, true)
 	end
+
+	-- Attached here, not in the API_CTX literal above: these helpers are defined after it,
+	-- and assigning them up there would store nil (see that table's comment).
+	API_CTX.outline = outline
+	API_CTX.dot = dot
+	API_CTX.draw_shadowed_text = draw_shadowed_text
 	
 	-- Draw one bodycam text line as flat CUIStatic shadowed text. (The depth-aware engine
 	-- glyph-emitter path was reverted; this is the sole path now.) main_w/sh_w are the widget +
@@ -439,8 +553,17 @@ function install(IiTags, context)
 			m = {}
 			s.measurement = m
 		end
-		if m.ready and m.header_key == a.header and m.name_key == a.name
-			and m.rank_key == a.rank and m.weap_key == a.weap and m.scale == a.scale then
+		-- kx is part of the key: ispan below is aspect-corrected, so a resolution change
+		-- alters the measured plate width even when nothing about the text did.
+		if
+			m.ready
+			and m.header_key == a.header
+			and m.name_key == a.name
+			and m.rank_key == a.rank
+			and m.weap_key == a.weap
+			and m.scale == a.scale
+			and m.kx == C._ui_kx
+		then
 			return m
 		end
 		local header, name, rank, weap = a.header, a.name, a.rank, a.weap
@@ -453,7 +576,12 @@ function install(IiTags, context)
 		local has_rank = rank and rank ~= ""
 		local has_weap = weap and weap ~= ""
 		local pad, accent_w = 8, 3
-		local iw = 16 * scale
+		-- The emblem is drawn aspect-corrected, so the plate must reserve the width it will
+		-- ACTUALLY occupy (ibox * kx), not the logical box. Reserving the uncorrected value
+		-- left ibox*(1-kx) of dead space between emblem and text -- 9 px instead of the
+		-- intended 4 on 16:9, worse on ultrawide.
+		local ibox = CARD_ICON * scale -- emblem's logical (height) box
+		local iw = ibox * C._ui_kx -- the width it really takes on the plate
 		local lead = 5 * scale
 		local ispan = iw + 4 * scale
 	
@@ -544,8 +672,9 @@ function install(IiTags, context)
 		m.header_key, m.name_key, m.rank_key, m.weap_key = header, name, rank, weap
 		m.head, m.name, m.rank, m.weap = has_head, has_name, has_rank, has_weap
 		m.width, m.height = cw, ch
-		m.accent, m.lead, m.ispan, m.icon = accent_w, lead, ispan, iw
-		m.scale, m.ready = a.scale, true
+		m.accent, m.lead, m.ispan, m.icon = accent_w, lead, ispan, ibox
+		m.icon_w = iw
+		m.scale, m.kx, m.ready = a.scale, C._ui_kx, true
 		return m
 	end
 	
@@ -699,23 +828,15 @@ function install(IiTags, context)
 		-- colour rather than a flat neutral dot -- otherwise the whole style would carry nothing.
 		if C.ui_style == 7 then
 			show(s.glow, false)
-			local rc = sign and SIGN_COLOR[sign] or fcol
-			local ns = 7 * scale
-			local nsx = ns * C._ui_kx
-			s.node:SetWndSize(S(nsx, ns))
-			s.node:SetWndPos(P(hx - nsx / 2, hy - ns / 2))
-			s.node:SetTextureColor(GetARGB(alpha, rc[1], rc[2], rc[3]))
-			show(s.node, true)
+			-- No halo, no snapping: Minimal 2 always distance-scales.
+			dot(s.node, nil, hx, hy, 7 * scale, relation_color(a, fcol), alpha, false)
 			return
 		end
 	
 		-- Simple style: a compact horizontal strip above the head -- the Card style's
 		-- relation-coloured dot + glow, then the faction logo, then the name.
 		if C.ui_style == 5 then
-			if s.icon_key ~= icon_id then
-				pcall(s.icon.InitTexture, s.icon, icon_id)
-				s.icon_key = icon_id
-			end
+			set_patch(s, s.icon, icon_id)
 			local has_name = name and name ~= ""
 			if name ~= s.simple_last_name then
 				if has_name then
@@ -747,10 +868,9 @@ function install(IiTags, context)
 	
 			if has_icon then
 				cursor = cursor + gap
-				s.icon:SetWndPos(P(cursor, row_y - icon_h / 2))
-				s.icon:SetWndSize(S(icon_w, icon_h))
-				s.icon:SetTextureColor(GetARGB(alpha, 255, 255, 255))
-				show(s.icon, true)
+				-- Centred in the icon_w slot the row already reserved, so a letterboxed
+				-- patch does not shift the name beside it.
+				place_fit(s.icon, cursor + icon_w / 2, row_y, icon_h, icon_h, s.icon_aspect, COL_WHITE, alpha)
 				cursor = cursor + icon_w
 			else
 				show(s.icon, false)
@@ -805,17 +925,15 @@ function install(IiTags, context)
 				if C.box_color_source == 2 and sign then
 					bcol = SIGN_COLOR[sign]
 				end
-				draw_rect_outline(
-					s,
+				outline(
+					s.box,
 					box_cx,
 					box_cy,
 					box_hw,
 					box_hh,
 					C.box_thickness or 2,
-					math.floor(alpha * (C.box_opacity or 1)),
-					bcol[1],
-					bcol[2],
-					bcol[3]
+					bcol,
+					math.floor(alpha * (C.box_opacity or 1))
 				)
 	
 				-- Name / faction / weapon+caliber, stacked just to the right of the box
@@ -907,37 +1025,27 @@ function install(IiTags, context)
 			local rowh = math.max(cd, th)
 			local cy = hy - rowh / 2 - 2 * sc -- sit the shapes just above the head anchor
 	
-			s.s2_circle:SetWndSize(S(cw, cd))
-			s.s2_circle:SetWndPos(P(left, cy - cd / 2))
-			s.s2_circle:SetTextureColor(GetARGB(alpha, fcol[1], fcol[2], fcol[3]))
-			show(s.s2_circle, true)
-	
+			place(s.s2_circle, left, cy - cd / 2, cw, cd, fcol, alpha)
+
 			-- `show_relation` off nils the sign: drop the triangle entirely and let the row
 			-- (and the rank bar spanning it) close up around the circle alone.
 			if has_tri then
-				local rc = SIGN_COLOR[sign]
-				s.s2_tri:SetWndSize(S(twx, th))
-				s.s2_tri:SetWndPos(P(left + cw + gpx, cy - th / 2))
-				s.s2_tri:SetTextureColor(GetARGB(alpha, rc[1], rc[2], rc[3]))
-				show(s.s2_tri, true)
+				place(s.s2_tri, left + cw + gpx, cy - th / 2, twx, th, SIGN_COLOR[sign], alpha)
 			else
 				show(s.s2_tri, false)
 			end
-	
-			local rk = rank_col or RANK_FALLBACK
-			s.s2_bar:SetWndSize(S(roww, bh))
-			s.s2_bar:SetWndPos(P(left, cy - rowh / 2 - bgap - bh))
-			s.s2_bar:SetTextureColor(GetARGB(alpha, rk[1], rk[2], rk[3]))
-			show(s.s2_bar, true)
+
+			place(s.s2_bar, left, cy - rowh / 2 - bgap - bh, roww, bh, rank_col or RANK_FALLBACK, alpha)
 			return
 		end
 	
 		-- Patch style (style 8): the faction patch on its own, ringed by a relation-coloured
-		-- outline -- "who they are" plus "friend or foe", no text, no dot. The ring is ALWAYS
-		-- relation-coloured (SIGN_COLOR stays accurate regardless of color_by_relation), like
-		-- Minimal 2's dot; show_faction off leaves the bare ring as a locator, and
-		-- `show_relation` off nils the sign so the ring falls back to neutral -- unlike Minimal 2
-		-- the patch still carries the faction, so the ring can go quiet without emptying the tag.
+		-- outline -- "who they are" plus "friend or foe", no text, no dot. The ring is the
+		-- style's ONLY relation cue, so `show_relation` off removes it outright rather than
+		-- recolouring it: a neutral ring would be pure decoration claiming to mean something.
+		-- Its colour is otherwise always relation-based (SIGN_COLOR stays accurate regardless
+		-- of color_by_relation), like Minimal 2's dot. show_faction off drops the patch, so
+		-- with both off the style draws nothing -- which is what the player asked for.
 		-- Distance-scaled via `scale` like Simple / Simple 2, and the patch WIDTH plus the
 		-- horizontal padding are C._ui_kx-corrected so the patch stays square on wide screens.
 		if C.ui_style == 8 then
@@ -946,31 +1054,25 @@ function install(IiTags, context)
 			local kx = C._ui_kx
 			local ph = (C.patch_size or 13) * scale
 			local pw = ph * kx
-			-- Thickness 0 means the player wants the bare patch: no ring drawn, and it must not
-			-- pad the layout either. Otherwise floor the scaled thickness at 1 px so a distant
-			-- patch still gets a visible edge.
-			local ring = (C.patch_thickness or 2) > 0
+			-- No ring when the player set thickness 0, or when there is no relation to show.
+			-- Either way it must not pad the layout: margin collapses so the patch sits where
+			-- it would if the ring had never been configured.
+			local ring = (C.patch_thickness or 2) > 0 and sign ~= nil
 			local t = ring and math.max(1, (C.patch_thickness or 2) * scale) or 0
-			local margin = (C.patch_padding or 0) * scale + t
+			local margin = ring and ((C.patch_padding or 0) * scale + t) or 0
 			local hh = ph / 2 + margin
 			local hw = pw / 2 + margin * kx
 			local cy = hy - hh - 2 * scale -- sit the patch just above the head anchor
 			if ring then
-				local rc = SIGN_COLOR[sign] or COL_NEUTRAL
-				draw_rect_outline(s, hx, cy, hw, hh, t, alpha, rc[1], rc[2], rc[3])
+				outline(s.box, hx, cy, hw, hh, t, SIGN_COLOR[sign], alpha)
 			else
 				hide_box_widgets(s)
 			end
 	
 			if C.show_faction and icon_id and icon_id ~= "" then
-				if s.icon_key ~= icon_id then
-					pcall(s.icon.InitTexture, s.icon, icon_id)
-					s.icon_key = icon_id
-				end
-				s.icon:SetWndSize(S(pw, ph))
-				s.icon:SetWndPos(P(hx - pw / 2, cy - ph / 2))
-				s.icon:SetTextureColor(GetARGB(alpha, 255, 255, 255))
-				show(s.icon, true)
+				set_patch(s, s.icon, icon_id)
+				-- Logical box is ph square; place_fit applies the aspect correction itself.
+				place_fit(s.icon, hx, cy, ph, ph, s.icon_aspect, COL_WHITE, alpha)
 			else
 				show(s.icon, false)
 			end
@@ -988,15 +1090,12 @@ function install(IiTags, context)
 			return
 		end
 	
-		if s.icon_key ~= icon_id then
-			pcall(s.icon.InitTexture, s.icon, icon_id)
-			s.icon_key = icon_id
-		end
+		set_patch(s, s.icon, icon_id)
 	
 		local measured = measure_card(s, a)
 		local has_head, has_name, has_rank, has_weap = measured.head, measured.name, measured.rank, measured.weap
 		local cw, ch = measured.width, measured.height
-		local accent_w, lead, ispan, iw = measured.accent, measured.lead, measured.ispan, measured.icon
+		local accent_w, lead, ispan, ibox = measured.accent, measured.lead, measured.ispan, measured.icon
 		local PAD_TOP, GAP = 7, 4
 		local head_h, name_h, rank_h, weap_h = 16, 18, 16, 16
 	
@@ -1009,27 +1108,42 @@ function install(IiTags, context)
 		-- px -- 5 read as another hard rectangle peeking out from behind the
 		-- plate rather than a soft shadow.
 		local sh_m = 9 * scale
-		s.shadow:SetWndPos(P(cx - sh_m + 3, cy - sh_m + 4))
-		s.shadow:SetWndSize(S(cw + sh_m * 2, ch + sh_m * 2))
-		s.shadow:SetTextureColor(GetARGB(math.floor(160 * alpha / 255), 0, 0, 0))
-		show(s.shadow, true)
-	
-		s.plate:SetWndPos(P(cx, cy))
-		s.plate:SetWndSize(S(cw, ch))
-		s.plate:SetTextureColor(GetARGB(math.floor(185 * alpha / 255), 24, 22, 19))
-		show(s.plate, true)
-	
+		place(
+			s.shadow,
+			cx - sh_m + 3,
+			cy - sh_m + 4,
+			cw + sh_m * 2,
+			ch + sh_m * 2,
+			COL_BLACK,
+			math.floor(160 * alpha / 255)
+		)
+		place(s.plate, cx, cy, cw, ch, COL_PLATE, math.floor(185 * alpha / 255))
+
 		local acc_in = 6 * scale
-		s.accent:SetWndPos(P(cx, cy + acc_in))
-		s.accent:SetWndSize(S(accent_w, ch - acc_in * 2))
-		s.accent:SetTextureColor(GetARGB(alpha, r, g, b))
-		show(s.accent, true)
-	
-		s.icon:SetWndPos(P(cx + accent_w + lead, cy + math.floor((ch - iw) * 0.5)))
-		s.icon:SetWndSize(S(iw, iw))
-		s.icon:SetTextureColor(GetARGB(alpha, 255, 255, 255))
-		show(s.icon, true)
-	
+		_rgb[1], _rgb[2], _rgb[3] = r, g, b
+		place(s.accent, cx, cy + acc_in, accent_w, ch - acc_in * 2, _rgb, alpha)
+
+		-- Fitted, so a non-square patch keeps its shape. Clamped to the plate's inner height:
+		-- with every text line switched off the card collapses to padding alone, and an
+		-- unclamped emblem would spill past its own edge. Centred in the width the plate
+		-- actually reserved for it (measured.icon_w), and nudged down by CARD_ICON_DY --
+		-- glyphs sit low inside their declared line boxes, so a geometrically centred emblem
+		-- reads as sitting too high next to them.
+		local icon_box = math.min(ibox, ch - 4 * scale)
+		if icon_box > 0 then
+			place_fit(
+				s.icon,
+				cx + accent_w + lead + measured.icon_w / 2,
+				cy + ch / 2 + CARD_ICON_DY * scale,
+				icon_box,
+				icon_box,
+				s.icon_aspect,
+				COL_WHITE,
+				alpha
+			)
+		else
+			show(s.icon, false)
+		end
 		-- Stack the present lines past the accent bar + icon: faction (relation-
 		-- tinted), name (brighter), then muted rank + weapon. A running cursor walks
 		-- down, so any toggled-off line simply contributes nothing and the ones below
@@ -1146,5 +1260,11 @@ function install(IiTags, context)
 		show(s.line, true)
 	end
 	
-	return { show = show, set_text = set_text, draw_shadowed_text = draw_shadowed_text }
+	return {
+		show = show,
+		set_text = set_text,
+		draw_shadowed_text = draw_shadowed_text,
+		place_fit = place_fit,
+		set_patch = set_patch,
+	}
 end

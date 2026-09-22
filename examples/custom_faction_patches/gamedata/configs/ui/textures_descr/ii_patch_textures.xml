@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<w>
+	<!-- Custom faction patches for Immersive Identification.
+	     Enable "Custom faction patches" in MCM (UI Style / General) and the tag asks
+	     for these ids instead of the game's own "<community>_icon" ones.
+
+	     This file is a TEMPLATE. It registers an id per faction, but the mod ships no
+	     .dds for any of them, so supply your own in gamedata/textures/ui/ before
+	     enabling the option. Delete the lines for factions you are not providing art
+	     for; an id registered against a missing file is worse than no id at all.
+
+	     One file per patch here, each declared as the whole image. If you prefer a
+	     single atlas, point several <texture> entries at one <file> and give each its
+	     own x/y/width/height region, exactly as the mod's own ii_textures.xml does.
+
+	     Patches are drawn square. 64x64 or 128x128 DXT5 with alpha is plenty; the tag
+	     scales them down and a larger source just costs VRAM. -->
+
+	<file name="ui\ii_patch_stalker">
+		<texture id="ii_patch_stalker" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_bandit">
+		<texture id="ii_patch_bandit" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_dolg">
+		<texture id="ii_patch_dolg" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_freedom">
+		<texture id="ii_patch_freedom" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_csky">
+		<texture id="ii_patch_csky" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_ecolog">
+		<texture id="ii_patch_ecolog" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_killer">
+		<texture id="ii_patch_killer" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_military">
+		<texture id="ii_patch_military" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_monolith">
+		<texture id="ii_patch_monolith" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_renegade">
+		<texture id="ii_patch_renegade" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_zombied">
+		<texture id="ii_patch_zombied" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_greh">
+		<texture id="ii_patch_greh" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_isg">
+		<texture id="ii_patch_isg" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_trader">
+		<texture id="ii_patch_trader" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_arena">
+		<texture id="ii_patch_arena" x="0" y="0" width="128" height="128" />
+	</file>
+	<file name="ui\ii_patch_monster">
+		<texture id="ii_patch_monster" x="0" y="0" width="128" height="128" />
+	</file>
+</w>

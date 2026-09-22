@@ -152,6 +152,11 @@ end
 - **[MODDERS.md](./MODDERS.md)** — the guide: hooks, the render record, widgets, the gotchas.
 - **[examples/](./examples)** — two complete, installable example add-ons.
 
+Want your own faction patch art instead of the game's icons? Switch on **Custom faction patches**
+(UI Style / General) and register `ii_patch_<faction>` texture ids — see
+[examples/custom_faction_patches](./examples/custom_faction_patches). The installer's **GRIP
+Patches** component wires those ids to G.A.M.M.A.'s own patch atlas for you.
+
 Nothing in this mod needs editing or overwriting.
 
 ## Development

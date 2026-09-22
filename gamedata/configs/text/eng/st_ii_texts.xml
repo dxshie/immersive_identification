@@ -106,7 +106,10 @@
 	<string id="ui_mcm_ii_show_rank_desc"><text>Show the target's rank line (Card and Bodycam, and below the name in the Crooks readout).</text></string>
 
 	<string id="ui_mcm_ii_show_relation"><text>Show relation</text></string>
-	<string id="ui_mcm_ii_show_relation_desc"><text>Show whether the target is hostile, friendly or neutral. Off = the tag tells you who they are but never how they feel about you: no relation sign in Minimal, no triangle in Simple 2, no relation tint on the Card or Simple, a neutral ring in Patch, and Bodycam / Minimal 2 fall back to the faction colour.</text></string>
+	<string id="ui_mcm_ii_show_relation_desc"><text>Show whether the target is hostile, friendly or neutral. Off = the tag tells you who they are but never how they feel about you: no relation sign in Minimal, no triangle in Simple 2, no relation tint on the Card or Simple, no outline at all in Patch (the outline IS the relation cue there), and Bodycam / Minimal 2 fall back to the faction colour.</text></string>
+
+	<string id="ui_mcm_ii_custom_patches"><text>Custom faction patches</text></string>
+	<string id="ui_mcm_ii_custom_patches_desc"><text>Use your own faction patch art instead of the game's built-in faction icons. The tag then asks for the texture id "ii_patch_" plus the faction id - ii_patch_duty, ii_patch_freedom, ii_patch_stalker and so on - which you register yourself in a textures_descr XML alongside your .dds files. Nothing ships for these ids, and a faction you have not provided a patch for simply shows no patch, so add art for every faction you expect to meet. Takes effect immediately, including on tags already on screen. Off by default.</text></string>
 
 	<string id="ui_mcm_ii_show_weapon"><text>Show weapon / caliber</text></string>
 	<string id="ui_mcm_ii_show_weapon_desc"><text>Show the target's currently-wielded weapon and its caliber. Applies to every style that draws text (Card and Bodycam).</text></string>

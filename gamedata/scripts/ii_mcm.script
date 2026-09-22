@@ -168,6 +168,7 @@ function on_mcm_load()
 						opt_check("show_faction"),
 						opt_check("show_rank"),
 						opt_check("show_relation"),
+						opt_check("custom_patches"),
 						opt_check("show_weapon"),
 						opt_check("color_by_relation"),
 						opt_check("mini_dist_scale"),
