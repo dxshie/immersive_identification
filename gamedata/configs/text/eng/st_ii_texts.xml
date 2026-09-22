@@ -4,6 +4,7 @@
 	<string id="ui_mcm_menu_general"><text>General</text></string>
 	<string id="ui_mcm_menu_uistyle"><text>UI Style</text></string>
 	<string id="ui_mcm_menu_card"><text>Card</text></string>
+	<string id="ui_mcm_menu_simple"><text>Simple</text></string>
 	<string id="ui_mcm_menu_bodycam"><text>Bodycam</text></string>
 	<string id="ui_mcm_menu_crooks"><text>Crooks</text></string>
 	<string id="ui_mcm_menu_patch"><text>Patch</text></string>
@@ -31,6 +32,7 @@
 	<string id="ui_mcm_ii_general_title"><text>General</text></string>
 	<string id="ui_mcm_ii_uistyle_title"><text>UI Style</text></string>
 	<string id="ui_mcm_ii_card_title"><text>Card</text></string>
+	<string id="ui_mcm_ii_simple_title"><text>Simple</text></string>
 	<string id="ui_mcm_ii_bodycam_title"><text>Bodycam</text></string>
 	<string id="ui_mcm_ii_crooks_title"><text>Crooks</text></string>
 	<string id="ui_mcm_ii_patch_title"><text>Patch</text></string>
@@ -73,6 +75,9 @@
 
 	<string id="ui_mcm_ii_box_opacity"><text>Box opacity</text></string>
 	<string id="ui_mcm_ii_box_opacity_desc"><text>Bodycam style: opacity of the outline rectangle (1 = solid, lower = more transparent). The name/faction/weapon text is unaffected.</text></string>
+
+	<string id="ui_mcm_ii_box_text_gap"><text>Box text gap</text></string>
+	<string id="ui_mcm_ii_box_text_gap_desc"><text>Bodycam style: space in pixels between the outline box and the name / faction / weapon text beside it. Raise it if a thick outline or a large box padding crowds the text. 0 puts the text flush against the box.</text></string>
 
 	<string id="ui_mcm_ii_patch_size"><text>Patch size</text></string>
 	<string id="ui_mcm_ii_patch_size_desc"><text>Patch style: size of the faction patch in pixels, at the reference distance. The patch and its outline scale with distance from there (near = bigger, far = smaller).</text></string>
@@ -214,6 +219,12 @@
 	<string id="ui_mcm_ii_card_scale"><text>Card scale</text></string>
 	<string id="ui_mcm_ii_card_scale_desc"><text>Flat size multiplier, not distance-based. Despite the name it scales EVERY style, not just the Card - for the styles that scale with distance it multiplies on top of that.</text></string>
 
+	<string id="ui_mcm_ii_card_icon_scale"><text>Faction patch size</text></string>
+	<string id="ui_mcm_ii_card_icon_scale_desc"><text>Card style: scale the faction emblem on the plate up or down. 1.25 is the default. The plate widens to match, so the text never crowds it, and the emblem is capped to the plate height when the card is short.</text></string>
+
+	<string id="ui_mcm_ii_simple_icon_scale"><text>Faction patch size</text></string>
+	<string id="ui_mcm_ii_simple_icon_scale_desc"><text>Simple style: scale the faction emblem in the strip up or down. 1.25 is the default. The strip re-centres itself around the new size, so the marker stays on the target.</text></string>
+
 	<string id="ui_mcm_ii_mini_scale_cutoff"><text>Mini mode cutoff</text></string>
 	<string id="ui_mcm_ii_mini_scale_cutoff_desc"><text>Card style only: below this scale the card no longer fits, so just the relation dot is shown instead.</text></string>
 	<string id="ui_mcm_ii_mini_dist_scale"><text>Minimal: scale dot with distance</text></string>
@@ -322,6 +333,12 @@
 	<string id="ui_mcm_ii_crooks_y"><text>Crooks: Y offset</text></string>
 	<string id="ui_mcm_ii_crooks_y_desc"><text>Vertical nudge of the Crooks readout from its bottom anchor (+ = up).</text></string>
 
+	<string id="ui_mcm_ii_crooks_icon_scale"><text>Faction patch size</text></string>
+	<string id="ui_mcm_ii_crooks_icon_scale_desc"><text>Crooks style: scale the faction emblem up or down. 1.25 is the default; the emblem stays centred on the readout as it grows, so large values may need the Y offset raised to keep it clear of the screen edge. Does not affect the text.</text></string>
+
+	<string id="ui_mcm_ii_crooks_icon_gap"><text>Faction patch gap</text></string>
+	<string id="ui_mcm_ii_crooks_icon_gap_desc"><text>Crooks style: space in pixels between the faction emblem and the text beside it. Independent of the patch size, so the spacing stays where you set it as the emblem grows or shrinks. 0 puts the text flush against the emblem.</text></string>
+
 	<!-- Faction display names shown on the floating tag itself. -->
 	<string id="st_ii_faction_stalker"><text>Loner</text></string>
 	<string id="st_ii_faction_bandit"><text>Bandits</text></string>
@@ -345,6 +362,8 @@
 	<string id="ui_mcm_ii_wd_ignore_desc"><text>Master toggle: when ON, the whole Wearable Devices integration is bypassed and identification works exactly as if this compatibility component were never installed (no scanner kit, no tiers, normal on-entity identification). All the other settings on this page have no effect while this is on.</text></string>
 	<string id="ui_mcm_ii_wd_require_kit"><text>Require scanner kit to identify</text></string>
 	<string id="ui_mcm_ii_wd_require_kit_desc"><text>When the wearable-devices compatibility is installed: block ALL identification unless the full kit is worn/assembled (scanner worn + Promin antenna module + a process module). Off = identification still works normally when the kit isn't complete, and the tiers only enhance it while the kit is worn. Only affects you if st-wearable-devices and the compatibility component are installed.</text></string>
+	<string id="ui_mcm_ii_wd_hostile_sound"><text>Hostile faction warning sound</text></string>
+	<string id="ui_mcm_ii_wd_hostile_sound_desc"><text>When the scanner finishes identifying a target that is hostile toward you, play that faction's warning sound. Plays once per identification, as the result appears. Works regardless of the Show relation setting, since it is a warning rather than a display. Factions without a warning sound (Ecologists, Zombified, traders, mutants, Arena) stay silent.</text></string>
 	<string id="ui_mcm_ii_wd_proc_title"><text>- Process module: scan time per tier (s) -</text></string>
 	<string id="ui_mcm_ii_wd_proc_t1"><text>Tier 1 scan time (s)</text></string>
 	<string id="ui_mcm_ii_wd_proc_t1_desc"><text>Base scan time with a Tier 1 process module. Default 1.5s.</text></string>

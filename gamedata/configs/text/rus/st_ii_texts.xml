@@ -4,6 +4,7 @@
 	<string id="ui_mcm_menu_general"><text>Общие</text></string>
 	<string id="ui_mcm_menu_uistyle"><text>Стиль интерфейса</text></string>
 	<string id="ui_mcm_menu_card"><text>Карточка</text></string>
+	<string id="ui_mcm_menu_simple"><text>Простой</text></string>
 	<string id="ui_mcm_menu_bodycam"><text>Нагрудная камера</text></string>
 	<string id="ui_mcm_menu_crooks"><text>Бандиты</text></string>
 	<string id="ui_mcm_menu_patch"><text>Нашивка</text></string>
@@ -31,6 +32,7 @@
 	<string id="ui_mcm_ii_general_title"><text>Общие</text></string>
 	<string id="ui_mcm_ii_uistyle_title"><text>Стиль интерфейса</text></string>
 	<string id="ui_mcm_ii_card_title"><text>Карточка</text></string>
+	<string id="ui_mcm_ii_simple_title"><text>Простой</text></string>
 	<string id="ui_mcm_ii_bodycam_title"><text>Нагрудная камера</text></string>
 	<string id="ui_mcm_ii_crooks_title"><text>Бандиты</text></string>
 	<string id="ui_mcm_ii_patch_title"><text>Нашивка</text></string>
@@ -73,6 +75,9 @@
 
 	<string id="ui_mcm_ii_box_opacity"><text>Прозрачность рамки</text></string>
 	<string id="ui_mcm_ii_box_opacity_desc"><text>Стиль нагрудной камеры: прозрачность прямоугольного контура (1 = полностью непрозрачный, меньшее значение = более прозрачный). Текст имени, фракции и оружия не изменяется.</text></string>
+
+	<string id="ui_mcm_ii_box_text_gap"><text>Отступ текста от рамки</text></string>
+	<string id="ui_mcm_ii_box_text_gap_desc"><text>Стиль нагрудной камеры: расстояние в пикселях между прямоугольным контуром и текстом имени, фракции и оружия рядом с ним. Увеличьте, если толстый контур или большой отступ рамки поджимает текст. 0 — текст вплотную к рамке.</text></string>
 
 	<string id="ui_mcm_ii_patch_size"><text>Размер нашивки</text></string>
 	<string id="ui_mcm_ii_patch_size_desc"><text>Стиль нашивки: размер нашивки фракции в пикселях на опорной дистанции. Нашивка и её контур масштабируются с расстоянием (ближе — крупнее, дальше — мельче).</text></string>
@@ -214,6 +219,12 @@
 	<string id="ui_mcm_ii_card_scale"><text>Масштаб карточки</text></string>
 	<string id="ui_mcm_ii_card_scale_desc"><text>Постоянный множитель размера, не зависит от расстояния. Несмотря на название, влияет на ВСЕ стили, а не только на карточку — для стилей, масштабируемых по расстоянию, умножается поверх него.</text></string>
 
+	<string id="ui_mcm_ii_card_icon_scale"><text>Размер нашивки группировки</text></string>
+	<string id="ui_mcm_ii_card_icon_scale_desc"><text>Стиль «Карточка»: увеличить или уменьшить нашивку группировки на карточке. 1.25 — размер по умолчанию. Карточка расширяется соответственно, поэтому текст не поджимается, а на короткой карточке нашивка ограничивается её высотой.</text></string>
+
+	<string id="ui_mcm_ii_simple_icon_scale"><text>Размер нашивки группировки</text></string>
+	<string id="ui_mcm_ii_simple_icon_scale_desc"><text>Простой стиль: увеличить или уменьшить нашивку группировки в полоске. 1.25 — размер по умолчанию. Полоска перецентровывается под новый размер, поэтому метка остаётся на цели.</text></string>
+
 	<string id="ui_mcm_ii_mini_scale_cutoff"><text>Порог минимального режима</text></string>
 	<string id="ui_mcm_ii_mini_scale_cutoff_desc"><text>Только для стиля «Карточка»: ниже этого масштаба карточка уже не помещается, поэтому показывается только точка отношения.</text></string>
 	<string id="ui_mcm_ii_mini_dist_scale"><text>Минимальный режим: масштабировать точку по расстоянию</text></string>
@@ -321,6 +332,12 @@
 	<string id="ui_mcm_ii_crooks_y"><text>Бандиты: смещение по вертикали</text></string>
 	<string id="ui_mcm_ii_crooks_y_desc"><text>Вертикальное смещение отображения бандитов относительно нижней точки привязки (+ = вверх).</text></string>
 
+	<string id="ui_mcm_ii_crooks_icon_scale"><text>Размер нашивки группировки</text></string>
+	<string id="ui_mcm_ii_crooks_icon_scale_desc"><text>Стиль «Бандиты»: увеличить или уменьшить нашивку группировки. 1.25 — размер по умолчанию, согласованный со строкой имени рядом; нашивка остаётся по центру надписи при увеличении, поэтому при больших значениях может понадобиться поднять смещение по Y, чтобы она не выходила за край экрана. На текст не влияет.</text></string>
+
+	<string id="ui_mcm_ii_crooks_icon_gap"><text>Отступ нашивки группировки</text></string>
+	<string id="ui_mcm_ii_crooks_icon_gap_desc"><text>Стиль «Бандиты»: расстояние в пикселях между нашивкой группировки и текстом рядом с ней. Не зависит от размера нашивки, поэтому отступ остаётся таким, как вы его задали, при увеличении или уменьшении нашивки. 0 — текст вплотную к нашивке.</text></string>
+
 	<!-- Названия фракций, отображаемые непосредственно на плавающей метке. -->
 	<string id="st_ii_faction_stalker"><text>Одиночки</text></string>
 	<string id="st_ii_faction_bandit"><text>Бандиты</text></string>
@@ -344,6 +361,8 @@
 	<string id="ui_mcm_ii_wd_ignore_desc"><text>Главный переключатель: при включении вся интеграция носимых устройств обходится, а идентификация работает так, будто этот компонент совместимости никогда не устанавливался (без комплекта сканера, без уровней, обычная идентификация сущностей). Все остальные параметры этой страницы не действуют, пока функция включена.</text></string>
 	<string id="ui_mcm_ii_wd_require_kit"><text>Требовать комплект сканера для идентификации</text></string>
 	<string id="ui_mcm_ii_wd_require_kit_desc"><text>При установленной совместимости с носимыми устройствами блокировать ВСЮ идентификацию, если полный комплект не надет и не собран (сканер надет + антенный модуль «Промин» + технологический модуль). Выкл. = идентификация продолжает работать обычно, когда комплект неполный, а уровни только улучшают её при надетом комплекте. Действует только при установленном модуле носимых устройств и компоненте совместимости.</text></string>
+	<string id="ui_mcm_ii_wd_hostile_sound"><text>Звуковое предупреждение о враждебной группировке</text></string>
+	<string id="ui_mcm_ii_wd_hostile_sound_desc"><text>Когда сканер завершает опознание враждебной вам цели, проигрывается звуковое предупреждение её группировки. Звучит один раз за опознание, в момент появления результата. Работает независимо от настройки «Показывать отношение», так как это предупреждение, а не отображение. Группировки без звука предупреждения (экологи, зомбированные, торговцы, мутанты, Арена) остаются беззвучными.</text></string>
 	<string id="ui_mcm_ii_wd_proc_title"><text>- Технологический модуль: время сканирования по уровню (с) -</text></string>
 	<string id="ui_mcm_ii_wd_proc_t1"><text>Время сканирования уровня 1 (с)</text></string>
 	<string id="ui_mcm_ii_wd_proc_t1_desc"><text>Базовое время сканирования с технологическим модулем уровня 1. По умолчанию 1,5 с.</text></string>

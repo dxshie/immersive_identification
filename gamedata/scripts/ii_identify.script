@@ -642,6 +642,55 @@ local function relation_sign(obj)
 	return "o"
 end
 
+-- Hostile-faction warning sounds, shipped by the WD compat component under
+-- gamedata/sounds/ii/. `file` maps an Anomaly COMMUNITY id to the audio's base name: the two
+-- differ because the files are named after the DISPLAY faction (loner/duty/merc/clearsky/sin)
+-- rather than the internal id (stalker/dolg/killer/csky/greh). A community with no entry simply
+-- has no warning -- ecolog, zombied, trader, monster and arena ship none.
+--
+-- The engine's loader STRIPS any extension and appends .ogg (SoundRender_Source_loader.cpp), so
+-- these must be Vorbis; an .mp3 silently resolves to $no_sound. Hence no extension here.
+--
+-- One sound_object per community, built on first use and kept: constructing one per play would
+-- allocate on a path that fires on every identify. A failed build caches `false` so a missing
+-- file is attempted once rather than every time.
+local HOSTILE_SND = { dir = "ii\\", cache = {}, file = {
+	stalker = "loner_hostile",
+	bandit = "bandit_hostile",
+	dolg = "duty_hostile",
+	freedom = "freedom_hostile",
+	csky = "clearsky_hostile",
+	killer = "merc_hostile",
+	military = "military_hostile",
+	monolith = "monolith_hostile",
+	renegade = "renegade_hostile",
+	greh = "sin_hostile",
+	isg = "isg_hostile",
+} }
+
+-- Plays a faction's hostile warning once, at the moment its identification first shows.
+-- Hostility is read LIVE from the engine rather than from the snapshotted `sign`, which is nil
+-- whenever show_relation is off and would otherwise mute this silently -- the warning is a
+-- safety cue, not a display detail, so it should not depend on what the tag chooses to draw.
+local function play_hostile_sound(obj, comm)
+	local base = comm and HOSTILE_SND.file[comm]
+	if not base or not db.actor then
+		return
+	end
+	if safe_call(obj.relation, obj, db.actor) ~= game_object.enemy then
+		return
+	end
+	local snd = HOSTILE_SND.cache[comm]
+	if snd == nil then
+		local ok, s = pcall(sound_object, HOSTILE_SND.dir .. base)
+		snd = (ok and s) or false
+		HOSTILE_SND.cache[comm] = snd
+	end
+	if snd then
+		safe_call(snd.play, snd, db.actor, 0, sound_object.s2d)
+	end
+end
+
 -- --------------------------------------------------------------------------
 -- World anchor / projection
 -- --------------------------------------------------------------------------
@@ -2279,6 +2328,7 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 		sign = show_rel and relation_sign(obj) or nil,
 		header = show_faction and faction_label(comm) or nil,
 		name = show_name and display_name(obj, comm) or nil,
+		comm = comm, -- kept for the hostile warning sound, which maps community -> audio file
 		icon = faction_icon_id(comm),
 		icon_custom = custom_patch_id(comm), -- used instead when custom_patches is on (live, see render)
 		rank = show_rank and rank_label(obj) or nil,
@@ -3511,11 +3561,14 @@ function IiTags:draw_crooks()
 		end
 	end
 
-	-- Reserve the width the emblem will ACTUALLY occupy: it is drawn aspect-corrected, so
-	-- reserving the uncorrected CROOKS.icon left icon*(1-kx) of dead space before the text
-	-- (a 16.5 px gap instead of the intended 10 on 16:9).
-	local icon_w = CROOKS.icon * C._ui_kx
-	local icon_span = ck.has_icon and (icon_w + CROOKS.gap) or 0
+	-- Emblem box, scaled by the player's crooks_icon_scale. Reserve the width it will
+	-- ACTUALLY occupy: it is drawn aspect-corrected, so reserving the uncorrected size left
+	-- box*(1-kx) of dead space before the text (a 16.5 px gap instead of the intended 10 on
+	-- 16:9). The gap is its own setting and is deliberately NOT scaled with the emblem -- it
+	-- spaces the emblem from the text, not from itself, so it stays put as the emblem grows.
+	local icon_box = CROOKS.icon * (C.crooks_icon_scale or 1)
+	local icon_w = icon_box * C._ui_kx
+	local icon_span = ck.has_icon and (icon_w + (C.crooks_icon_gap or CROOKS.gap)) or 0
 	local total = icon_span + ck.nw
 	local pos = C.crooks_pos or 1
 	local start_x
@@ -3540,8 +3593,8 @@ function IiTags:draw_crooks()
 			ck.icon,
 			start_x + icon_w / 2,
 			y + block_h / 2,
-			CROOKS.icon,
-			CROOKS.icon,
+			icon_box,
+			icon_box,
 			ck.icon_aspect,
 			COL_WHITE_PATCH,
 			255
@@ -3771,6 +3824,9 @@ local function render(tg)
 			--      osd_done-only gate would otherwise leave it stuck on the last NEW scan).
 			-- Fields come straight from the (already tier-gated) tracked entry.
 			local capture = not scanning and (not e.osd_done or (crooks_style and under_aim and _last_id.id ~= id))
+			-- First completion only: `capture` also fires on the Crooks re-aim path, and the
+			-- warning is a "this target just resolved as hostile" cue, not a gaze follow.
+			local first_reveal = capture and not e.osd_done
 			local pos = (capture or draw_main or (pip_active and not osd_only)) and ui_anchor_pos(obj)
 			if capture then
 				e.osd_done = true
@@ -3784,6 +3840,12 @@ local function render(tg)
 				_last_id.x = pos and pos.x or nil
 				_last_id.y = pos and pos.y or nil
 				_last_id.z = pos and pos.z or nil
+			end
+
+			-- Faction hostile warning. Gated on the WD scanner being what identified them --
+			-- the audio ships with that component, so without it there is nothing to play.
+			if first_reveal and C.wd_hostile_sound and tier_active() then
+				play_hostile_sound(obj, e.comm)
 			end
 
 			local dist = apos and pos and pos:distance_to(apos) or 0

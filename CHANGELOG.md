@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Hostile faction warning sound** (Wearable Devices component). When the scanner finishes
+  identifying a target that is hostile toward you, it plays that faction's warning clip once, as
+  the result appears. Toggle it with **Hostile faction warning sound** on the Wearable Devices
+  MCM page (on by default). It works regardless of **Show relation** -- it is a warning, not a
+  display detail, so it reads hostility straight from the game rather than from what the tag
+  draws. Eleven factions have a clip; Ecologists, Zombified, traders, mutants and the Arena stay
+  silent. The clips ship as Ogg Vorbis: the engine only loads `.ogg`, so the original MP3s
+  would have played nothing.
+- **Faction patch size sliders for Card and Simple, and a Bodycam text gap.** The Card and Simple
+  emblems were fixed sizes; both now scale 0.50 to 3.00 from their own UI Style pages (Simple
+  gains a page for it). The Card's plate widens to match so the text is never crowded, and the
+  emblem is capped to the plate height on a short card; Simple's strip re-centres around the new
+  size so the marker stays on the target. Bodycam gains **Box text gap** (0 to 40 px), worth
+  raising if a thick outline or a large box padding crowds the text. Every default reproduces
+  the previous hardcoded value except the emblem scales, which now default to **1.25** -- the
+  patches were a touch small once they stopped being stretched. Set them to 1.00 for the old size.
+- **New options: Faction patch size and gap** (UI Style -> Crooks). The first scales the readout's faction
+  emblem up or down (0.50 to 3.00, now **1.25** by default) without touching the text; the second sets the space between
+  emblem and text, 0 to 40 px. The gap is independent of the size, so your spacing holds as the
+  emblem resizes, and the emblem stays centred on the readout -- so at large sizes
+  you may want to raise the Y offset to keep it clear of the screen edge.
 - **New installer component: GAMMA Patches**, alongside the existing GRIP Patches. The two mods
   that supply GAMMA's faction patch art ship **different atlases under the same file name and
   the same texture ids** -- Kos' GRIP is 1024x512 with 128x128 tiles, G.A.M.M.A. UI is 512x256

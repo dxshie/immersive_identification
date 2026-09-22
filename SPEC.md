@@ -60,7 +60,8 @@ Eight visual styles:
   would say nothing. Pairs naturally with **Auto-identify** below.
 - **Crooks** (`ui_style = 6`): not a per-entity tag at all — a single **static** screen-space
   readout of the **last-identified** stalker (faction **logo** + name, + rank if `show_rank`),
-  anchored to a screen corner (`crooks_pos`) with X/Y offsets (`draw_crooks`).
+  anchored to a screen corner (`crooks_pos`) with X/Y offsets, the emblem sized by
+  `crooks_icon_scale` and spaced from the text by `crooks_icon_gap` (`draw_crooks`).
 - **Minimal 2** (`ui_style = 7`): the most stripped-down marker — a single bare **dot, no glow**,
   coloured purely by **relation** (red enemy / green friend / tan neutral, always relation-based
   regardless of `color_by_relation`). No sign, no text. With `show_relation` off it falls back to
@@ -566,7 +567,10 @@ reuses `tag_icon` for the patch and the `tag_box_*` edges for its relation ring.
   since `draw_slot` has no world access.
 - **Crooks** (`draw_crooks`, called once per frame from `render`): a single **static** screen-space
   readout of the **last-identified** target — faction **logo** + name (+ rank if `show_rank`),
-  anchored to a screen corner (`crooks_pos`) with `crooks_x`/`crooks_y` offsets. Shows only while
+  anchored to a screen corner (`crooks_pos`) with `crooks_x`/`crooks_y` offsets, its emblem scaled
+  by `crooks_icon_scale`, spaced by `crooks_icon_gap` (which is NOT scaled with it), and centred
+  on the WHOLE readout (name, or name + rank), not on the name
+  line alone. Shows only while
   its target is still in `tracked` (the reveal-window linger, or — under `hide_off_aim` — only
   while aimed), following your gaze via the per-frame direct-hit id.
 - **Distance scaling / offsets:** Minimal (when `mini_dist_scale` is on), Minimal 2, Patch,
@@ -674,9 +678,9 @@ opt_list` helpers set `hint = "ii_" .. id` mechanically.
 Listed in MCM display order (`ii_mcm.script`); ranges are `(min, max, step, prec)`.
 
 Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `uistyle/card`,
-`uistyle/bodycam`, `uistyle/crooks`, `uistyle/patch`), `targeting`, `hipfire`, `binoc`, `ads`,
-`pip`, `scantime`, `debug`, `wdcompat`, `colors`. These path prefixes must stay in sync with
-`MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
+`uistyle/simple`, `uistyle/bodycam`, `uistyle/crooks`, `uistyle/patch`), `targeting`, `hipfire`,
+`binoc`, `ads`, `pip`, `scantime`, `debug`, `wdcompat`, `colors`. These path prefixes must stay
+in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 
 | id | type | default | range | controls |
 |---|---|---|---|---|
@@ -705,17 +709,23 @@ Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `
 | `anchor_basis` | list | Head | Head/Torso/Feet | where the tag/marker anchors on the target (`ui_anchor_pos`); Bodycam box keeps its own `box_area` |
 | **UI Style → Card** (`uistyle/card`) | | | | |
 | `card_scale` | track | 1.0 | 0.5, 2, 0.05, 2 | flat size multiplier — despite the name it scales **every** style, multiplying on top of the distance scale where that applies |
+| `card_icon_scale` | track | 1.25 | 0.5, 3, 0.05, 2 | Card: faction emblem size multiplier; the plate widens to match and the emblem is capped to plate height |
 | `mini_scale_cutoff` | track | 0.4 | 0.1, 1, 0.05, 2 | Card only: below this scale → relation dot instead of the card |
+| **UI Style → Simple** (`uistyle/simple`) | | | | |
+| `simple_icon_scale` | track | 1.25 | 0.5, 3, 0.05, 2 | Simple: faction emblem size multiplier; the strip re-centres around it |
 | **UI Style → Bodycam** (`uistyle/bodycam`) | | | | |
 | `box_area` | list | Head | Head/Body | bodycam outline rectangle region |
 | `box_color_source` | list | faction | faction/relation | bodycam box colour source |
 | `box_thickness` | track | 2 | 1, 6, 0.5, 1 | bodycam outline edge thickness (px) |
 | `box_padding` | track | 0.2 | 0, 1, 0.05, 2 | bodycam outline margin (fraction) |
 | `box_opacity` | track | 1.0 | 0.1, 1, 0.05, 2 | bodycam outline opacity |
+| `box_text_gap` | track | 8 | 0, 40, 1, 0 | Bodycam: px from the box edge to the name/faction/weapon text |
 | **UI Style → Crooks** (`uistyle/crooks`) | | | | |
 | `crooks_pos` | list | bottom_left | BL/BM/BR | Crooks readout screen corner |
 | `crooks_x` | track | 0 | -500, 500, 5 | Crooks X offset (px) |
 | `crooks_y` | track | 0 | -100, 700, 5 | Crooks Y offset (px, + = up) |
+| `crooks_icon_scale` | track | 1.25 | 0.5, 3, 0.05, 2 | Crooks: faction emblem size multiplier (text unaffected; the emblem stays centred on the readout, so large values may need `crooks_y` raised) |
+| `crooks_icon_gap` | track | 10 | 0, 40, 1, 0 | Crooks: px between emblem and text; independent of `crooks_icon_scale`, so spacing holds as the emblem resizes |
 | **UI Style → Patch** (`uistyle/patch`) | | | | |
 | `patch_size` | track | 13 | 8, 64, 1, 0 | Patch style: faction-patch size (px at the reference distance) |
 | `patch_thickness` | track | 2 | 0, 5, 0.5, 1 | Patch style: relation-ring edge thickness (px at the reference distance); **0 = no ring**, bare patch |
@@ -787,6 +797,7 @@ Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `
 | **Wearable Devices** (page `wdcompat`; only bites when the WD compat add-on is installed, §7.4; the page is hidden otherwise) | | | | |
 | `wd_ignore` | check | false | — | master toggle: bypass the WD compat entirely (identify as if WD isn't installed); disables the rest of this page |
 | `wd_require_kit` | check | true | — | block identification entirely unless the full scanner kit is worn/assembled |
+| `wd_hostile_sound` | check | true | — | play the faction's hostile warning sound when a scan resolves an enemy-disposed target (§7.4) |
 | `wd_proc_t1/t2/t3` | track | 1.5 / 1.0 / 0.5 | 0.1, 5, 0.1, 1 | process-module tier base scan time (s) |
 | `wd_scan_t1/t2/t3` | track | 10 / 20 / 30 | 5, 100, 5 | scanner tier identify range (m) |
 | `wd_feat_faction/distance/relationship/rank/weapon` | track | 1/1/2/2/3 | 1, 3, 1 | process tier that unlocks each data feature |
@@ -1042,7 +1053,29 @@ scanner/module icons are generated placeholders; the IDENTIFICATION page's scree
 (coordinates in the 1100×600 design space) and glyph sizing are best-guess and will likely
 need in-game tuning. None affects the tier **logic**.
 
+**Hostile faction warning sound** (`wd_hostile_sound`, default on). The component ships
+`gamedata/sounds/ii/<faction>_hostile.ogg`; when a scan's result first appears
+(`first_reveal`: the `osd_done` edge, deliberately *not* the Crooks re-aim capture) for a target
+that is **enemy-disposed** toward the actor, `play_hostile_sound` plays that faction's clip once
+as a 2D sound. Details that matter:
+
+- **Gated on `tier_active()`** — the audio ships with this component, so outside the WD scanner
+  path there is nothing to play.
+- **Hostility is read live** (`obj:relation(db.actor) == game_object.enemy`), *not* from the
+  snapshotted `sign`, which is nil whenever `show_relation` is off — the warning is a safety cue,
+  not a display detail, and must not go silent because the tag chose not to draw relation.
+- **Files are named by display faction** (`loner`, `duty`, `merc`, `clearsky`, `sin`), not by
+  community id, so `HOSTILE_SND.file` maps `stalker→loner`, `dolg→duty`, `killer→merc`,
+  `csky→clearsky`, `greh→sin`. Communities with no file — `ecolog`, `zombied`, `trader`,
+  `monster`, `arena` — stay silent.
+- **Must be Ogg Vorbis.** The engine's loader strips any extension and appends `.ogg`
+  (`SoundRender_Source_loader.cpp:169`); an `.mp3` silently resolves to `$no_sound`. The files
+  arrived as MP3 and were converted (mono, 44.1 kHz, Vorbis q5).
+- One `sound_object` per community is built on first use and cached; a failed build caches
+  `false`, so a missing file is attempted once rather than on every identify.
+
 ---
+
 
 ## 8. Public add-on API (`ii_api.script`)
 

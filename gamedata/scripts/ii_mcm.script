@@ -153,7 +153,7 @@ function on_mcm_load()
 					opt_track("max_dist", 10, 250, 5),
 				},
 			},
-			-- UI Style is a CONTAINER (no `sh`), so MCM shows its sub-pages (General/Card/Bodycam/
+			-- UI Style is a CONTAINER (no `sh`), so MCM shows its sub-pages (General/Card/Simple/Bodycam/
 			-- Crooks/Patch) in the third column. A container can hold NO options directly (MCM only
 			-- codes options on sh=true nodes), so the general options live in the "general" sub-page.
 			-- Option storage paths become ii/uistyle/<sub>/<key> -- kept in sync in MCM_PAGES +
@@ -179,7 +179,12 @@ function on_mcm_load()
 					page("card", {
 						opt_title("ui_mcm_ii_card_title"),
 						opt_track("card_scale", 0.5, 2, 0.05, 2),
+						opt_track("card_icon_scale", 0.5, 3, 0.05, 2),
 						opt_track("mini_scale_cutoff", 0.1, 1, 0.05, 2),
+					}),
+					page("simple", {
+						opt_title("ui_mcm_ii_simple_title"),
+						opt_track("simple_icon_scale", 0.5, 3, 0.05, 2),
 					}),
 					page("bodycam", {
 						opt_title("ui_mcm_ii_bodycam_title"),
@@ -188,12 +193,15 @@ function on_mcm_load()
 						opt_track("box_thickness", 1, 6, 0.5, 1),
 						opt_track("box_padding", 0, 1, 0.05, 2),
 						opt_track("box_opacity", 0.1, 1, 0.05, 2),
+						opt_track("box_text_gap", 0, 40, 1, 0),
 					}),
 					page("crooks", {
 						opt_title("ui_mcm_ii_crooks_title"),
 						opt_list("crooks_pos", crooks_pos_content),
 						opt_track("crooks_x", -500, 500, 5, 0),
 						opt_track("crooks_y", -100, 700, 5, 0),
+						opt_track("crooks_icon_scale", 0.5, 3, 0.05, 2),
+						opt_track("crooks_icon_gap", 0, 40, 1, 0),
 					}),
 					page("patch", {
 						opt_title("ui_mcm_ii_patch_title"),
@@ -294,6 +302,7 @@ function on_mcm_load()
 				opt_title("ui_mcm_ii_wdcompat_title"),
 				opt_check("wd_ignore"),
 				opt_check("wd_require_kit"),
+				opt_check("wd_hostile_sound"),
 				opt_title("ui_mcm_ii_wd_proc_title"),
 				opt_track("wd_proc_t1", 0.1, 5, 0.1, 1),
 				opt_track("wd_proc_t2", 0.1, 5, 0.1, 1),

@@ -580,7 +580,7 @@ function install(IiTags, context)
 		-- ACTUALLY occupy (ibox * kx), not the logical box. Reserving the uncorrected value
 		-- left ibox*(1-kx) of dead space between emblem and text -- 9 px instead of the
 		-- intended 4 on 16:9, worse on ultrawide.
-		local ibox = CARD_ICON * scale -- emblem's logical (height) box
+		local ibox = CARD_ICON * (C.card_icon_scale or 1) * scale -- emblem's logical (height) box
 		local iw = ibox * C._ui_kx -- the width it really takes on the plate
 		local lead = 5 * scale
 		local ispan = iw + 4 * scale
@@ -850,7 +850,7 @@ function install(IiTags, context)
 			local has_icon = icon_id and icon_id ~= ""
 	
 			local glow_w = 7 * scale * 2.8 * C._ui_kx
-			local icon_h = 16 * scale
+			local icon_h = 16 * (C.simple_icon_scale or 1) * scale
 			local icon_w = icon_h * C._ui_kx
 			local gap = 5 * scale * C._ui_kx
 			local row_y = hy - 14 * scale
@@ -940,7 +940,7 @@ function install(IiTags, context)
 				-- and tracking it every frame, each gated by its generic show toggle.
 				-- Reuse the card's text widgets (hidden above by hide_card_widgets,
 				-- re-shown per present line). Weapon skipped for the unarmed/monsters.
-				local tx = math.floor(box_cx + box_hw + BODYCAM_TEXT_PAD)
+				local tx = math.floor(box_cx + box_hw + (C.box_text_gap or BODYCAM_TEXT_PAD))
 				local ty = math.floor(box_cy - box_hh)
 				local shadow_a = math.floor(180 * alpha / 255)
 				if name and name ~= "" then
