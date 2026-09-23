@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 4.0.1
+
+- Rename military -> army
+
+## 4.0.0
 
 - **Hostile faction warning sound** (Wearable Devices component). When the scanner finishes
   identifying a target that is hostile toward you, it plays that faction's warning clip once, as
