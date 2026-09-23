@@ -37,8 +37,8 @@
 	<file name="ui\ii_patch_killer">
 		<texture id="ii_patch_killer" x="0" y="0" width="128" height="128" />
 	</file>
-	<file name="ui\ii_patch_military">
-		<texture id="ii_patch_military" x="0" y="0" width="128" height="128" />
+	<file name="ui\ii_patch_army">
+		<texture id="ii_patch_army" x="0" y="0" width="128" height="128" />
 	</file>
 	<file name="ui\ii_patch_monolith">
 		<texture id="ii_patch_monolith" x="0" y="0" width="128" height="128" />

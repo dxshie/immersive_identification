@@ -14,7 +14,7 @@
 	     script, so installing the wrong component for the atlas your load order actually
 	     resolves renders every patch cropped to a corner. Use "GRIP Patches" instead if
 	     GRIP wins that file for you. If in doubt, open the provider's own
-	     ui_mm_faction_patches.xml and match whichever tile size it declares.
+i	     ui_mm_faction_patches.xml and match whichever tile size it declares.
 
 	     Turn it on with "Custom faction patches" on the mod's UI Style / General MCM
 	     page. Without that toggle the mod keeps asking for the game's own
@@ -32,7 +32,7 @@
 		<texture id="ii_patch_freedom" x="64" y="64" width="64" height="64" />
 		<texture id="ii_patch_killer" x="128" y="64" width="64" height="64" />
 
-		<texture id="ii_patch_military" x="0" y="128" width="64" height="64" />
+		<texture id="ii_patch_army" x="0" y="128" width="64" height="64" />
 		<texture id="ii_patch_ecolog" x="64" y="128" width="64" height="64" />
 		<texture id="ii_patch_monolith" x="128" y="128" width="64" height="64" />
 
