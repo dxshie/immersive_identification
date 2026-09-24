@@ -256,13 +256,19 @@
 	<string id="ui_mcm_ii_rank_penalty_max"><text>Max rank slowdown</text></string>
 	<string id="ui_mcm_ii_rank_penalty_max_desc"><text>Scan time multiplier for the highest rank (legend), vs. a rookie.</text></string>
 
-	<string id="ui_mcm_ii_night_penalty_title"><text>Night Penalty</text></string>
+	<string id="ui_mcm_ii_night_penalty_title"><text>Target Visibility Penalty</text></string>
 
-	<string id="ui_mcm_ii_night_penalty"><text>Darkness slows identification</text></string>
-	<string id="ui_mcm_ii_night_penalty_desc"><text>Targets are harder to make out in the dark; the slowdown ramps up over dusk and peaks in the dead of night (around 0:00).</text></string>
+	<string id="ui_mcm_ii_night_penalty"><text>Low visibility slows identification</text></string>
+	<string id="ui_mcm_ii_night_penalty_desc"><text>Each target's actual scene luminance controls the slowdown: shadows and darkness increase it, while flashlights and other illumination reduce it. World time is used as a fallback when object luminance is unavailable.</text></string>
 
-	<string id="ui_mcm_ii_night_penalty_max"><text>Max darkness slowdown</text></string>
-	<string id="ui_mcm_ii_night_penalty_max_desc"><text>Scan time multiplier at the darkest point of the night, vs. broad daylight.</text></string>
+	<string id="ui_mcm_ii_night_ignore_nvg"><text>Ignore penalty if NVG active</text></string>
+	<string id="ui_mcm_ii_night_ignore_nvg_desc"><text>When the actor's night-vision goggles are switched on, low target visibility does not increase scan time.</text></string>
+
+	<string id="ui_mcm_ii_night_penalty_max"><text>Max low-visibility slowdown</text></string>
+	<string id="ui_mcm_ii_night_penalty_max_desc"><text>Scan time multiplier for a target at zero luminance.</text></string>
+
+	<string id="ui_mcm_ii_night_luminance_threshold"><text>Fully visible luminance</text></string>
+	<string id="ui_mcm_ii_night_luminance_threshold_desc"><text>Target luminance at which the visibility penalty ends. The engine reports 0 for complete darkness and 1 for bright light. Default 0.50.</text></string>
 
 	<string id="ui_mcm_ii_weather_penalty_title"><text>Weather Visibility</text></string>
 	<string id="ui_mcm_ii_weather_penalty"><text>Weather slows identification</text></string>
@@ -393,6 +399,13 @@
 	<string id="ui_mcm_ii_wd_proc_t2_desc"><text>Base scan time with a Tier 2 process module. Default 1.0s.</text></string>
 	<string id="ui_mcm_ii_wd_proc_t3"><text>Tier 3 scan time (s)</text></string>
 	<string id="ui_mcm_ii_wd_proc_t3_desc"><text>Base scan time with a Tier 3 process module. Default 0.5s.</text></string>
+	<string id="ui_mcm_ii_wd_penalty_title"><text>- Process module: penalty strength per tier -</text></string>
+	<string id="ui_mcm_ii_wd_penalty_t1"><text>Tier 1 penalty strength</text></string>
+	<string id="ui_mcm_ii_wd_penalty_t1_desc"><text>Share of every enabled scan penalty applied with a Tier 1 process module. 0 removes penalties, 1 applies their full configured slowdown, and 2 doubles the slowdown they add. Default 1.00.</text></string>
+	<string id="ui_mcm_ii_wd_penalty_t2"><text>Tier 2 penalty strength</text></string>
+	<string id="ui_mcm_ii_wd_penalty_t2_desc"><text>Share of every enabled scan penalty applied with a Tier 2 process module. 0 removes penalties, 1 applies their full configured slowdown, and 2 doubles the slowdown they add. Default 0.75.</text></string>
+	<string id="ui_mcm_ii_wd_penalty_t3"><text>Tier 3 penalty strength</text></string>
+	<string id="ui_mcm_ii_wd_penalty_t3_desc"><text>Share of every enabled scan penalty applied with a Tier 3 process module. 0 removes penalties, 1 applies their full configured slowdown, and 2 doubles the slowdown they add. Default 0.50.</text></string>
 	<string id="ui_mcm_ii_wd_scan_title"><text>- Scanner: identify range per tier (m) -</text></string>
 	<string id="ui_mcm_ii_wd_scan_t1"><text>Tier 1 range (m)</text></string>
 	<string id="ui_mcm_ii_wd_scan_t1_desc"><text>Identify range with a Tier 1 scanner. Default 10m.</text></string>
@@ -418,8 +431,8 @@
 	<string id="ui_mcm_ii_wd_scanner_ads_desc"><text>Which scanner tier enables identifying while aiming down sights / through a scope. Default Tier 2.</text></string>
 	<string id="ui_mcm_ii_wd_scanner_mag"><text>Magnification boost tier</text></string>
 	<string id="ui_mcm_ii_wd_scanner_mag_desc"><text>Which scanner tier enables the scope-magnification range boost (reach further at higher zoom). Default Tier 2.</text></string>
-	<string id="ui_mcm_ii_wd_scanner_nonight"><text>No night penalty tier</text></string>
-	<string id="ui_mcm_ii_wd_scanner_nonight_desc"><text>Which scanner tier removes the darkness scan-time penalty entirely. Default Tier 3.</text></string>
+	<string id="ui_mcm_ii_wd_scanner_nonight"><text>No visibility penalty tier</text></string>
+	<string id="ui_mcm_ii_wd_scanner_nonight_desc"><text>Which scanner tier removes the target-visibility scan-time penalty entirely. Default Tier 3.</text></string>
 
 	<string id="ui_mcm_ii_colors_title"><text>Colors</text></string>
 	<string id="ui_mcm_ii_custom_colors"><text>Use custom colors</text></string>

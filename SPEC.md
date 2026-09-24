@@ -203,7 +203,7 @@ refresh existing entries and fill free slots in nearest-first order, without evi
 active scans when a crowd exceeds capacity. Manual picks and directly aimed targets
 may replace the oldest entry (lowest `t0`, ties resolved by slot order). Capacity and
 continuous-refresh checks precede scan-penalty computation, so an ordinary refresh
-does not repeat rank, weight, foliage, night, or skill work. (There is no distance-based fade — the `fade_dist` property was removed; tags
+does not repeat rank, weight, foliage, target-light, or skill work. (There is no distance-based fade — the `fade_dist` property was removed; tags
 stay full-opacity to the range cutoff.)
 
 `hide_unseen` removes a tracked entry after 150 ms of continuous geometric
@@ -377,7 +377,7 @@ is on):
 | Rank | `rank_scan_mult` | 1× novice → `rank_penalty_max` legend |
 | Weight | `weight_scan_mult` | 1× at 0 kg → `weight_penalty_max` at `weight_penalty_ref` kg (held item's `inv_weight`); **off by default** |
 | Foliage | inline (`_los.saw_foliage`) | flat `foliage_penalty_max` if the sightline to the target crosses a foliage material; one LOS march at commit; **off by default** |
-| Night | `night_scan_mult` | 1× day → `night_penalty_max`, scaled by `darkness_factor`, peaks around midnight |
+| Target visibility | `target_visibility_scan_mult` | target renderer luminance 0 → `night_penalty_max`, easing to 1× at `night_luminance_threshold`; responds to shadow and dynamic lights, falls back to clock darkness, optional NVG bypass |
 | Binoculars / ADS | `scan_mult` from `boost_params` | flat multiplier while raised/aiming (if the matching `*_boost`) |
 | Perception | `perception_scan_mult` | `1 − perception_scan_mult × level`, floored |
 | Combat | `ii_combat.scan_mult` | `combat_penalty_mult` while engaged; `combat_pressure_mult` for a timed window after a direct combat hit or hostile near miss |
@@ -385,8 +385,15 @@ is on):
 | Familiarity | `familiarity_scan_mult` | applied if `remembered[id]` |
 
 `instant_identify` zeroes the wait, but the **per-mode excludes** (`instant_exclude_hipfire/ads/binoc`)
-keep the normal scan wait for a chosen aim mode. Under the WD tier system, night, combat, and
-weather visibility penalties apply to the process tier's fixed base time (§7.4).
+keep the normal scan wait for a chosen aim mode. Under the WD tier system, every enabled penalty
+applies to the process tier's fixed base time, with its slowdown above 1× scaled by that process
+tier's configurable penalty strength (§7.4).
+
+Target visibility samples `obj:get_luminocity()` once when the scan commits. The demonized engine
+binding exposes the renderer's 0..1 object-lighting value, including ambient, sun, shadowing, and
+dynamic lights. Severity is `1 − clamp(luminance / night_luminance_threshold)`, so a flashlight can
+reduce the same penalty that darkness creates. Missing or failed bindings fall back to the world-clock
+`darkness_factor`; active NVGs and the WD no-night scanner tier force the resulting multiplier to 1×.
 
 `ii_weather` samples interpolated engine weather only when a scan commits. Fog follows the
 renderer’s linear fog interval at the target distance. Rain and storm wind apply only while the
@@ -642,7 +649,7 @@ reuses `tag_icon` for the patch and the `tag_box_*` edges for its relation ring.
 `find_nearest_in_fov` (1193) • `get_target_obj` (1326) • `is_binoc_active` (1460) •
 `is_ads_active` (1479) • `scope_magnification` (1548) • `screen_dist_to_body` •
 `aim_model_target` • `distance_scan_mult` (1709) •
-`rank_scan_mult` (1759) • `darkness_factor` (1802) • `perception_scan_mult` (1890) •
+`rank_scan_mult` (1759) • `darkness_factor` (1802) • `target_visibility_scan_mult` • `perception_scan_mult` (1890) •
 `perception_hint_stats` (1926, exposed as a global for the Skill System tooltip) •
 `update_loot_xp` (2038) • `identify_target` (2071) • `boost_params` (2248) •
 `try_identify` (2326) • `update_auto_identify` (2389) • `sweep_identify_in_fov`
@@ -682,7 +689,7 @@ to a preset = one LTX line; no code change.
 **Tree:** root node `id="ii"` (no `sh`) → **one leaf page (`sh=true`) per section**,
 each rendering as its own tab (tab label = `ui_mcm_menu_<page_id>`): **general**,
 **uistyle**, **targeting**, **binoc**, **ads**, **pip**, **scantime**
-(the distance/rank/night/familiarity/perception modifier sub-headers), **debug**, and
+(the distance/rank/target-visibility/familiarity/perception modifier sub-headers), **debug**, and
 **colors** (the per-faction/rank/relation RGB overrides, generated from
 `ii_identify.COLOR_DEFS`). Because an option's MCM storage path is
 `ii/<page>/<option_id>`, options are NOT all under `ii/main/*` — `read_config` resolves
@@ -799,8 +806,10 @@ in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 | `dist_penalty_max` | track | 5.0 | 1, 6, 0.1, 1 | scan mult at max range |
 | `rank_penalty` | check | true | — | rank slows scan |
 | `rank_penalty_max` | track | 3.0 | 1, 6, 0.1, 1 | scan mult for legend |
-| `night_penalty` | check | true | — | darkness slows scan |
-| `night_penalty_max` | track | 2.0 | 1, 6, 0.1, 1 | scan mult at darkest |
+| `night_penalty` | check | true | — | low per-target luminance slows scan |
+| `night_ignore_nvg` | check | true | — | ignore target-visibility slowdown while the actor's NVGs are switched on |
+| `night_penalty_max` | track | 2.0 | 1, 6, 0.1, 1 | scan mult at zero target luminance |
+| `night_luminance_threshold` | track | 0.5 | 0.05, 1, 0.05, 2 | target luminance at which the slowdown reaches 1× |
 | `weather_penalty` | check | true | — | exposed rain, storms, and fog at the target distance slow scan |
 | `weather_penalty_max` | track | 2.0 | 1, 6, 0.1, 1 | shared maximum scan mult for weather and visor obstruction |
 | `visor_water_penalty` | check | true | — | use Anomaly/GAMMA's accumulated gas-mask droplets when available |
@@ -823,13 +832,14 @@ in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 | `perception_loot_xp` | track | 20 | 0, 100, 5 | bonus XP for first loot |
 | **Debug** | | | | |
 | `debug_log` | check | false | — | write aim/trace diagnostics to a dedicated log file |
-| `debug_draw` | check | false | — | on-screen target-assist visualiser: the FOV ring (one stretched `ii_ring` circle outline), bone dots, and a bottom-right info panel (perf CPS + mod-loop ms; identify trace — active triggers, the last commit's source/target, exact before/after timing for distance/rank/weight/foliage/night/aim/perception/combat/weather/familiarity/instant factors, combat state/source/enemy count/pressure time, rain/storm/fog/visor severities, raw visor-droplet level and threshold, and the winning visibility source, plus a live "gate" line explaining why the aimed candidate is / isn't being identified; aim mesh-hit see/ray/LOS + front material; the FOV-radius target list) |
+| `debug_draw` | check | false | — | on-screen target-assist visualiser: the FOV ring (one stretched `ii_ring` circle outline), bone dots, and a bottom-right info panel (perf CPS + mod-loop ms; identify trace — active triggers, the last commit's source/target, exact before/after timing for distance/rank/weight/foliage/target-light/aim/perception/combat/weather/familiarity/instant factors, raw target luminance/darkness/source and bypass, combat state/source/enemy count/pressure time, rain/storm/fog/visor severities, raw visor-droplet level and threshold, and the winning weather-visibility source, plus a live "gate" line explaining why the aimed candidate is / isn't being identified; aim mesh-hit see/ray/LOS + front material; the FOV-radius target list) |
 | `debug_sim_stock` | check | false | — | pretend the custom engine bindings are absent (test stock fallbacks) |
 | **Wearable Devices** (page `wdcompat`; only bites when the WD compat add-on is installed, §7.4; the page is hidden otherwise) | | | | |
 | `wd_ignore` | check | false | — | master toggle: bypass the WD compat entirely (identify as if WD isn't installed); disables the rest of this page |
 | `wd_require_kit` | check | true | — | block identification entirely unless the full scanner kit is worn/assembled |
-| `wd_hostile_sound` | check | true | — | play the faction's hostile warning sound when a scan resolves an enemy-disposed target (§7.4) |
+| `wd_hostile_sound` | check | false | — | play the faction's hostile warning sound when a scan resolves an enemy-disposed target (§7.4) |
 | `wd_proc_t1/t2/t3` | track | 1.5 / 1.0 / 0.5 | 0.1, 5, 0.1, 1 | process-module tier base scan time (s) |
+| `wd_penalty_t1/t2/t3` | track | 1.0 / 0.75 / 0.5 | 0, 2, 0.05, 2 | process-tier share of every enabled penalty's slowdown above 1× |
 | `wd_scan_t1/t2/t3` | track | 10 / 20 / 30 | 5, 100, 5 | scanner tier identify range (m) |
 | `wd_feat_faction/distance/relationship/rank/weapon` | track | 1/1/2/2/3 | 1, 3, 1 | process tier that unlocks each data feature |
 | `wd_scanner_ads/mag/nonight` | track | 2/2/3 | 1, 3, 1 | scanner tier that unlocks scope-ADS / mag-boost / no-night |
@@ -986,12 +996,14 @@ result into `_tier`. Every override point reads `_tier`; when it's `nil` the mod
 behaves exactly as normal, so core stays inert without this add-on. The provider
 returns one of: `nil` (don't intervene), `{ active = false }` (installed but the kit
 isn't assembled → identification **blocked** at the single `identify_target` choke
-point), or `{ active = true, scan_base, max_dist, ignore_night, allow_ads, mag_boost,
-feat = {...} }` (tier params drive identification). When active, the tier values
-**replace** the matching MCM settings (most of the scan-time chain, range, night penalty, ADS/mag
-enablement, and the faction/distance/relationship/rank/weapon display gates). Combat pressure and
-weather visibility still modify the tier's fixed process time. The rest of the MCM (UI style,
-colours, key bind, …) is untouched.
+point), or `{ active = true, scan_base, penalty_scale, max_dist, ignore_night, allow_ads,
+mag_boost, feat = {...} }` (tier params drive identification). When active, `scan_base`
+replaces the normal base time; distance, rank, weight, foliage, target-light, combat, and
+weather/visor penalties still use their base-MCM enable/max settings. Each resulting multiplier
+is attenuated as `1 + (mult − 1) × penalty_scale`, defaulting to 100% / 75% / 50% for process
+tiers 1 / 2 / 3. Range, ADS/magnification, the scanner's no-visibility tier, and the
+faction/distance/relationship/rank/weapon display gates remain tier-driven. The rest of the MCM
+(UI style, colours, key bind, boosts, …) is untouched.
 
 **New items** (all placeholder art — see the component `README`):
 - **Promin modules** — antenna, **OSD Scanner Module T1/T2/T3**, and process T1/T2/T3 —
@@ -1018,7 +1030,9 @@ colours, key bind, …) is untouched.
   (range/ADS/mag/night). Shows identification on entities (the usual tags). Attaches **no
   worn model** (invisible — a placeholder mesh showed a duplicate bracer) and registers its
   own callbacks from `on_game_start` (this component isn't in WD's hardcoded `wd_boot` list,
-  and `wd_core.start()` wires only once).
+  and `wd_core.start()` wires only once). Its functional tier is derived directly from
+  `wd_worn`'s persisted section; the load callback also restores `d_ii_scanner_config`'s active
+  tier so removing an OSD module after reload cannot expose a stale T1 AR fallback.
 
 **Two INDEPENDENT channels** (separate bays, both installable at once):
 - **AR** = antenna installed + a worn AR scanner + bracer worn + Promin worn & powered →
@@ -1037,8 +1051,8 @@ ident page is gated on the OSD scanner module being installed.
 `ii_identify.get_wd_tier_cfg()`, then builds the override table (cached, refreshed every
 ~250 ms). Identification runs if either channel is ready; the scanner tier used is the best
 (max) of whichever are ready → `max_dist` + `allow_binoc` (T1) + `allow_ads` (T2) +
-`mag_boost` (T2) + `ignore_night` (T3); process tier → `scan_base` + the display-feature
-unlocks. **Binoculars** count under the tier system when the scanner unlocks them
+`mag_boost` (T2) + `ignore_night` (T3); process tier → `scan_base` + `penalty_scale` + the
+display-feature unlocks. **Binoculars** count under the tier system when the scanner unlocks them
 (`allow_binoc`, T1 by default): raised binoculars extend the tier's identify range by
 `binoc_range_mult` (`boost_params` tier branch), for both channels. All WD calls are `rawget`/`pcall`-guarded so the component is inert (returns `nil`)
 when WD or II is absent, and never throws into core's per-frame path.
@@ -1085,7 +1099,7 @@ scanner/module icons are generated placeholders; the IDENTIFICATION page's scree
 (coordinates in the 1100×600 design space) and glyph sizing are best-guess and will likely
 need in-game tuning. None affects the tier **logic**.
 
-**Hostile faction warning sound** (`wd_hostile_sound`, default on). The component ships
+**Hostile faction warning sound** (`wd_hostile_sound`, default off). The component ships
 `gamedata/sounds/ii/<faction>_hostile.ogg`; when a scan's result first appears
 (`first_reveal`: the `osd_done` edge, deliberately *not* the Crooks re-aim capture) for a target
 that is **enemy-disposed** toward the actor, `play_hostile_sound` plays that faction's clip once

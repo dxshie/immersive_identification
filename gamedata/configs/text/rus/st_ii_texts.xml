@@ -256,13 +256,19 @@
 	<string id="ui_mcm_ii_rank_penalty_max"><text>Максимальное замедление от ранга</text></string>
 	<string id="ui_mcm_ii_rank_penalty_max_desc"><text>Множитель времени сканирования для самого высокого ранга (легенда) по сравнению с новичком.</text></string>
 
-	<string id="ui_mcm_ii_night_penalty_title"><text>Штраф за ночь</text></string>
+	<string id="ui_mcm_ii_night_penalty_title"><text>Штраф за видимость цели</text></string>
 
-	<string id="ui_mcm_ii_night_penalty"><text>Темнота замедляет идентификацию</text></string>
-	<string id="ui_mcm_ii_night_penalty_desc"><text>Цели сложнее различить в темноте; замедление постепенно увеличивается в сумерках и достигает максимума глубокой ночью (примерно в 0:00).</text></string>
+	<string id="ui_mcm_ii_night_penalty"><text>Плохая видимость замедляет идентификацию</text></string>
+	<string id="ui_mcm_ii_night_penalty_desc"><text>Замедление зависит от фактической освещённости каждой цели: тени и темнота усиливают штраф, а свет фонаря и другие источники света уменьшают его. Если данные освещённости недоступны, используется игровое время.</text></string>
 
-	<string id="ui_mcm_ii_night_penalty_max"><text>Максимальное замедление от темноты</text></string>
-	<string id="ui_mcm_ii_night_penalty_max_desc"><text>Множитель времени сканирования в самой тёмной точке ночи по сравнению с ярким дневным светом.</text></string>
+	<string id="ui_mcm_ii_night_ignore_nvg"><text>Игнорировать штраф при активном ПНВ</text></string>
+	<string id="ui_mcm_ii_night_ignore_nvg_desc"><text>Когда прибор ночного видения игрока включён, плохая видимость цели не увеличивает время сканирования.</text></string>
+
+	<string id="ui_mcm_ii_night_penalty_max"><text>Максимальное замедление при плохой видимости</text></string>
+	<string id="ui_mcm_ii_night_penalty_max_desc"><text>Множитель времени сканирования для цели с нулевой освещённостью.</text></string>
+
+	<string id="ui_mcm_ii_night_luminance_threshold"><text>Освещённость полной видимости</text></string>
+	<string id="ui_mcm_ii_night_luminance_threshold_desc"><text>Освещённость цели, при которой штраф исчезает. Шкала движка: 0 — полная темнота, 1 — яркий свет. По умолчанию 0,50.</text></string>
 
 	<string id="ui_mcm_ii_weather_penalty_title"><text>Погодные помехи</text></string>
 	<string id="ui_mcm_ii_weather_penalty"><text>Погода замедляет идентификацию</text></string>
@@ -392,6 +398,13 @@
 	<string id="ui_mcm_ii_wd_proc_t2_desc"><text>Базовое время сканирования с технологическим модулем уровня 2. По умолчанию 1,0 с.</text></string>
 	<string id="ui_mcm_ii_wd_proc_t3"><text>Время сканирования уровня 3 (с)</text></string>
 	<string id="ui_mcm_ii_wd_proc_t3_desc"><text>Базовое время сканирования с технологическим модулем уровня 3. По умолчанию 0,5 с.</text></string>
+	<string id="ui_mcm_ii_wd_penalty_title"><text>- Технологический модуль: сила штрафов по уровням -</text></string>
+	<string id="ui_mcm_ii_wd_penalty_t1"><text>Сила штрафов уровня 1</text></string>
+	<string id="ui_mcm_ii_wd_penalty_t1_desc"><text>Доля замедления от каждого включённого штрафа с технологическим модулем уровня 1. 0 отключает штрафы, 1 применяет полное настроенное замедление, 2 удваивает добавленное ими замедление. По умолчанию 1,00.</text></string>
+	<string id="ui_mcm_ii_wd_penalty_t2"><text>Сила штрафов уровня 2</text></string>
+	<string id="ui_mcm_ii_wd_penalty_t2_desc"><text>Доля замедления от каждого включённого штрафа с технологическим модулем уровня 2. 0 отключает штрафы, 1 применяет полное настроенное замедление, 2 удваивает добавленное ими замедление. По умолчанию 0,75.</text></string>
+	<string id="ui_mcm_ii_wd_penalty_t3"><text>Сила штрафов уровня 3</text></string>
+	<string id="ui_mcm_ii_wd_penalty_t3_desc"><text>Доля замедления от каждого включённого штрафа с технологическим модулем уровня 3. 0 отключает штрафы, 1 применяет полное настроенное замедление, 2 удваивает добавленное ими замедление. По умолчанию 0,50.</text></string>
 	<string id="ui_mcm_ii_wd_scan_title"><text>- Сканер: дальность идентификации по уровню (м) -</text></string>
 	<string id="ui_mcm_ii_wd_scan_t1"><text>Дальность уровня 1 (м)</text></string>
 	<string id="ui_mcm_ii_wd_scan_t1_desc"><text>Дальность идентификации со сканером уровня 1. По умолчанию 10 м.</text></string>
@@ -417,8 +430,8 @@
 	<string id="ui_mcm_ii_wd_scanner_ads_desc"><text>Какой уровень сканера позволяет идентифицировать цели при прицеливании и через прицел. По умолчанию уровень 2.</text></string>
 	<string id="ui_mcm_ii_wd_scanner_mag"><text>Уровень усиления увеличения</text></string>
 	<string id="ui_mcm_ii_wd_scanner_mag_desc"><text>Какой уровень сканера включает увеличение дальности по увеличению прицела. При большем увеличении дальность становится больше. По умолчанию уровень 2.</text></string>
-	<string id="ui_mcm_ii_wd_scanner_nonight"><text>Уровень отмены штрафа за ночь</text></string>
-	<string id="ui_mcm_ii_wd_scanner_nonight_desc"><text>Какой уровень сканера полностью убирает штраф времени сканирования из-за темноты. По умолчанию уровень 3.</text></string>
+	<string id="ui_mcm_ii_wd_scanner_nonight"><text>Уровень отмены штрафа за видимость</text></string>
+	<string id="ui_mcm_ii_wd_scanner_nonight_desc"><text>Какой уровень сканера полностью убирает штраф времени сканирования за видимость цели. По умолчанию уровень 3.</text></string>
 
 	<string id="ui_mcm_ii_colors_title"><text>Цвета</text></string>
 	<string id="ui_mcm_ii_custom_colors"><text>Использовать пользовательские цвета</text></string>

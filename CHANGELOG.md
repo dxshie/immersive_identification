@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Apply every enabled scan penalty under the WD tier system. Process tiers now attenuate each
+  penalty's slowdown above 1× at configurable strengths (100% / 75% / 50% by default), exposed
+  as three sliders on the Wearable Devices MCM page. Debug draw reports the active tier scale and
+  the exact scaled impact of distance, rank, weight, foliage, target light, combat, and weather.
+- Make the darkness penalty use each target's renderer luminance, so shadows increase scan time
+  while flashlights and other dynamic illumination reduce it. A configurable luminance threshold
+  controls when the target is fully visible; the world clock remains a compatibility fallback.
+  Add an option to ignore the penalty while the actor's NVGs are switched on. Debug draw reports
+  raw luminance, darkness severity, source, bypass reason, and exact scan-time impact.
+- Fix WD AR scanner tiers restoring as T1 after loading a save. Removing an installed OSD scanner
+  now correctly falls back to the still-worn AR scanner's saved tier, preserving its range, ADS,
+  magnification, and night capabilities without requiring the scanner to be re-equipped.
 - Add configurable combat scan penalties: a general slowdown while enemies are fighting the actor,
   plus a stronger timed multiplier after direct combat hits or hostile bullets pass within the
   configured near-miss radius. Debug draw reports combat state, trigger source, attacker count,

@@ -7,11 +7,12 @@ and a module tier system. See `SPEC.md` §7.3 for the full design.
 ## What it adds
 
 - **Promin Antenna Module** — establishes the scanner↔Promin link (required).
-- **Promin Process Module (Tier 1/2/3)** — sets scan speed and gradually unlocks the
-  data shown: faction + distance (T1), + relationship + rank (T2), + weapon (T3).
+- **Promin Process Module (Tier 1/2/3)** — sets scan speed, reduces every enabled penalty to
+  100% / 75% / 50% strength by default, and gradually unlocks the data shown: faction +
+  distance (T1), + relationship + rank (T2), + weapon (T3).
 - **AR Scanner (Tier 1/2/3)** — a **worn** bracer device; identification is shown **on
   entities** the usual way (tags/overlays). Sets range (10/20/30 m) and unlocks scope/ADS
-  support + a magnification range boost (T2) and no-night-penalty (T3). Needs the antenna
+  support + a magnification range boost (T2) and no-target-visibility-penalty (T3). Needs the antenna
   + a process module in the Promin.
 - **OSD Scanner Module (Tier 1/2/3)** — a **Promin module** (not worn); identification is
   shown **only on the Promin IDENTIFICATION page** — no on-entity UI at all (no tags, no

@@ -52,11 +52,11 @@ OSD scanner) **evicts** the current occupant and returns it to your pack.
 
 **Process module** — sets scan speed and progressively unlocks *what data* is shown:
 
-| Process tier | Base scan time | Unlocks (cumulative) |
-|---|---|---|
-| Tier 1 | ~1.5 s | Faction, Distance |
-| Tier 2 | ~1.0 s | + Relationship, + Rank |
-| Tier 3 | ~0.5 s | + Weapon & caliber |
+| Process tier | Base scan time | Penalty strength | Unlocks (cumulative) |
+|---|---|---|---|
+| Tier 1 | ~1.5 s | 100% | Faction, Distance |
+| Tier 2 | ~1.0 s | 75% | + Relationship, + Rank |
+| Tier 3 | ~0.5 s | 50% | + Weapon & caliber |
 
 **Scanner** (AR or OSD, same tier behaviour) — sets *range and capability*:
 
@@ -64,11 +64,13 @@ OSD scanner) **evicts** the current occupant and returns it to your pack.
 |---|---|---|
 | Tier 1 | 10 m | — |
 | Tier 2 | 20 m | Scope / ADS support, magnification range boost |
-| Tier 3 | 30 m | + No darkness scan-time penalty |
+| Tier 3 | 30 m | + No target-visibility scan-time penalty |
 
-With the kit assembled, these tiers **drive** identification and override the matching
-base-mod settings (most scan-time modifiers, range, night penalty, ADS enablement, and per-field
-display gates). Combat pressure and weather visibility still modify the fixed process-tier scan time.
+With the kit assembled, the process tier supplies the base time and attenuates every enabled base
+penalty: distance, rank, held weight, foliage, target lighting, combat, weather, and visor water.
+Only each multiplier's slowdown above 1× is scaled, so 100% preserves it, 50% halves it, and 0%
+removes it. Scanner tiers continue to drive range, ADS/magnification, and the complete
+target-visibility bypass; process tiers continue to drive per-field display gates.
 `wd_require_kit` (default on) blocks identification entirely without the kit; turn it off to keep
 normal identification and let the kit only *enhance* it.
 
@@ -99,11 +101,12 @@ Every tier value is tunable on the Wearable Devices page of the Immersive Identi
 
 - **Require Scanner kit to identify** (master gate)
 - **Process scan times** — Tier 1 / 2 / 3
+- **Process penalty strengths** — Tier 1 / 2 / 3 (defaults 100% / 75% / 50%)
 - **Scanner ranges** — Tier 1 / 2 / 3
 - **Feature-unlock tiers** — which process tier reveals Faction / Distance / Relationship /
   Rank / Weapon
 - **Scanner capability tiers** — which scanner tier unlocks ADS support / magnification boost
-  / no-night-penalty
+  / no-target-visibility-penalty
 
 The rest of the Immersive Identification MCM (UI style, colours, keybind, …) applies as usual.
 
@@ -163,6 +166,8 @@ duplicate bracer on the arm); it's a logical device — worn state + tier only.
   quirk dropped a `\n` placed right after a colour tag).
 - **Require Scanner kit** toggle: disabling it no longer blocks identification (the checkbox
   marshalled as the number `0`, which is truthy in Lua; now coerced to a real boolean).
+- AR scanner tiers now restore from the worn scanner's saved section. Removing an OSD module after
+  loading no longer reveals a stale T1 AR tier or disables T2/T3 capabilities until re-equipping.
 - Distinct AR-scanner icon added; OSD scanner keeps the radar icon.
 
 ---

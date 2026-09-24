@@ -118,6 +118,11 @@ function game_object:section() end
 ---@return boolean
 function game_object:see(other) end
 
+--- Renderer-derived object lighting in the 0..1 range. Includes ambient, sun, and dynamic
+--- light contributions. script_game_object3.cpp:1902-1909, bound script_game_object_script3.cpp:492.
+---@return number
+function game_object:get_luminocity() end
+
 --- The actor's current dual-inventory "talk partner" -- populated for both
 --- a live NPC dialogue/trade AND a dead body's loot screen (both open
 --- through the same CInventoryOwner talk-partner mechanism in this engine),
@@ -125,7 +130,6 @@ function game_object:see(other) end
 --- script_game_object2.cpp:744-760, bound script_game_object_script3.cpp:679.
 ---@return game_object|nil
 function game_object:get_talking_npc() end
-
 
 ---------------------------------------------------------------------------
 -- EXTENDED (verified via C++ source in this project, not yet used here)

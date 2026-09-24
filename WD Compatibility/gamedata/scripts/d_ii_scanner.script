@@ -37,17 +37,24 @@ function is_worn()
 	return owner.is_attached()
 end
 
--- 1/2/3 while a scanner is worn, else nil. The active tier section -> numeric index.
 function worn_tier()
 	if not owner.is_attached() then
 		return nil
 	end
-	local t = d_ii_scanner_config.get_active_tier()
-	return t and d_ii_scanner_config.tier_index_of(t.section) or nil
+	return d_ii_scanner_config.tier_index_of(owner.get_value())
 end
 
 local function is_attachment_present()
 	return wd_attach.has_attachment(ATT_NAME)
+end
+
+local function restore_active_tier()
+	local section = owner.get_value()
+	if type(section) == "string" then
+		d_ii_scanner_config.set_active_tier(section)
+	else
+		d_ii_scanner_config.reset_active_tier()
+	end
 end
 
 -- Logical-only device: we deliberately attach NO visible worn model. Reusing WD's
@@ -73,7 +80,13 @@ end
 
 local function actor_on_first_update()
 	owner.detach_if_dropped()
+	restore_active_tier()
 	sync_attachment()
+end
+
+local function load_state(m_data)
+	owner.load(m_data)
+	restore_active_tier()
 end
 
 -- Registered from ii_wd_compat.on_game_start (this component isn't in WD's hardcoded
@@ -104,5 +117,5 @@ function register()
 	RegisterScriptCallback("actor_on_first_update", actor_on_first_update)
 	RegisterScriptCallback("actor_on_update", owner.detach_if_dropped)
 	RegisterScriptCallback("save_state", owner.save)
-	RegisterScriptCallback("load_state", owner.load)
+	RegisterScriptCallback("load_state", load_state)
 end

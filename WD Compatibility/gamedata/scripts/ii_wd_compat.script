@@ -6,7 +6,7 @@
 -- user's tier values (ii_identify.get_wd_tier_cfg), and returns either:
 --   nil             -> we're not intervening; Immersive Identification behaves normally
 --   { active=false }-> installed but the kit isn't assembled -> identification blocked
---   { active=true, scan_base=, max_dist=, ignore_night=, allow_ads=, mag_boost=, feat=}
+--   { active=true, scan_base=, penalty_scale=, max_dist=, ignore_night=, allow_ads=, mag_boost=, feat=}
 --                   -> the tier params drive identification
 --
 -- Everything is soft-guarded via rawget/pcall: with WD or II absent, the provider returns
@@ -92,6 +92,7 @@ local function compute()
 	return {
 		active = true,
 		scan_base = cfg.proc[pt], -- process tier -> fixed base scan time
+		penalty_scale = cfg.penalty and cfg.penalty[pt] or 1, -- process tier -> share of every enabled slowdown above 1x
 		max_dist = cfg.scan[st], -- scanner tier -> identify range
 		ignore_night = st >= (cfg.scanner_nonight or 3),
 		allow_ads = st >= (cfg.scanner_ads or 2),

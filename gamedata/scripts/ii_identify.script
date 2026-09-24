@@ -14,7 +14,7 @@ local DBG_DOTS = 96 -- debug-draw dot pool (bones of the entities inside the FOV
 -- width, so a widget sized 2*radius*span puts that centreline exactly on fov_radius.
 local DBG_RING = { span = 128 / 120 }
 local DBG_TEXTS = 16 -- per-candidate distance labels
-local DBG_INFO = 27 -- bottom-right info panel lines (perf + scan breakdown + aim/LOS state + FOV list)
+local DBG_INFO = 28 -- bottom-right info panel lines (perf + scan breakdown + aim/LOS state + FOV list)
 
 -- render()'s per-frame scratch list of on-screen cards, reused instead of
 -- allocated fresh every call -- tracked is capped at MAX_TAGS (see
@@ -224,7 +224,7 @@ MCM_PAGES = ii_config.MCM_PAGES
 -- Optional external TIER SYSTEM (st-wearable-devices compatibility). A compat addon
 -- assigns `ii_identify.tier_provider = function() ... end` returning either nil (system
 -- inactive -> normal behaviour) or an override table:
---   { scan_base=<s>, max_dist=<m>, ignore_night=<bool>, allow_ads=<bool>, mag_boost=<bool>,
+--   { scan_base=<s>, penalty_scale=<n>, max_dist=<m>, ignore_night=<bool>, allow_ads=<bool>, mag_boost=<bool>,
 --     feat = { faction=, distance=, relationship=, rank=, weapon= } }  -- feat gates the display
 -- actor_on_update snapshots it once per frame into _tier; every override point reads _tier
 -- and, when nil, behaves exactly as before -- so the whole feature is inert without the addon.
@@ -235,6 +235,7 @@ MCM_PAGES = ii_config.MCM_PAGES
 ---@class ii_tier_override
 ---@field active boolean kit assembled/worn -> tier params drive identification
 ---@field scan_base number? fixed base scan time (seconds), from the process tier
+---@field penalty_scale number? share of every enabled penalty's slowdown above 1x, from the process tier
 ---@field max_dist number? identify range (metres), from the scanner tier
 ---@field ignore_night boolean? scanner's no-night tier
 ---@field allow_ads boolean? scanner unlocks scope/ADS support
@@ -300,6 +301,7 @@ function get_wd_tier_cfg()
 	return {
 		require_kit = C.wd_require_kit,
 		proc = { C.wd_proc_t1, C.wd_proc_t2, C.wd_proc_t3 },
+		penalty = { C.wd_penalty_t1, C.wd_penalty_t2, C.wd_penalty_t3 },
 		scan = { C.wd_scan_t1, C.wd_scan_t2, C.wd_scan_t3 },
 		feat = {
 			faction = C.wd_feat_faction,
@@ -656,19 +658,23 @@ end
 -- One sound_object per community, built on first use and kept: constructing one per play would
 -- allocate on a path that fires on every identify. A failed build caches `false` so a missing
 -- file is attempted once rather than every time.
-local HOSTILE_SND = { dir = "ii\\", cache = {}, file = {
-	stalker = "loner_hostile",
-	bandit = "bandit_hostile",
-	dolg = "duty_hostile",
-	freedom = "freedom_hostile",
-	csky = "clearsky_hostile",
-	killer = "merc_hostile",
-	military = "military_hostile",
-	monolith = "monolith_hostile",
-	renegade = "renegade_hostile",
-	greh = "sin_hostile",
-	isg = "isg_hostile",
-} }
+local HOSTILE_SND = {
+	dir = "ii\\",
+	cache = {},
+	file = {
+		stalker = "loner_hostile",
+		bandit = "bandit_hostile",
+		dolg = "duty_hostile",
+		freedom = "freedom_hostile",
+		csky = "clearsky_hostile",
+		killer = "merc_hostile",
+		military = "military_hostile",
+		monolith = "monolith_hostile",
+		renegade = "renegade_hostile",
+		greh = "sin_hostile",
+		isg = "isg_hostile",
+	},
+}
 
 -- Plays a faction's hostile warning once, at the moment its identification first shows.
 -- Hostility is read LIVE from the engine rather than from the snapshotted `sign`, which is nil
@@ -1283,7 +1289,11 @@ local function find_nearest_in_fov(max_dist)
 					-- torso, pelvis, limbs), not a single anchor -- so aiming anywhere on
 					-- the entity counts. fov_radius is a straight screen radius.
 					local d = screen_dist_to_body(obj, cx, cy)
-					if d and d < (tracked[obj:id()] and best_busy_d or best_d) and (not C.require_los or has_los(obj)) then
+					if
+						d
+						and d < (tracked[obj:id()] and best_busy_d or best_d)
+						and (not C.require_los or has_los(obj))
+					then
 						if tracked[obj:id()] then
 							if d < best_busy_d then
 								best_busy_d, best_busy_obj = d, obj
@@ -1567,6 +1577,7 @@ local _trace = {
 	scan = {
 		tier = false,
 		base_ms = 0,
+		penalty_scale = 1,
 		final_ms = 0,
 		factors = {
 			dist = {},
@@ -1948,12 +1959,13 @@ local function rank_scan_mult(obj)
 end
 
 -- --------------------------------------------------------------------------
--- Night penalty: harder to make someone out in the dark.
+-- Target visibility penalty: harder to make someone out in poor light.
 -- --------------------------------------------------------------------------
 -- In-game hour as a fractional 0..24 value (hours + minutes/60), or nil if
 -- the time API isn't ready yet. level.get_time_hours()/get_time_minutes()
 -- (src/xrGame/level_script.cpp:300/308, bound :2514-2515) return the current
--- world clock, the same one the HUD watch and A-Life day/night cycle read.
+-- world clock, the same one the HUD watch and A-Life day/night cycle read. This is
+-- only used when the target has no renderer luminance reading.
 local function game_hour()
 	if not (level and level.get_time_hours) then
 		return nil
@@ -1966,7 +1978,7 @@ local function game_hour()
 	return h + m / 60
 end
 
--- Darkness, 0 (full daylight) .. 1 (deepest night): lit through the day, dark
+-- Fallback darkness, 0 (full daylight) .. 1 (deepest night): lit through the day, dark
 -- deep at night, with linear dusk/dawn ramps between. Deliberately peaks
 -- across midnight -- the 23:00..04:00 plateau returns a flat 1, so 0:00 sits
 -- squarely in the slowest-to-identify window (per the request). The ramps
@@ -1992,17 +2004,34 @@ local function darkness_factor()
 	return (h - DUSK_START) / (NIGHT_START - DUSK_START) -- dusk
 end
 
--- Scan-time multiplier from ambient darkness (1 at noon, up to
--- night_penalty_max in the dead of night), scaled by darkness_factor above so
--- the slowdown eases in over dusk instead of snapping on.
-local function night_scan_mult()
-	if _tier and _tier.active and _tier.ignore_night then
-		return 1 -- scanner's no-night tier
-	end
+-- Prefer the target's renderer luminance so shadows and dynamic lights affect that entity.
+-- The clock remains a fallback for engine forks or objects without a render-light reading.
+local function target_visibility_scan_mult(obj)
 	if not C.night_penalty then
 		return 1
 	end
-	return 1 + (C.night_penalty_max - 1) * darkness_factor()
+	local luminance = obj and obj.get_luminocity and safe_call(obj.get_luminocity, obj)
+	local severity
+	local source
+	local threshold
+	if type(luminance) == "number" and luminance == luminance then
+		luminance = math.max(0, math.min(1, luminance))
+		threshold = math.max(0.01, C.night_luminance_threshold or 0.5)
+		severity = 1 - math.min(1, luminance / threshold)
+		source = "entity"
+	else
+		luminance = nil
+		severity = darkness_factor()
+		source = "clock"
+	end
+	if _tier and _tier.active and _tier.ignore_night then
+		return 1, "scanner tier", luminance, severity, source, threshold
+	end
+	local devices = rawget(_G, "item_device")
+	if C.night_ignore_nvg and devices and devices.nv_state then
+		return 1, "NVG active", luminance, severity, source, threshold
+	end
+	return 1 + (C.night_penalty_max - 1) * severity, nil, luminance, severity, source, threshold
 end
 
 -- --------------------------------------------------------------------------
@@ -2278,9 +2307,19 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 	local scan_trace = _trace.scan
 	local factors = scan_trace.factors
 	for _, factor in pairs(factors) do
-		factor.applied, factor.mult, factor.before_ms, factor.after_ms = false, 1, 0, 0
+		factor.applied, factor.mult, factor.before_ms, factor.after_ms, factor.ignored = false, 1, 0, 0, nil
 	end
+	local night_mult, night_ignored, night_luminance, night_severity, night_source, night_threshold =
+		target_visibility_scan_mult(obj)
+	factors.night.ignored = night_ignored
+	factors.night.luminance = night_luminance
+	factors.night.severity = night_severity
+	factors.night.source = night_source
+	factors.night.threshold = night_threshold
 	scan_trace.tier = tier_active()
+	local tier = scan_trace.tier and _tier or nil
+	local penalty_scale = tier and math.max(0, tier.penalty_scale or 1) or 1
+	scan_trace.penalty_scale = penalty_scale
 	local function apply_factor(factor, value, mult, applied)
 		factor.applied = applied
 		factor.mult = mult
@@ -2288,57 +2327,56 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 		factor.after_ms = math.floor(value * mult)
 		return factor.after_ms
 	end
+	local function scaled_penalty(mult)
+		return 1 + (math.max(1, mult or 1) - 1) * penalty_scale
+	end
 
 	-- Target-side difficulty first (how far away, how accomplished the
-	-- stalker is), then the ambient darkness, then actor-side mitigation on
+	-- stalker is), then target lighting, then actor-side mitigation on
 	-- top: distance penalty scales against eff_max_dist (already widened when
 	-- boosted, mitigating the penalty for free), rank penalty scales with the
 	-- target's own rank, the weight penalty scales with the item YOU'RE holding,
-	-- the night penalty scales with how dark it currently is, the flat binoc_scan_mult
+	-- target visibility scales with renderer luminance, the flat binoc_scan_mult
 	-- speed boost applies next, then the actor's perception skill level (if the Skill
 	-- System integration is present) shaves a further fraction off. Combat pressure applies
 	-- next, weather visibility adds one capped rain/storm/fog/visor penalty, and finally
 	-- familiarity (below) discounts a target you've identified before.
-	local eff_scan_ms
-	if scan_trace.tier then
-		-- Tier system (WD compat): the process-module tier sets a FIXED base scan time;
-		-- combat and visibility penalties still apply, while the other MCM scan-time modifiers
-		-- (distance/rank/familiarity/perception/boost/instant) remain tier-governed.
-		local t = _tier ---@cast t ii_tier_override
-		local base_ms = t.scan_base and math.floor(t.scan_base * 1000) or SCAN_MS
-		scan_trace.base_ms = base_ms
-		eff_scan_ms = apply_factor(factors.night, base_ms, night_scan_mult(), C.night_penalty and not t.ignore_night)
-	else
-		scan_trace.base_ms = SCAN_MS
-		eff_scan_ms = apply_factor(factors.dist, SCAN_MS, distance_scan_mult(dist, eff_max_dist), C.dist_penalty)
-		eff_scan_ms = apply_factor(factors.rank, eff_scan_ms, rank_scan_mult(obj), C.rank_penalty)
-		eff_scan_ms = apply_factor(factors.weight, eff_scan_ms, weight_scan_mult(), C.weight_penalty)
-		-- Through-foliage penalty: one LOS march (camera -> target anchor) sets _los.saw_foliage if
-		-- the sightline crosses a plant material; if so, apply the flat foliage_penalty_max. Inlined
-		-- (not a *_scan_mult helper) to avoid a top-level local -- the Lua 5.1 200-local chunk cap.
-		local foliage_mult = 1
-		if C.foliage_penalty and (C.foliage_penalty_max or 1) > 1 and obj then
-			local dev = _frame:camera()
-			local org = anchor_pos(obj)
-			if dev and dev.cam_pos and org then
-				_los.saw_foliage = false
-				_los_point_clear(org, dev.cam_pos) -- side effect: sets _los.saw_foliage
-				if _los.saw_foliage then
-					foliage_mult = C.foliage_penalty_max
-				end
+	local base_ms = tier and tier.scan_base and math.floor(tier.scan_base * 1000) or SCAN_MS
+	scan_trace.base_ms = base_ms
+	local eff_scan_ms =
+		apply_factor(factors.dist, base_ms, scaled_penalty(distance_scan_mult(dist, eff_max_dist)), C.dist_penalty)
+	eff_scan_ms = apply_factor(factors.rank, eff_scan_ms, scaled_penalty(rank_scan_mult(obj)), C.rank_penalty)
+	eff_scan_ms = apply_factor(factors.weight, eff_scan_ms, scaled_penalty(weight_scan_mult()), C.weight_penalty)
+
+	-- The LOS march is shared by standard and WD scans so the tier scale can attenuate foliage too.
+	local foliage_mult = 1
+	if C.foliage_penalty and (C.foliage_penalty_max or 1) > 1 and obj then
+		local dev = _frame:camera()
+		local org = anchor_pos(obj)
+		if dev and dev.cam_pos and org then
+			_los.saw_foliage = false
+			_los_point_clear(org, dev.cam_pos)
+			if _los.saw_foliage then
+				foliage_mult = C.foliage_penalty_max
 			end
 		end
-		eff_scan_ms = apply_factor(factors.foliage, eff_scan_ms, foliage_mult, C.foliage_penalty)
-		eff_scan_ms = apply_factor(factors.night, eff_scan_ms, night_scan_mult(), C.night_penalty)
+	end
+	eff_scan_ms = apply_factor(factors.foliage, eff_scan_ms, scaled_penalty(foliage_mult), C.foliage_penalty)
+	eff_scan_ms =
+		apply_factor(factors.night, eff_scan_ms, scaled_penalty(night_mult), C.night_penalty and not night_ignored)
+	if not tier then
 		eff_scan_ms = apply_factor(factors.aim, eff_scan_ms, boosted and (scan_mult or 1.0) or 1, boosted)
 		eff_scan_ms = apply_factor(factors.perception, eff_scan_ms, perception_scan_mult(), C.perception_compat)
 	end
 	---@diagnostic disable-next-line: undefined-global
-	local combat_mult = ii_combat.scan_mult(C, _trace.combat)
+	local combat_mult = scaled_penalty(ii_combat.scan_mult(C, _trace.combat))
+	_trace.combat.mult = combat_mult
 	eff_scan_ms = apply_factor(factors.combat, eff_scan_ms, combat_mult, C.combat_penalty and _trace.combat.active)
 	_trace.weather.before_ms = eff_scan_ms
 	---@diagnostic disable-next-line: undefined-global
-	eff_scan_ms = math.floor(eff_scan_ms * ii_weather.scan_mult(C, dist, _trace.weather))
+	local weather_mult = scaled_penalty(ii_weather.scan_mult(C, dist, _trace.weather))
+	_trace.weather.mult = weather_mult
+	eff_scan_ms = math.floor(eff_scan_ms * weather_mult)
 	_trace.weather.after_ms = eff_scan_ms
 
 	local familiar = not scan_trace.tier and C.familiarity_boost and remembered[id]
@@ -3264,8 +3302,11 @@ function IiTags:draw_debug()
 			local scan = _trace.scan
 			local factors = scan.factors
 			local neutral = {}
+			local scan_mode = scan.tier
+					and string.format("WD tier, penalties %d%%", math.floor((scan.penalty_scale or 1) * 100 + 0.5))
+				or "standard"
 			lines[#lines + 1] = {
-				string.format("scan base: %dms (%s)", scan.base_ms, scan.tier and "WD tier" or "standard"),
+				string.format("scan base: %dms (%s)", scan.base_ms, scan_mode),
 				170,
 				205,
 				235,
@@ -3297,7 +3338,25 @@ function IiTags:draw_debug()
 			add_factor("rank", factors.rank)
 			add_factor("weight", factors.weight)
 			add_factor("foliage", factors.foliage)
-			add_factor("night", factors.night)
+			add_factor("target light", factors.night)
+			if factors.night.source then
+				local luminance = factors.night.luminance and string.format("%.2f", factors.night.luminance) or "n/a"
+				local threshold = factors.night.threshold and string.format("/%.2f", factors.night.threshold) or ""
+				local ignored = factors.night.ignored and (" ignored:" .. factors.night.ignored) or ""
+				lines[#lines + 1] = {
+					string.format(
+						"light: %s%s dark:%d%% %s%s",
+						luminance,
+						threshold,
+						math.floor((factors.night.severity or 0) * 100 + 0.5),
+						factors.night.source,
+						ignored
+					),
+					140,
+					210,
+					180,
+				}
+			end
 			add_factor("aim", factors.aim)
 			add_factor("perception", factors.perception)
 			add_factor("combat", factors.combat)
@@ -4029,7 +4088,6 @@ local function render(tg)
 				_last_id.scan_frac = progress
 			end
 
-
 			-- Publish this revealed target as the "last identified" for external readouts (the
 			-- Promin OSD ident page + the Crooks HUD). Two triggers, both only once REVEALED:
 			--   1. first scan COMPLETION (osd_done, once per target) -- keeps the previously-shown
@@ -4151,7 +4209,7 @@ local function render(tg)
 					a.rank_col = e.rank_col
 					a.fcol, a.sign = e.fcol, e.sign
 					a.weap = e.weap
-	
+
 					-- Bodycam style, and any add-on style opting in with want_box: precompute the
 					-- outline box's screen centre and distance-scaled half-extents here (draw_slot
 					-- has no world access), head-only or full-body per box_area. Cleared otherwise,
@@ -4201,9 +4259,13 @@ local function render(tg)
 			if C.ui_style == 1 and not a.scanning and a.scale >= C.mini_scale_cutoff then
 				for j = 1, i - 1 do
 					local previous = active_pool[j]
-					if previous.active and not previous.scanning and previous.scale >= C.mini_scale_cutoff
+					if
+						previous.active
+						and not previous.scanning
+						and previous.scale >= C.mini_scale_cutoff
 						and math.abs(a.hx - previous.hx) < STACK_DIST_X
-						and math.abs(a.hy - previous.hy) < STACK_DIST_Y then
+						and math.abs(a.hy - previous.hy) < STACK_DIST_Y
+					then
 						stack = stack + 1
 					end
 				end
