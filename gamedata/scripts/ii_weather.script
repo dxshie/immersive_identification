@@ -1,0 +1,159 @@
+local max = math.max
+local tonumber = tonumber
+local type = type
+
+local STORM_WIND_REFERENCE = 750
+
+local function call(fn, ...)
+	if not fn then
+		return nil
+	end
+	local ok, value = pcall(fn, ...)
+	if ok then
+		return value
+	end
+	return nil
+end
+
+local function get_global(name)
+	return _G[name]
+end
+
+local function script_api(name)
+	return call(get_global, name)
+end
+
+local function clamp01(value)
+	value = tonumber(value)
+	if not value or value <= 0 then
+		return 0
+	end
+	if value >= 1 then
+		return 1
+	end
+	return value
+end
+
+local function weather_value(name)
+	local api = rawget(_G, "weather")
+	return api and call(api.get_value_numric, name) or nil
+end
+
+local function actor_exposed_to_rain()
+	local get_event = rawget(_G, "GetEvent")
+	local covered = call(get_event, "current_safe_cover")
+	if covered ~= nil and covered ~= false and covered ~= 0 then
+		return false
+	end
+
+	local level_api = rawget(_G, "level")
+	local volume = level_api and call(level_api.get_rain_volume)
+	if volume ~= nil then
+		return volume > 0.2
+	end
+	local hemi = level_api and call(level_api.rain_hemi)
+	if hemi ~= nil then
+		return hemi > 0.25
+	end
+	return true
+end
+
+local function storm_active()
+	local weather_manager_api = script_api("level_weathers")
+	local manager = weather_manager_api and call(weather_manager_api.get_weather_manager)
+	local cycle = manager and call(manager.get_curr_weather, manager)
+	if cycle == "storm" then
+		return true
+	end
+	local bolt_period = weather_value("thunderbolt_period")
+	return bolt_period ~= nil and bolt_period > 0
+end
+
+local function environment_severity(dist, out)
+	local level_api = rawget(_G, "level")
+	local exposed = actor_exposed_to_rain()
+	local rain = exposed and clamp01(level_api and call(level_api.rain_factor)) or 0
+	local storm = 0
+	if exposed and storm_active() then
+		local wind = clamp01((weather_value("wind_velocity") or 0) / STORM_WIND_REFERENCE)
+		storm = max(rain, (rain + wind) * 0.5)
+	end
+
+	local fog = 0
+	local density = weather_value("fog_density")
+	local distance = weather_value("fog_distance")
+	if density and distance and distance > 0 and dist and dist > 0 then
+		density = clamp01(density)
+		local fog_near = (1 - density) * 0.85 * distance
+		local fog_far = 0.99 * distance
+		if fog_far > fog_near then
+			fog = clamp01((dist - fog_near) / (fog_far - fog_near))
+		end
+	end
+	if out then
+		out.rain = rain
+		out.storm = storm
+		out.fog = fog
+	end
+
+	return max(rain, storm, fog)
+end
+
+local function visor_severity(C, out)
+	local threshold = clamp01(C.visor_water_threshold or 0.35)
+	if out then
+		out.visor_threshold = threshold
+	end
+	if not C.visor_water_penalty then
+		return 0
+	end
+
+	local actor_fx = script_api("actor_effects")
+	if not actor_fx or not actor_fx.is_mask_on or not call(actor_fx.is_mask_on) then
+		return 0
+	end
+	if out then
+		out.visor_mask = true
+	end
+	local storage_api = script_api("alife_storage_manager")
+	local state = storage_api and call(storage_api.get_state)
+	local drops = type(state) == "table" and state.r2_drops_control or nil
+	local power = type(drops) == "table" and tonumber(drops[1]) or nil
+	if not power then
+		return 0
+	end
+	if out then
+		out.visor_available = true
+		out.visor_raw = power
+	end
+
+	if power <= threshold or threshold >= 1 then
+		return 0
+	end
+	return clamp01((power - threshold) / (1 - threshold))
+end
+
+function scan_mult(C, dist, out)
+	if out then
+		out.rain, out.storm, out.fog, out.visor = 0, 0, 0, 0
+		out.severity, out.mult = 0, 1
+		out.weather_enabled = C.weather_penalty
+		out.visor_enabled = C.visor_water_penalty
+		out.visor_mask, out.visor_available = false, false
+		out.visor_raw = 0
+		out.visor_threshold = clamp01(C.visor_water_threshold or 0.35)
+	end
+	if not C.weather_penalty and not C.visor_water_penalty then
+		return 1
+	end
+	local severity = C.weather_penalty and environment_severity(dist, out) or 0
+	local visor = visor_severity(C, out)
+	severity = max(severity, visor)
+	local mult = 1 + max(0, (C.weather_penalty_max or 2) - 1) * severity
+	if out then
+		out.visor = visor
+		out.severity = severity
+		out.mult = mult
+	end
+	return mult
+end

@@ -14,7 +14,7 @@ local DBG_DOTS = 96 -- debug-draw dot pool (bones of the entities inside the FOV
 -- width, so a widget sized 2*radius*span puts that centreline exactly on fov_radius.
 local DBG_RING = { span = 128 / 120 }
 local DBG_TEXTS = 16 -- per-candidate distance labels
-local DBG_INFO = 20 -- bottom-right info panel lines (perf + identify trace + aim/LOS state + FOV list)
+local DBG_INFO = 27 -- bottom-right info panel lines (perf + scan breakdown + aim/LOS state + FOV list)
 
 -- render()'s per-frame scratch list of on-screen cards, reused instead of
 -- allocated fresh every call -- tracked is capped at MAX_TAGS (see
@@ -324,6 +324,8 @@ end
 local function read_config()
 	SCAN_MS, FADE_MS, HOLD_MS, UI_KX = ii_config.read(C, COLOR_DEFS)
 	C._ui_kx = UI_KX
+	---@diagnostic disable-next-line: undefined-global
+	ii_combat.configure(C)
 end
 
 -- C.key_dik comes straight from MCM's key-capture widget (whatever DIK/mouse
@@ -1534,7 +1536,8 @@ local _fov_baseline = 60 -- self-corrects within moments of normal (unzoomed) pl
 --   the current window.
 --   Trace: `src` is the trigger CONTEXT, set right before each identify attempt (key / hipfire /
 --   ads / binoc / auto); `last_*` snapshot the most recent successful commit so the panel can show
---   WHY the last identification happened. WHY one ISN'T happening is computed live in draw_debug.
+--   WHY the last identification happened. `scan` holds its ordered factor timing; `combat` and
+--   `weather` hold the situational sources. WHY one ISN'T happening is computed live in draw_debug.
 local _trace = {
 	frames = 0,
 	sec_start = 0,
@@ -1547,6 +1550,47 @@ local _trace = {
 	last_name = "-",
 	last_tg = 0,
 	last_scan = 0,
+	weather = {
+		rain = 0,
+		storm = 0,
+		fog = 0,
+		visor = 0,
+		visor_raw = 0,
+		visor_threshold = 0,
+		visor_mask = false,
+		visor_available = false,
+		severity = 0,
+		mult = 1,
+		before_ms = 0,
+		after_ms = 0,
+	},
+	scan = {
+		tier = false,
+		base_ms = 0,
+		final_ms = 0,
+		factors = {
+			dist = {},
+			rank = {},
+			weight = {},
+			foliage = {},
+			night = {},
+			aim = {},
+			perception = {},
+			combat = {},
+			familiarity = {},
+			instant = {},
+		},
+	},
+	combat = {
+		enabled = false,
+		active = false,
+		pressure = false,
+		source = "none",
+		enemies = 0,
+		remaining_ms = 0,
+		inertia_ms = 0,
+		mult = 1,
+	},
 }
 
 local function update_fov_baseline()
@@ -2231,32 +2275,48 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 	if not slot then
 		return
 	end
+	local scan_trace = _trace.scan
+	local factors = scan_trace.factors
+	for _, factor in pairs(factors) do
+		factor.applied, factor.mult, factor.before_ms, factor.after_ms = false, 1, 0, 0
+	end
+	scan_trace.tier = tier_active()
+	local function apply_factor(factor, value, mult, applied)
+		factor.applied = applied
+		factor.mult = mult
+		factor.before_ms = value
+		factor.after_ms = math.floor(value * mult)
+		return factor.after_ms
+	end
 
 	-- Target-side difficulty first (how far away, how accomplished the
 	-- stalker is), then the ambient darkness, then actor-side mitigation on
 	-- top: distance penalty scales against eff_max_dist (already widened when
 	-- boosted, mitigating the penalty for free), rank penalty scales with the
 	-- target's own rank, the weight penalty scales with the item YOU'RE holding,
-	-- the night penalty scales with how dark it currently is, the flat
-	-- binoc_scan_mult speed boost applies next, then the actor's perception skill
-	-- level (if the Skill System integration is present) shaves a further fraction
-	-- off, and finally familiarity (below) discounts a target you've identified before.
+	-- the night penalty scales with how dark it currently is, the flat binoc_scan_mult
+	-- speed boost applies next, then the actor's perception skill level (if the Skill
+	-- System integration is present) shaves a further fraction off. Combat pressure applies
+	-- next, weather visibility adds one capped rain/storm/fog/visor penalty, and finally
+	-- familiarity (below) discounts a target you've identified before.
 	local eff_scan_ms
-	if tier_active() then
+	if scan_trace.tier then
 		-- Tier system (WD compat): the process-module tier sets a FIXED base scan time;
-		-- only the night penalty still applies (and only below the scanner's no-night
-		-- tier). The MCM scan-time modifiers (distance/rank/familiarity/perception/boost/
-		-- instant) are intentionally ignored here -- the tiers govern scan speed.
+		-- combat and visibility penalties still apply, while the other MCM scan-time modifiers
+		-- (distance/rank/familiarity/perception/boost/instant) remain tier-governed.
 		local t = _tier ---@cast t ii_tier_override
 		local base_ms = t.scan_base and math.floor(t.scan_base * 1000) or SCAN_MS
-		eff_scan_ms = math.floor(base_ms * night_scan_mult())
+		scan_trace.base_ms = base_ms
+		eff_scan_ms = apply_factor(factors.night, base_ms, night_scan_mult(), C.night_penalty and not t.ignore_night)
 	else
-		eff_scan_ms = math.floor(SCAN_MS * distance_scan_mult(dist, eff_max_dist))
-		eff_scan_ms = math.floor(eff_scan_ms * rank_scan_mult(obj))
-		eff_scan_ms = math.floor(eff_scan_ms * weight_scan_mult())
+		scan_trace.base_ms = SCAN_MS
+		eff_scan_ms = apply_factor(factors.dist, SCAN_MS, distance_scan_mult(dist, eff_max_dist), C.dist_penalty)
+		eff_scan_ms = apply_factor(factors.rank, eff_scan_ms, rank_scan_mult(obj), C.rank_penalty)
+		eff_scan_ms = apply_factor(factors.weight, eff_scan_ms, weight_scan_mult(), C.weight_penalty)
 		-- Through-foliage penalty: one LOS march (camera -> target anchor) sets _los.saw_foliage if
 		-- the sightline crosses a plant material; if so, apply the flat foliage_penalty_max. Inlined
 		-- (not a *_scan_mult helper) to avoid a top-level local -- the Lua 5.1 200-local chunk cap.
+		local foliage_mult = 1
 		if C.foliage_penalty and (C.foliage_penalty_max or 1) > 1 and obj then
 			local dev = _frame:camera()
 			local org = anchor_pos(obj)
@@ -2264,35 +2324,43 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 				_los.saw_foliage = false
 				_los_point_clear(org, dev.cam_pos) -- side effect: sets _los.saw_foliage
 				if _los.saw_foliage then
-					eff_scan_ms = math.floor(eff_scan_ms * C.foliage_penalty_max)
+					foliage_mult = C.foliage_penalty_max
 				end
 			end
 		end
-		eff_scan_ms = math.floor(eff_scan_ms * night_scan_mult())
-		if boosted then
-			eff_scan_ms = math.floor(eff_scan_ms * (scan_mult or 1.0))
-		end
-		eff_scan_ms = math.floor(eff_scan_ms * perception_scan_mult())
+		eff_scan_ms = apply_factor(factors.foliage, eff_scan_ms, foliage_mult, C.foliage_penalty)
+		eff_scan_ms = apply_factor(factors.night, eff_scan_ms, night_scan_mult(), C.night_penalty)
+		eff_scan_ms = apply_factor(factors.aim, eff_scan_ms, boosted and (scan_mult or 1.0) or 1, boosted)
+		eff_scan_ms = apply_factor(factors.perception, eff_scan_ms, perception_scan_mult(), C.perception_compat)
 	end
+	---@diagnostic disable-next-line: undefined-global
+	local combat_mult = ii_combat.scan_mult(C, _trace.combat)
+	eff_scan_ms = apply_factor(factors.combat, eff_scan_ms, combat_mult, C.combat_penalty and _trace.combat.active)
+	_trace.weather.before_ms = eff_scan_ms
+	---@diagnostic disable-next-line: undefined-global
+	eff_scan_ms = math.floor(eff_scan_ms * ii_weather.scan_mult(C, dist, _trace.weather))
+	_trace.weather.after_ms = eff_scan_ms
 
-	if not tier_active() and C.familiarity_boost and remembered[id] then
-		eff_scan_ms = math.floor(eff_scan_ms * C.familiarity_scan_mult)
+	local familiar = not scan_trace.tier and C.familiarity_boost and remembered[id]
+	if familiar then
+		eff_scan_ms = apply_factor(factors.familiarity, eff_scan_ms, C.familiarity_scan_mult, true)
 	end
 
 	-- Instant identify: skip the whole scanning phase (no spinner, no wait) so the tag reveals
 	-- immediately. Overrides every scan-time factor above. Ignored under the tier system (the
 	-- tier base scan time governs instead). Per-aim-mode excludes let you keep the normal scan
 	-- wait for a specific mode (e.g. instant hip-fire but a scan delay through binoculars).
-	if not tier_active() and C.instant_identify then
+	if not scan_trace.tier and C.instant_identify then
 		local binoc = is_binoc_active()
 		local ads = (not binoc) and is_ads_active()
 		local excluded = (binoc and C.instant_exclude_binoc)
 			or (ads and C.instant_exclude_ads)
 			or (not binoc and not ads and C.instant_exclude_hipfire)
 		if not excluded then
-			eff_scan_ms = 0
+			eff_scan_ms = apply_factor(factors.instant, eff_scan_ms, 0, true)
 		end
 	end
+	scan_trace.final_ms = eff_scan_ms
 
 	if not xp_awarded[id] and award_perception_xp(C.perception_xp) then
 		xp_awarded[id] = true
@@ -3129,7 +3197,7 @@ function IiTags:draw_debug()
 	-- currently inside the FOV radius (name, distance, in-range?, LOS?). All from this frame's
 	-- data, so it mirrors exactly what target acquisition sees right now.
 	if d.info then
-		local INFO_LEFT, INFO_BOTTOM, INFO_LH = 690, 744, 16
+		local INFO_LEFT, INFO_BOTTOM, INFO_LH = 590, 744, 16
 		local lines = {} -- { str, r, g, b }
 
 		-- Aim-model mesh raycast (what the crosshair is directly ON) + its LOS. `see` is the engine
@@ -3188,6 +3256,153 @@ function IiTags:draw_debug()
 			}
 		else
 			lines[#lines + 1] = { "last id: (none yet)", 160, 160, 160 }
+		end
+
+		-- Full scan chain from the last commit. Changed factors get exact before/after timing;
+		-- enabled factors that evaluated to x1 are grouped so the panel remains compact.
+		if _trace.last_tg > 0 then
+			local scan = _trace.scan
+			local factors = scan.factors
+			local neutral = {}
+			lines[#lines + 1] = {
+				string.format("scan base: %dms (%s)", scan.base_ms, scan.tier and "WD tier" or "standard"),
+				170,
+				205,
+				235,
+			}
+			local function add_factor(label, factor)
+				if not factor.applied then
+					return
+				end
+				local delta = factor.after_ms - factor.before_ms
+				if delta == 0 then
+					neutral[#neutral + 1] = label
+					return
+				end
+				lines[#lines + 1] = {
+					string.format(
+						"%s x%.2f  %d>%d (%+dms)",
+						label,
+						factor.mult,
+						factor.before_ms,
+						factor.after_ms,
+						delta
+					),
+					delta > 0 and 255 or 120,
+					delta > 0 and 185 or 220,
+					delta > 0 and 80 or 160,
+				}
+			end
+			add_factor("distance", factors.dist)
+			add_factor("rank", factors.rank)
+			add_factor("weight", factors.weight)
+			add_factor("foliage", factors.foliage)
+			add_factor("night", factors.night)
+			add_factor("aim", factors.aim)
+			add_factor("perception", factors.perception)
+			add_factor("combat", factors.combat)
+			local combat = _trace.combat
+			local combat_status = "combat: disabled"
+			if combat.enabled and not combat.active then
+				combat_status = "combat: calm"
+			elseif combat.pressure then
+				combat_status = string.format(
+					"combat: %s pressure, %d enemies, %.1fs left",
+					combat.source,
+					combat.enemies,
+					combat.remaining_ms / 1000
+				)
+			elseif combat.enemies > 0 then
+				combat_status = string.format("combat: engaged, %d enemies", combat.enemies)
+			elseif combat.active then
+				combat_status = string.format("combat: lingering, %.1fs left", combat.inertia_ms / 1000)
+			end
+			lines[#lines + 1] = {
+				combat_status,
+				combat.pressure and 255 or (combat.active and 230 or 160),
+				combat.pressure and 120 or (combat.active and 185 or 160),
+				combat.active and 80 or 160,
+			}
+
+			-- Visibility sources overlap, so the strongest one sets a single multiplier.
+			local w = _trace.weather
+			local effects = {}
+			if w.rain > 0 then
+				effects[#effects + 1] = string.format("rain:%d%%", math.floor(w.rain * 100 + 0.5))
+			end
+			if w.storm > 0 then
+				effects[#effects + 1] = string.format("storm:%d%%", math.floor(w.storm * 100 + 0.5))
+			end
+			if w.fog > 0 then
+				effects[#effects + 1] = string.format("fog:%d%%", math.floor(w.fog * 100 + 0.5))
+			end
+			if w.visor > 0 then
+				effects[#effects + 1] = string.format("visor:%d%%", math.floor(w.visor * 100 + 0.5))
+			end
+			local visibility_state = #effects > 0 and table.concat(effects, " ") or "clear"
+			if not w.weather_enabled and not w.visor_enabled then
+				visibility_state = "disabled"
+			end
+			lines[#lines + 1] = {
+				"visibility: " .. visibility_state,
+				#effects > 0 and 255 or 160,
+				#effects > 0 and 185 or 160,
+				#effects > 0 and 80 or 160,
+			}
+			local visor_status
+			if not w.visor_enabled then
+				visor_status = "visor drops: disabled"
+			elseif not w.visor_mask then
+				visor_status = "visor drops: no active mask"
+			elseif not w.visor_available then
+				visor_status = "visor drops: state unavailable (mask=yes)"
+			else
+				visor_status = string.format(
+					"visor drops: %.3f (%d%%) threshold=%.2f penalty=%d%%",
+					w.visor_raw,
+					math.floor(w.visor_raw * 100 + 0.5),
+					w.visor_threshold,
+					math.floor(w.visor * 100 + 0.5)
+				)
+			end
+			lines[#lines + 1] = { visor_status, w.visor > 0 and 255 or 160, w.visor > 0 and 185 or 160, 120 }
+
+			local strongest_name, strongest = "rain", w.rain
+			if w.storm > strongest then
+				strongest_name, strongest = "storm", w.storm
+			end
+			if w.fog > strongest then
+				strongest_name, strongest = "fog", w.fog
+			end
+			if w.visor > strongest then
+				strongest_name, strongest = "visor", w.visor
+			end
+			if strongest <= 0 then
+				strongest_name = "clear"
+			end
+			lines[#lines + 1] = {
+				string.format(
+					"weather max=%s x%.2f  %d>%d (%+dms)",
+					strongest_name,
+					w.mult,
+					w.before_ms,
+					w.after_ms,
+					w.after_ms - w.before_ms
+				),
+				220,
+				205,
+				110,
+			}
+
+			add_factor("familiarity", factors.familiarity)
+			add_factor("instant", factors.instant)
+			if #neutral > 0 then
+				lines[#lines + 1] = { "x1/no impact: " .. table.concat(neutral, ","), 145, 145, 145 }
+			end
+			if scan.tier then
+				lines[#lines + 1] = { "WD skips dist/rank/weight/fol/aim/perc/fam/instant", 145, 145, 145 }
+			end
+			lines[#lines + 1] = { string.format("scan final: %dms", scan.final_ms), 210, 210, 120 }
 		end
 
 		-- WHY an identification IS / ISN'T happening for the best candidate right now: walk the same
@@ -4060,6 +4275,8 @@ local function actor_on_update()
 	_trace.frames = _trace.frames + 1
 	local _tnow = time_global()
 	_frame:begin(_tnow)
+	---@diagnostic disable-next-line: undefined-global
+	ii_combat.update(_tnow)
 	if _tnow - _trace.sec_start >= 1000 then
 		_trace.cps = _trace.frames
 		_trace.frames = 0
@@ -4176,6 +4393,10 @@ function on_game_start()
 	RegisterScriptCallback("on_option_change", on_option_change)
 	RegisterScriptCallback("save_state", save_state)
 	RegisterScriptCallback("load_state", load_state)
+	---@diagnostic disable-next-line: undefined-global
+	RegisterScriptCallback("actor_on_hit_callback", ii_combat.on_actor_hit)
+	---@diagnostic disable-next-line: undefined-global
+	pcall(RegisterScriptCallback, "bullet_on_update", ii_combat.on_bullet_update)
 	-- Stock weapon-zoom callbacks -> ADS flag (see _ZOOMCFG.zoomed / is_ads_active). Anonymous
 	-- handlers so they add no top-level locals (Lua 5.1's 200-per-chunk limit).
 	RegisterScriptCallback("actor_on_weapon_zoom_in", function()

@@ -120,7 +120,7 @@
 	<string id="ui_mcm_ii_show_weapon_desc"><text>Show the target's currently-wielded weapon and its caliber. Applies to every style that draws text (Card and Bodycam).</text></string>
 
 	<string id="ui_mcm_ii_instant_identify"><text>Instant identify</text></string>
-	<string id="ui_mcm_ii_instant_identify_desc"><text>Skip the scan wait and spinner entirely -- the tag reveals immediately on identify. Overrides Scan delay and all its distance/rank/darkness modifiers.</text></string>
+	<string id="ui_mcm_ii_instant_identify_desc"><text>Skip the scan wait and spinner entirely -- the tag reveals immediately on identify. Overrides Scan delay and all scan-time modifiers.</text></string>
 	<string id="ui_mcm_ii_scan_time"><text>Scan delay (s)</text></string>
 	<string id="ui_mcm_ii_scan_time_desc"><text>How long the scan pulses before the tag reveals.</text></string>
 
@@ -263,6 +263,28 @@
 
 	<string id="ui_mcm_ii_night_penalty_max"><text>Max darkness slowdown</text></string>
 	<string id="ui_mcm_ii_night_penalty_max_desc"><text>Scan time multiplier at the darkest point of the night, vs. broad daylight.</text></string>
+
+	<string id="ui_mcm_ii_weather_penalty_title"><text>Weather Visibility</text></string>
+	<string id="ui_mcm_ii_weather_penalty"><text>Weather slows identification</text></string>
+	<string id="ui_mcm_ii_weather_penalty_desc"><text>Rain exposure, storms, and fog make targets harder to read. The strongest current obstruction sets one combined slowdown, so rain and its related effects are not counted repeatedly.</text></string>
+	<string id="ui_mcm_ii_weather_penalty_max"><text>Max visibility slowdown</text></string>
+	<string id="ui_mcm_ii_weather_penalty_max_desc"><text>Scan time multiplier at maximum weather or wet-visor obstruction. Fog scales with the target's distance; rain and storms only apply while exposed.</text></string>
+	<string id="ui_mcm_ii_visor_water_penalty"><text>Wet visor slows identification</text></string>
+	<string id="ui_mcm_ii_visor_water_penalty_desc"><text>Use Anomaly/GAMMA's accumulated gas-mask droplet level as another visibility obstruction. Soft integration: it has no effect when that droplet state is unavailable or no mask is active.</text></string>
+	<string id="ui_mcm_ii_visor_water_threshold"><text>Wet visor threshold</text></string>
+	<string id="ui_mcm_ii_visor_water_threshold_desc"><text>Normalized visor-droplet level where its slowdown begins (0 = immediately, 0.95 = only when almost fully covered). The penalty then ramps to the maximum visibility slowdown at full coverage.</text></string>
+
+	<string id="ui_mcm_ii_combat_penalty_title"><text>Combat Pressure</text></string>
+	<string id="ui_mcm_ii_combat_penalty"><text>Combat slows identification</text></string>
+	<string id="ui_mcm_ii_combat_penalty_desc"><text>Apply a scan-time penalty while enemies are actively fighting the actor. Combat remains active briefly after enemies lose their target to avoid flickering between states.</text></string>
+	<string id="ui_mcm_ii_combat_penalty_mult"><text>Combat slowdown</text></string>
+	<string id="ui_mcm_ii_combat_penalty_mult_desc"><text>Total scan-time multiplier during general combat.</text></string>
+	<string id="ui_mcm_ii_combat_pressure_mult"><text>Under-fire slowdown</text></string>
+	<string id="ui_mcm_ii_combat_pressure_mult_desc"><text>Total scan-time multiplier after a direct combat hit or hostile bullet passes nearby. This temporarily replaces the general combat multiplier.</text></string>
+	<string id="ui_mcm_ii_combat_pressure_duration"><text>Under-fire duration (s)</text></string>
+	<string id="ui_mcm_ii_combat_pressure_duration_desc"><text>How long the stronger under-fire slowdown remains after each hit or near miss.</text></string>
+	<string id="ui_mcm_ii_combat_near_miss_radius"><text>Near-miss radius (m)</text></string>
+	<string id="ui_mcm_ii_combat_near_miss_radius_desc"><text>How close a hostile bullet must pass to count as being shot at.</text></string>
 
 	<string id="ui_mcm_ii_weight_penalty_title"><text>Weight Penalty</text></string>
 	<string id="ui_mcm_ii_weight_penalty"><text>Held-item weight penalty</text></string>

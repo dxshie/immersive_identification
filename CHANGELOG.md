@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Add configurable combat scan penalties: a general slowdown while enemies are fighting the actor,
+  plus a stronger timed multiplier after direct combat hits or hostile bullets pass within the
+  configured near-miss radius. Debug draw reports combat state, trigger source, attacker count,
+  remaining pressure time, and exact scan-time impact.
+- Add a configurable weather visibility penalty for exposed rain, storms, and fog at the target
+  distance. Optional Anomaly/GAMMA gas-mask droplet integration also slows identification after
+  the visor passes a configurable wetness threshold; wiping the mask clears the source state.
+  Overlapping visibility effects use the strongest severity under one shared maximum slowdown.
+- Extend Debug draw's last-identification trace with the full scan-time chain: exact before/after
+  timing for every active factor, enabled factors that evaluated to x1, WD-skipped factors,
+  rain/storm/fog/visor severities, raw visor-droplet level and threshold, the winning visibility
+  multiplier, and the final scan time.
+
 ## 4.0.1
 
 - Rename military -> army

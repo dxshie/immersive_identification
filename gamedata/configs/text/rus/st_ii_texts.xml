@@ -120,7 +120,7 @@
 	<string id="ui_mcm_ii_show_weapon_desc"><text>Показывать текущее оружие цели и его калибр. Применяется ко всем стилям, отображающим текст (карточка и нагрудная камера).</text></string>
 
 	<string id="ui_mcm_ii_instant_identify"><text>Мгновенная идентификация</text></string>
-	<string id="ui_mcm_ii_instant_identify_desc"><text>Полностью пропускать ожидание сканирования и индикатор — метка появляется сразу после идентификации. Переопределяет задержку сканирования и все её модификаторы дальности, ранга и темноты.</text></string>
+	<string id="ui_mcm_ii_instant_identify_desc"><text>Полностью пропускать ожидание сканирования и индикатор — метка появляется сразу после идентификации. Переопределяет задержку сканирования и все модификаторы времени сканирования.</text></string>
 	<string id="ui_mcm_ii_scan_time"><text>Задержка сканирования (с)</text></string>
 	<string id="ui_mcm_ii_scan_time_desc"><text>Как долго продолжается сканирование перед появлением метки.</text></string>
 
@@ -263,6 +263,28 @@
 
 	<string id="ui_mcm_ii_night_penalty_max"><text>Максимальное замедление от темноты</text></string>
 	<string id="ui_mcm_ii_night_penalty_max_desc"><text>Множитель времени сканирования в самой тёмной точке ночи по сравнению с ярким дневным светом.</text></string>
+
+	<string id="ui_mcm_ii_weather_penalty_title"><text>Погодные помехи</text></string>
+	<string id="ui_mcm_ii_weather_penalty"><text>Погода замедляет идентификацию</text></string>
+	<string id="ui_mcm_ii_weather_penalty_desc"><text>Дождь под открытым небом, гроза и туман затрудняют распознавание цели. Один общий штраф определяется самой сильной текущей помехой, поэтому дождь и связанные с ним эффекты не учитываются несколько раз.</text></string>
+	<string id="ui_mcm_ii_weather_penalty_max"><text>Максимальное замедление от помех</text></string>
+	<string id="ui_mcm_ii_weather_penalty_max_desc"><text>Множитель времени сканирования при максимальной погодной помехе или намокании визора. Влияние тумана зависит от расстояния до цели; дождь и гроза учитываются только под открытым небом.</text></string>
+	<string id="ui_mcm_ii_visor_water_penalty"><text>Мокрый визор замедляет идентификацию</text></string>
+	<string id="ui_mcm_ii_visor_water_penalty_desc"><text>Учитывать накопленный Anomaly/GAMMA уровень капель на противогазе как дополнительную помеху видимости. Мягкая интеграция: параметр не действует, если состояние капель недоступно или маска не надета.</text></string>
+	<string id="ui_mcm_ii_visor_water_threshold"><text>Порог намокания визора</text></string>
+	<string id="ui_mcm_ii_visor_water_threshold_desc"><text>Нормализованный уровень капель на визоре, с которого начинается замедление (0 = сразу, 0,95 = только при почти полном покрытии). Затем штраф плавно возрастает до максимального замедления от помех при полном покрытии.</text></string>
+	<string id="ui_mcm_ii_combat_penalty_title"><text>Боевая нагрузка</text></string>
+	<string id="ui_mcm_ii_combat_penalty"><text>Бой замедляет идентификацию</text></string>
+	<string id="ui_mcm_ii_combat_penalty_desc"><text>Применять штраф ко времени сканирования, пока противники активно сражаются с игроком. Состояние боя ненадолго сохраняется после потери цели противниками, чтобы штраф не переключался слишком часто.</text></string>
+	<string id="ui_mcm_ii_combat_penalty_mult"><text>Замедление в бою</text></string>
+	<string id="ui_mcm_ii_combat_penalty_mult_desc"><text>Итоговый множитель времени сканирования во время обычного боя.</text></string>
+	<string id="ui_mcm_ii_combat_pressure_mult"><text>Замедление под огнём</text></string>
+	<string id="ui_mcm_ii_combat_pressure_mult_desc"><text>Итоговый множитель времени сканирования после прямого боевого попадания или близкого пролёта вражеской пули. Временно заменяет обычный боевой множитель.</text></string>
+	<string id="ui_mcm_ii_combat_pressure_duration"><text>Длительность огневого давления (с)</text></string>
+	<string id="ui_mcm_ii_combat_pressure_duration_desc"><text>Как долго действует усиленное замедление после каждого попадания или близкого пролёта пули.</text></string>
+	<string id="ui_mcm_ii_combat_near_miss_radius"><text>Радиус близкого пролёта (м)</text></string>
+	<string id="ui_mcm_ii_combat_near_miss_radius_desc"><text>Насколько близко должна пролететь вражеская пуля, чтобы игрок считался находящимся под огнём.</text></string>
+
 	<string id="ui_mcm_ii_weight_penalty_title"><text>Штраф за вес</text></string>
 	<string id="ui_mcm_ii_weight_penalty"><text>Штраф за вес предмета в руках</text></string>
 	<string id="ui_mcm_ii_weight_penalty_desc"><text>Чем тяжелее предмет в ваших руках, тем дольше идёт идентификация — тяжёлое оружие сложнее удержать достаточно ровно, чтобы разглядеть цель. Учитывается инвентарный вес предмета. По умолчанию выключено.</text></string>

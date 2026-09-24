@@ -98,8 +98,8 @@ Line of sight is always required for it. Works with any style.
 
 Identification difficulty is expressed **entirely as reveal delay** (scan time),
 not as pass/fail. **There is no RNG anywhere** — the outcome is fully
-deterministic; distance, rank, darkness, binoculars, perception skill, and prior
-familiarity only speed up or slow down how long the scan takes.
+deterministic; distance, rank, darkness, weather visibility, combat pressure, binoculars,
+perception skill, and prior familiarity only speed up or slow down how long the scan takes.
 
 ---
 
@@ -113,6 +113,8 @@ gamedata/
     ii_config.script            Defaults, menu lists, live configuration loading
     ii_frame.script             Reusable per-update camera/object/bone/query cache
     ii_visibility.script        Transparency-aware geometric LOS and ray scratch
+    ii_weather.script           Rain/storm/fog and optional visor-droplet scan severity
+    ii_combat.script            Combat-state, direct-hit, and hostile near-miss pressure
     ii_tracking.script          Admission, stable slots, refresh and reveal phases
     ii_ui.script                Widget pool, measurement, placement, drawing
     ii_mcm.script               MCM settings-menu definition (~207 lines)
@@ -164,7 +166,8 @@ LOS is still refreshed every frame; no extra cross-frame visibility delay is add
 1. `read_config()` — load MCM/defaults (4399)
 2. `install_key_hook()` — wrap `level_input.on_key_press` (4400)
 3. Register the multi-subscriber callbacks (4401-4413): `actor_on_update`,
-   `actor_on_before_death`, `on_option_change`, `save_state`, `load_state`, and
+   `actor_on_before_death`, `on_option_change`, `save_state`, `load_state`,
+   `actor_on_hit_callback`, optional `bullet_on_update`, and
    `actor_on_weapon_zoom_in`/`actor_on_weapon_zoom_out` (the latter two are
    anonymous one-liners that set/clear `_ads.zoomed`, the ADS flag — kept anonymous
    so they add no top-level locals against Lua 5.1's 200-per-chunk limit).
@@ -377,11 +380,30 @@ is on):
 | Night | `night_scan_mult` | 1× day → `night_penalty_max`, scaled by `darkness_factor`, peaks around midnight |
 | Binoculars / ADS | `scan_mult` from `boost_params` | flat multiplier while raised/aiming (if the matching `*_boost`) |
 | Perception | `perception_scan_mult` | `1 − perception_scan_mult × level`, floored |
+| Combat | `ii_combat.scan_mult` | `combat_penalty_mult` while engaged; `combat_pressure_mult` for a timed window after a direct combat hit or hostile near miss |
+| Weather visibility | `ii_weather.scan_mult` | 1× clear view → `weather_penalty_max`; strongest of exposed rain, storm rain/wind, fog at target distance, and optional visor water |
 | Familiarity | `familiarity_scan_mult` | applied if `remembered[id]` |
 
 `instant_identify` zeroes the wait, but the **per-mode excludes** (`instant_exclude_hipfire/ads/binoc`)
-keep the normal scan wait for a chosen aim mode. Under the WD tier system only the night penalty
-applies (the process tier sets a fixed base time; §7.4).
+keep the normal scan wait for a chosen aim mode. Under the WD tier system, night, combat, and
+weather visibility penalties apply to the process tier's fixed base time (§7.4).
+
+`ii_weather` samples interpolated engine weather only when a scan commits. Fog follows the
+renderer’s linear fog interval at the target distance. Rain and storm wind apply only while the
+actor is exposed. The optional wet-visor integration reads Anomaly/GAMMA's persisted
+`r2_drops_control` droplet strength when a gas mask is active. These sources describe overlapping
+visibility loss, so the strongest severity sets one capped multiplier instead of multiplying them
+together. Missing script APIs safely contribute zero.
+
+`ii_combat` polls Anomaly's `xr_combat_ignore.fighting_with_actor_npcs` registry at 250 ms
+intervals and keeps a 10-second combat inertia after the last active attacker. A confirmed positive
+hit from a non-actor attacker starts the stronger pressure window through
+`actor_on_hit_callback`. Demonized's `bullet_on_update` starts the same
+window when a non-actor bullet passes within `combat_near_miss_radius`; outside established combat,
+the shooter must be enemy-disposed toward the actor. The callback does only a squared-distance test
+until a bullet is actually near the actor. Repeated hits and near misses extend the configured window.
+If the custom bullet callback is unavailable, general combat and direct-hit pressure continue to work;
+only near-miss detection is absent.
 
 Gating (`try_identify`): `enabled` + actor exists; if `require_binoculars`,
 `is_binoc_active()` must be true; target exists, is not the actor, is alive, has a
@@ -779,6 +801,15 @@ in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 | `rank_penalty_max` | track | 3.0 | 1, 6, 0.1, 1 | scan mult for legend |
 | `night_penalty` | check | true | — | darkness slows scan |
 | `night_penalty_max` | track | 2.0 | 1, 6, 0.1, 1 | scan mult at darkest |
+| `weather_penalty` | check | true | — | exposed rain, storms, and fog at the target distance slow scan |
+| `weather_penalty_max` | track | 2.0 | 1, 6, 0.1, 1 | shared maximum scan mult for weather and visor obstruction |
+| `visor_water_penalty` | check | true | — | use Anomaly/GAMMA's accumulated gas-mask droplets when available |
+| `visor_water_threshold` | track | 0.35 | 0, 0.95, 0.05, 2 | droplet strength where visor slowdown begins |
+| `combat_penalty` | check | true | — | combat and recent incoming fire slow identification |
+| `combat_penalty_mult` | track | 1.5 | 1, 6, 0.1, 1 | scan mult during general combat |
+| `combat_pressure_mult` | track | 2.5 | 1, 6, 0.1, 1 | total scan mult during the stronger hit/near-miss window |
+| `combat_pressure_duration` | track | 5.0 | 0.5, 15, 0.5, 1 | stronger pressure duration after each event (s) |
+| `combat_near_miss_radius` | track | 3.0 | 0.5, 10, 0.5, 1 | hostile-bullet proximity that triggers pressure (m) |
 | `weight_penalty` | check | false | — | held-item weight slows scan |
 | `weight_penalty_max` | track | 2.0 | 1, 6, 0.1, 1 | scan mult at the reference weight |
 | `weight_penalty_ref` | track | 6.0 | 1, 20, 0.5, 1 | held weight (kg) that maxes the penalty |
@@ -792,7 +823,7 @@ in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 | `perception_loot_xp` | track | 20 | 0, 100, 5 | bonus XP for first loot |
 | **Debug** | | | | |
 | `debug_log` | check | false | — | write aim/trace diagnostics to a dedicated log file |
-| `debug_draw` | check | false | — | on-screen target-assist visualiser: the FOV ring (one stretched `ii_ring` circle outline), bone dots, and a bottom-right info panel (perf CPS + mod-loop ms; identify trace — active triggers, the last commit's source/target, and a live "gate" line explaining why the aimed candidate is / isn't being identified; aim mesh-hit see/ray/LOS + front material; the FOV-radius target list) |
+| `debug_draw` | check | false | — | on-screen target-assist visualiser: the FOV ring (one stretched `ii_ring` circle outline), bone dots, and a bottom-right info panel (perf CPS + mod-loop ms; identify trace — active triggers, the last commit's source/target, exact before/after timing for distance/rank/weight/foliage/night/aim/perception/combat/weather/familiarity/instant factors, combat state/source/enemy count/pressure time, rain/storm/fog/visor severities, raw visor-droplet level and threshold, and the winning visibility source, plus a live "gate" line explaining why the aimed candidate is / isn't being identified; aim mesh-hit see/ray/LOS + front material; the FOV-radius target list) |
 | `debug_sim_stock` | check | false | — | pretend the custom engine bindings are absent (test stock fallbacks) |
 | **Wearable Devices** (page `wdcompat`; only bites when the WD compat add-on is installed, §7.4; the page is hidden otherwise) | | | | |
 | `wd_ignore` | check | false | — | master toggle: bypass the WD compat entirely (identify as if WD isn't installed); disables the rest of this page |
@@ -957,9 +988,10 @@ returns one of: `nil` (don't intervene), `{ active = false }` (installed but the
 isn't assembled → identification **blocked** at the single `identify_target` choke
 point), or `{ active = true, scan_base, max_dist, ignore_night, allow_ads, mag_boost,
 feat = {...} }` (tier params drive identification). When active, the tier values
-**replace** the matching MCM settings (scan-time chain, range, night penalty, ADS/mag
-enablement, and the faction/distance/relationship/rank/weapon display gates); the rest
-of the MCM (UI style, colours, key bind, …) is untouched.
+**replace** the matching MCM settings (most of the scan-time chain, range, night penalty, ADS/mag
+enablement, and the faction/distance/relationship/rank/weapon display gates). Combat pressure and
+weather visibility still modify the tier's fixed process time. The rest of the MCM (UI style,
+colours, key bind, …) is untouched.
 
 **New items** (all placeholder art — see the component `README`):
 - **Promin modules** — antenna, **OSD Scanner Module T1/T2/T3**, and process T1/T2/T3 —

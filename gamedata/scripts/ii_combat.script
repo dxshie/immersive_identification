@@ -1,0 +1,170 @@
+local max = math.max
+local pairs = pairs
+local pcall = pcall
+local rawget = rawget
+local type = type
+
+local COMBAT_POLL_MS = 250
+local COMBAT_INERTIA_MS = 10000
+local _state = {
+	enabled = false,
+	active = false,
+	enemy_count = 0,
+	last_combat_tg = -COMBAT_INERTIA_MS,
+	pressure_until = 0,
+	pressure_source = "none",
+	next_poll = 0,
+	base_mult = 1.5,
+	pressure_mult = 2.5,
+	pressure_ms = 5000,
+	near_miss_radius_sq = 9,
+}
+
+local function call(fn, ...)
+	if not fn then
+		return nil
+	end
+	local ok, value = pcall(fn, ...)
+	if ok then
+		return value
+	end
+	return nil
+end
+
+local function get_global(name)
+	return _G[name]
+end
+
+local function configure_state(C)
+	_state.enabled = C.combat_penalty == true
+	_state.base_mult = max(1, C.combat_penalty_mult or 1.5)
+	_state.pressure_mult = max(_state.base_mult, C.combat_pressure_mult or 2.5)
+	_state.pressure_ms = max(0, (C.combat_pressure_duration or 5) * 1000)
+	local radius = max(0, C.combat_near_miss_radius or 3)
+	_state.near_miss_radius_sq = radius * radius
+	if not _state.enabled then
+		_state.active = false
+		_state.enemy_count = 0
+		_state.last_combat_tg = -COMBAT_INERTIA_MS
+		_state.pressure_until = 0
+		_state.pressure_source = "none"
+		_state.next_poll = 0
+	end
+end
+
+local function fighting_actor_count()
+	local combat_api = call(get_global, "xr_combat_ignore")
+	local fighting = combat_api and combat_api.fighting_with_actor_npcs
+	if type(fighting) ~= "table" then
+		return 0
+	end
+
+	local db_api = rawget(_G, "db")
+	local storage = db_api and db_api.storage
+	local level_api = rawget(_G, "level")
+	local count = 0
+	for id, engaged in pairs(fighting) do
+		if engaged then
+			local record = storage and storage[id]
+			local obj = record and record.object
+			if not obj and level_api then
+				obj = call(level_api.object_by_id, id)
+			end
+			if obj and call(obj.alive, obj) then
+				count = count + 1
+			end
+		end
+	end
+	return count
+end
+
+local function mark_pressure(source, tg)
+	if not _state.enabled then
+		return
+	end
+	_state.last_combat_tg = tg
+	_state.pressure_until = max(_state.pressure_until, tg + _state.pressure_ms)
+	_state.pressure_source = source
+	_state.active = true
+end
+
+function configure(C)
+	configure_state(C)
+end
+
+function update(tg, force)
+	if not _state.enabled then
+		return
+	end
+	if force or tg >= _state.next_poll then
+		_state.enemy_count = fighting_actor_count()
+		_state.next_poll = tg + COMBAT_POLL_MS
+		if _state.enemy_count > 0 then
+			_state.last_combat_tg = tg
+		end
+	end
+	_state.active = _state.enemy_count > 0
+		or tg < _state.pressure_until
+		or tg - _state.last_combat_tg < COMBAT_INERTIA_MS
+end
+
+function on_actor_hit(actor, amount, _, attacker)
+	if not _state.enabled or not actor or not attacker or (amount or 0) <= 0 then
+		return
+	end
+	if attacker:id() == actor:id() then
+		return
+	end
+	mark_pressure("hit", time_global())
+end
+
+function on_bullet_update(bullet)
+	if not _state.enabled or not bullet or not bullet.position then
+		return
+	end
+	local db_api = rawget(_G, "db")
+	local actor = db_api and db_api.actor
+	if not actor or bullet.parent_id == actor:id() then
+		return
+	end
+
+	local actor_pos = actor:position()
+	local bullet_pos = bullet.position
+	local dx = bullet_pos.x - actor_pos.x
+	local dy = bullet_pos.y - actor_pos.y
+	local dz = bullet_pos.z - actor_pos.z
+	if dx * dx + dy * dy + dz * dz > _state.near_miss_radius_sq then
+		return
+	end
+
+	local hostile = _state.active
+	if not hostile then
+		local level_api = rawget(_G, "level")
+		local shooter = level_api and call(level_api.object_by_id, bullet.parent_id)
+		local relation = shooter and call(shooter.relation, shooter, actor)
+		local game_object_api = rawget(_G, "game_object")
+		hostile = game_object_api and relation == game_object_api.enemy
+	end
+	if hostile then
+		mark_pressure("shot", time_global())
+	end
+end
+
+function scan_mult(C, out)
+	configure_state(C)
+	local tg = time_global()
+	update(tg, true)
+	local pressure = tg < _state.pressure_until
+	local mult = _state.active and (pressure and _state.pressure_mult or _state.base_mult) or 1
+	if out then
+		out.enabled = _state.enabled
+		out.active = _state.active
+		out.pressure = pressure
+		out.source = pressure and _state.pressure_source or "none"
+		out.enemies = _state.enemy_count
+		out.remaining_ms = pressure and (_state.pressure_until - tg) or 0
+		out.inertia_ms = _state.active and max(0, COMBAT_INERTIA_MS - (tg - _state.last_combat_tg)) or 0
+		out.mult = mult
+	end
+	return mult
+end

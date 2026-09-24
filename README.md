@@ -105,6 +105,19 @@ changes the time, while expert/master/legend are noticeably slower), up to
 3x by default for a legend. Monsters/mutants (no rank) are never penalised.
 Toggle and tune the legend-rank ceiling in MCM.
 
+Rain, storms, and fog can also slow identification. Fog scales with the
+target's distance, while rain and storm wind apply only when you are exposed.
+With Anomaly/GAMMA's gas-mask droplet state available, water collected on the
+visor joins the same visibility penalty and mask wiping clears it naturally.
+The strongest obstruction sets one capped slowdown, so related rain effects
+are not multiplied together. Toggle and tune these options in MCM.
+
+Combat also slows identification. The normal combat multiplier applies while
+enemies are actively fighting the player and briefly after aggro drops. A direct
+combat hit or hostile bullet passing nearby temporarily replaces it with a stronger
+under-fire multiplier. Both multipliers, the pressure duration, and near-miss radius
+are configurable in MCM.
+
 Once you've identified a stalker, identifying them again later is faster
 (default: 40% faster) — the mod remembers everyone you've identified,
 including across save/load. Toggle and tune the speed multiplier in MCM.

@@ -67,9 +67,10 @@ OSD scanner) **evicts** the current occupant and returns it to your pack.
 | Tier 3 | 30 m | + No darkness scan-time penalty |
 
 With the kit assembled, these tiers **drive** identification and override the matching
-base-mod settings (scan time, range, night penalty, ADS enablement, and per-field display
-gates). `wd_require_kit` (default on) blocks identification entirely without the kit; turn
-it off to keep normal identification and let the kit only *enhance* it.
+base-mod settings (most scan-time modifiers, range, night penalty, ADS enablement, and per-field
+display gates). Combat pressure and weather visibility still modify the fixed process-tier scan time.
+`wd_require_kit` (default on) blocks identification entirely without the kit; turn it off to keep
+normal identification and let the kit only *enhance* it.
 
 ---
 
