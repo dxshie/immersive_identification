@@ -1,0 +1,32 @@
+<w>
+	<!-- Leekos' HD Faction Patches 2.4 universal atlas, bundled under a unique
+	     filename so this component does not replace another mod's faction atlas.
+
+	     Enable "Custom faction patches" on Immersive Identification's UI Style /
+	     General MCM page. The texture ids below are the custom ids requested by
+	     that setting.
+
+	     The atlas uses 128x128 active tiles in its first three columns. Zombified
+	     stalkers reuse the inactive Loner tile because the source has no separate
+	     Zombified patch. -->
+
+	<file name="ui\ii_hd_faction_patches">
+		<texture id="ii_patch_stalker" x="0" y="0" width="128" height="128" />
+		<texture id="ii_patch_bandit" x="128" y="0" width="128" height="128" />
+		<texture id="ii_patch_csky" x="256" y="0" width="128" height="128" />
+
+		<texture id="ii_patch_dolg" x="0" y="128" width="128" height="128" />
+		<texture id="ii_patch_freedom" x="128" y="128" width="128" height="128" />
+		<texture id="ii_patch_killer" x="256" y="128" width="128" height="128" />
+
+		<texture id="ii_patch_army" x="0" y="256" width="128" height="128" />
+		<texture id="ii_patch_ecolog" x="128" y="256" width="128" height="128" />
+		<texture id="ii_patch_monolith" x="256" y="256" width="128" height="128" />
+
+		<texture id="ii_patch_greh" x="0" y="384" width="128" height="128" />
+		<texture id="ii_patch_renegade" x="128" y="384" width="128" height="128" />
+		<texture id="ii_patch_isg" x="256" y="384" width="128" height="128" />
+
+		<texture id="ii_patch_zombied" x="384" y="0" width="128" height="128" />
+	</file>
+</w>

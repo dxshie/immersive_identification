@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add Leekos' **HD Faction Patches** as a self-contained FOMOD option in the Custom
+  faction patches selection. Its 1024x512 atlas uses an Immersive Identification-specific
+  filename, so it does not overwrite GRIP, G.A.M.M.A. UI, or the original patch mod.
 - Apply every enabled scan penalty under the WD tier system. Process tiers now attenuate each
   penalty's slowdown above 1× at configurable strengths (100% / 75% / 50% by default), exposed
   as three sliders on the Wearable Devices MCM page. Debug draw reports the active tier scale and

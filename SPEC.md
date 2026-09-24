@@ -127,10 +127,11 @@ gamedata/
   shaders/r3/*.ps               bodycam svp-marker / overlay (custom exe)
 fomod/
   info.xml                      Name/Author/Version 2.55.1/Website
-  ModuleConfig.xml              Installer: base + 2 optional components
+  ModuleConfig.xml              Installer: base + optional compatibility components
 FactionID Neutralized/          Optional: no-op override of FactionID's HUD script
 GRIP Patches/                   Optional: maps ii_patch_* onto Kos' GRIP's faction atlas
 GAMMA Patches/                  Optional: same, for G.A.M.M.A. UI's (different) atlas
+HD Faction Patches/             Optional: bundled Leekos HD atlas + ii_patch_* mapping
 Perception Skill Integration/   Optional: adds a "perception" skill to Skill System
 examples/                       Example add-ons: two UI styles + a faction-patch template
 types/                          EmmyLua engine stubs for the LSP
@@ -907,17 +908,18 @@ Zombified, Sin, Trader, Mutant, UNISG, Arena).
 
 - **Required:** `gamedata → gamedata` (self-contained drop-in, no required
   choices).
-- **Two groups.** "Compatibility" (`SelectAny`) holds the three soft-compat plugins; "Faction
-  patches" (**`SelectAtMostOne`**) holds the two patch sources, which are mutually exclusive
-  because they register the same ids over the same atlas name (§7.2).
+- **Two groups.** "Compatibility" (`SelectAny`) holds the three soft-compat plugins; "Custom
+  faction patches" (**`SelectAtMostOne`**) holds the three patch sources, which are mutually
+  exclusive because they register the same `ii_patch_*` ids (§7.2).
   1. **Neutralize FactionID HUD** → `FactionID Neutralized/gamedata`. `type = Recommended`, so
      it is **pre-checked** — nearly every target setup (GAMMA included) ships FactionID, and
      leaving it on means two faction indicators at once. Deselectable, and inert without
      FactionID (§7.1).
   2. **Skill System: Perception** → `Perception Skill Integration/gamedata`. `Optional`.
   3. **st-wearable-devices Compatibility** → `WD Compatibility/gamedata` (§7.4). `Optional`.
-  4. **GRIP Patches** → `GRIP Patches/gamedata`. `Optional`. Kos' GRIP's atlas (§7.2).
-  5. **GAMMA Patches** → `GAMMA Patches/gamedata`. `Optional`. G.A.M.M.A. UI's atlas (§7.2).
+  4. **HD Faction Patches** → `HD Faction Patches/gamedata`. `Optional`. Bundled Leekos atlas (§7.2).
+  5. **GRIP Patches** → `GRIP Patches/gamedata`. `Optional`. Kos' GRIP's atlas (§7.2).
+  6. **GAMMA Patches** → `GAMMA Patches/gamedata`. `Optional`. G.A.M.M.A. UI's atlas (§7.2).
 ---
 
 ## 7. Compatibility add-ons
@@ -934,31 +936,35 @@ script that shadows nothing, registers no callbacks and returns nil from `on_mcm
 already takes in the intended case, since the stub replaces FactionID there too), which is why it
 is safe to ship pre-checked.
 
-### 7.2 Faction patch components (GRIP Patches / GAMMA Patches)
+### 7.2 Faction patch components (HD / GRIP / GAMMA)
 
-Two `textures_descr` XMLs, one per source mod, each registering the mod's
-**`ii_patch_<community>`** ids (the ones `custom_patches` switches to — see §3's *Faction patch
-ids*) as regions of **`ui\ui_mm_faction_patches`**. No texture is copied or redistributed, only
-referenced, so a component is inert without its atlas present.
+Each component registers the mod's **`ii_patch_<community>`** ids (the ones `custom_patches`
+switches to — see §3's *Faction patch ids*) against a faction-patch atlas. **HD Faction Patches**
+bundles Leekos' 1024×512 universal atlas as `ui\ii_hd_faction_patches.dds`, keeping it isolated
+from other UI mods. GRIP and GAMMA only reference `ui\ui_mm_faction_patches` supplied by their
+source mod, so those two are inert without the matching atlas.
 
-**They are alternatives, not additive.** Both mods ship that same file name with the same
-`ui_mm_faction_*` ids but **different atlases**:
+**They are alternatives, not additive.** All three register the same `ii_patch_*` ids. GRIP and
+GAMMA additionally ship the same source filename with the same `ui_mm_faction_*` ids but
+**different atlases**:
 
 | component | source mod | atlas | tiles |
 |---|---|---|---|
+| **HD Faction Patches** | Leekos' HD Faction Patches 2.4, bundled | 1024×512 | 128×128 |
 | **GRIP Patches** | Kos' GRIP ([link](https://discord.com/channels/912320241713958912/1530072690155585688/1530072690155585688)) | 1024×512 | 128×128 |
 | **GAMMA Patches** | G.A.M.M.A. UI | 512×256 | 64×64 |
 
-Nothing distinguishes the two from script — same filename, same ids — so the FOMOD puts them in
-their own **`SelectAtMostOne`** group. Ticking both would leave whichever parsed last silently
-winning; picking the one that does *not* match the atlas your load order resolves renders every
-patch cropped to a corner (see §3's *Faction patch ids* for why that is the signature).
+The FOMOD puts all three in one **`SelectAtMostOne`** group because installing multiple mappings
+would leave whichever XML parsed last silently winning. For GRIP and GAMMA, picking the component
+that does *not* match the atlas your load order resolves renders every patch cropped to a corner
+(see §3's *Faction patch ids* for why that is the signature). The HD component is self-contained
+and does not depend on either shared atlas.
 
-Two things must both be true for either to show: the component installed, **and**
-`custom_patches` switched on in MCM. Neither alone does anything, which both FOMOD descriptions
+Two things must both be true for any component to show: the component installed, **and**
+`custom_patches` switched on in MCM. Neither alone does anything, which the FOMOD descriptions
 say explicitly.
 
-Mapping notes, identical in both: the tile these mods label `army` is registered as
+Mapping notes, identical in all three: the tile these sources label `army` is registered as
 **`military`**, the actual Anomaly community id; zombified stalkers have no tile of their own so
 they reuse the atlas' greyed `stalker_inactive`; and **`trader`, `monster` and `arena` have no
 tile in either atlas and therefore show no patch** — the all-or-nothing limit from §3, since

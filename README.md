@@ -167,8 +167,9 @@ end
 
 Want your own faction patch art instead of the game's icons? Switch on **Custom faction patches**
 (UI Style / General) and register `ii_patch_<faction>` texture ids — see
-[examples/custom_faction_patches](./examples/custom_faction_patches). The installer's **GRIP
-Patches** component wires those ids to G.A.M.M.A.'s own patch atlas for you.
+[examples/custom_faction_patches](./examples/custom_faction_patches). The installer offers three
+mutually exclusive sources: bundled **HD Faction Patches** artwork, **GRIP Patches**, or
+**GAMMA Patches**.
 
 Nothing in this mod needs editing or overwriting.
 
