@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add an **Audio** MCM page with a 0–200% master volume. It contains new optional bundled cues for scan start (a short low
+  vibration) and identification completion (a subtle neutral beep), and moves the Wearable Devices
+  hostile-faction warning from its compatibility page. Every cue has an independent manual-only
+  option that suppresses auto-identify and automatic aiming triggers.
 - Add Leekos' **HD Faction Patches** as a self-contained FOMOD option in the Custom
   faction patches selection. Its 1024x512 atlas uses an Immersive Identification-specific
   filename, so it does not overwrite GRIP, G.A.M.M.A. UI, or the original patch mod.

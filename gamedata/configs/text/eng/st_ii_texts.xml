@@ -14,6 +14,7 @@
 	<string id="ui_mcm_menu_ads"><text>Aim Down Sight</text></string>
 	<string id="ui_mcm_menu_pip"><text>PiP Scope</text></string>
 	<string id="ui_mcm_menu_scantime"><text>Scan Time</text></string>
+	<string id="ui_mcm_menu_audio"><text>Audio</text></string>
 	<string id="ui_mcm_menu_debug"><text>Debug</text></string>
 	<string id="ui_mcm_menu_wdcompat"><text>Wearable Devices</text></string>
 	<string id="ui_mcm_menu_colors"><text>Colors</text></string>
@@ -38,6 +39,22 @@
 	<string id="ui_mcm_ii_patch_title"><text>Patch</text></string>
 	<string id="ui_mcm_ii_targeting_title"><text>Targeting</text></string>
 	<string id="ui_mcm_ii_hipfire_title"><text>Hipfire</text></string>
+	<string id="ui_mcm_ii_audio_title"><text>Identification audio</text></string>
+	<string id="ui_mcm_ii_audio_volume"><text>Audio volume (%)</text></string>
+	<string id="ui_mcm_ii_audio_volume_desc"><text>Master volume for scan-start, identification-complete, and hostile-faction sounds. 100% uses the source volume; raise it up to 200% for a louder cue. Set it to 0% to mute all identification audio.</text></string>
+	<string id="ui_mcm_ii_scan_start_sound"><text>Vibration cue when scan starts</text></string>
+	<string id="ui_mcm_ii_scan_start_sound_desc"><text>Play a short, low vibration sound when a real scan begins. Instant identification has no scanning phase and does not play this cue.</text></string>
+	<string id="ui_mcm_ii_scan_start_manual_only"><text>Scan-start cue: manual identification only</text></string>
+	<string id="ui_mcm_ii_scan_start_manual_only_desc"><text>Suppress the scan-start cue for auto-identify and automatic aiming triggers. A scan started with the Identify key still plays it.</text></string>
+	<string id="ui_mcm_ii_identify_done_sound"><text>Neutral beep when identification completes</text></string>
+	<string id="ui_mcm_ii_identify_done_sound_desc"><text>Play a subtle neutral beep once, when a scan finishes and its identification result first appears.</text></string>
+	<string id="ui_mcm_ii_identify_done_manual_only"><text>Completion beep: manual identification only</text></string>
+	<string id="ui_mcm_ii_identify_done_manual_only_desc"><text>Suppress the completion beep for auto-identify and automatic aiming triggers. Identification started with the Identify key still plays it.</text></string>
+	<string id="ui_mcm_ii_audio_hostile_title"><text>Wearable Devices hostile warning</text></string>
+	<string id="ui_mcm_ii_wd_hostile_sound"><text>Hostile faction warning sound</text></string>
+	<string id="ui_mcm_ii_wd_hostile_sound_desc"><text>With the Wearable Devices scanner active, play the detected faction's warning clip when identification resolves a target that is hostile toward you. Works regardless of Show relation. Requires the Wearable Devices compatibility component; factions without a supplied warning clip stay silent.</text></string>
+	<string id="ui_mcm_ii_wd_hostile_manual_only"><text>Hostile warning: manual identification only</text></string>
+	<string id="ui_mcm_ii_wd_hostile_manual_only_desc"><text>Suppress hostile-faction warnings for auto-identify and automatic aiming triggers. Identification started with the Identify key can still play the warning.</text></string>
 	<string id="ui_mcm_ii_instant_exclude_hipfire"><text>Exclude hipfire from instant identify</text></string>
 	<string id="ui_mcm_ii_instant_exclude_hipfire_desc"><text>When Instant identify is on, keep the normal scanning wait while hip-firing (only ADS / binoculars stay instant). No effect unless Instant identify is on.</text></string>
 	<string id="ui_mcm_ii_instant_exclude_ads"><text>Exclude ADS from instant identify</text></string>
@@ -390,8 +407,6 @@
 	<string id="ui_mcm_ii_wd_ignore_desc"><text>Master toggle: when ON, the whole Wearable Devices integration is bypassed and identification works exactly as if this compatibility component were never installed (no scanner kit, no tiers, normal on-entity identification). All the other settings on this page have no effect while this is on.</text></string>
 	<string id="ui_mcm_ii_wd_require_kit"><text>Require scanner kit to identify</text></string>
 	<string id="ui_mcm_ii_wd_require_kit_desc"><text>When the wearable-devices compatibility is installed: block ALL identification unless the full kit is worn/assembled (scanner worn + Promin antenna module + a process module). Off = identification still works normally when the kit isn't complete, and the tiers only enhance it while the kit is worn. Only affects you if st-wearable-devices and the compatibility component are installed.</text></string>
-	<string id="ui_mcm_ii_wd_hostile_sound"><text>Hostile faction warning sound</text></string>
-	<string id="ui_mcm_ii_wd_hostile_sound_desc"><text>When the scanner finishes identifying a target that is hostile toward you, play that faction's warning sound. Plays once per identification, as the result appears. Works regardless of the Show relation setting, since it is a warning rather than a display. Factions without a warning sound (Ecologists, Zombified, traders, mutants, Arena) stay silent.</text></string>
 	<string id="ui_mcm_ii_wd_proc_title"><text>- Process module: scan time per tier (s) -</text></string>
 	<string id="ui_mcm_ii_wd_proc_t1"><text>Tier 1 scan time (s)</text></string>
 	<string id="ui_mcm_ii_wd_proc_t1_desc"><text>Base scan time with a Tier 1 process module. Default 1.5s.</text></string>

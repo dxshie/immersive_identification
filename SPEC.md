@@ -690,7 +690,7 @@ to a preset = one LTX line; no code change.
 **Tree:** root node `id="ii"` (no `sh`) → **one leaf page (`sh=true`) per section**,
 each rendering as its own tab (tab label = `ui_mcm_menu_<page_id>`): **general**,
 **uistyle**, **targeting**, **binoc**, **ads**, **pip**, **scantime**
-(the distance/rank/target-visibility/familiarity/perception modifier sub-headers), **debug**, and
+(the distance/rank/target-visibility/familiarity/perception modifier sub-headers), **audio**, **debug**, and
 **colors** (the per-faction/rank/relation RGB overrides, generated from
 `ii_identify.COLOR_DEFS`). Because an option's MCM storage path is
 `ii/<page>/<option_id>`, options are NOT all under `ii/main/*` — `read_config` resolves
@@ -709,7 +709,7 @@ Listed in MCM display order (`ii_mcm.script`); ranges are `(min, max, step, prec
 
 Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `uistyle/card`,
 `uistyle/simple`, `uistyle/bodycam`, `uistyle/crooks`, `uistyle/patch`), `targeting`, `hipfire`,
-`binoc`, `ads`, `pip`, `scantime`, `debug`, `wdcompat`, `colors`. These path prefixes must stay
+`binoc`, `ads`, `pip`, `scantime`, `audio`, `debug`, `wdcompat`, `colors`. These path prefixes must stay
 in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 
 | id | type | default | range | controls |
@@ -831,6 +831,14 @@ in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 | `perception_scan_mult` | track | 0.04 | 0, 0.1, 0.01, 2 | scan reduction per level |
 | `perception_xp` | track | 20 | 0, 100, 5 | XP per identify |
 | `perception_loot_xp` | track | 20 | 0, 100, 5 | bonus XP for first loot |
+| **Audio** | | | | |
+| `audio_volume` | track | 100 | 0, 200, 5 | master percentage gain for every identification sound |
+| `scan_start_sound` | check | false | — | play the bundled low vibration cue when a non-instant scan starts |
+| `scan_start_manual_only` | check | false | — | suppress the start cue for auto-identify and automatic aiming triggers |
+| `identify_done_sound` | check | false | — | play the bundled neutral beep on the first completed reveal |
+| `identify_done_manual_only` | check | false | — | suppress the completion beep for auto-identify and automatic aiming triggers |
+| `wd_hostile_sound` | check | false | — | with the WD scanner active, play the detected hostile faction's warning clip (§7.4) |
+| `wd_hostile_manual_only` | check | false | — | suppress hostile warnings for auto-identify and automatic aiming triggers |
 | **Debug** | | | | |
 | `debug_log` | check | false | — | write aim/trace diagnostics to a dedicated log file |
 | `debug_draw` | check | false | — | on-screen target-assist visualiser: the FOV ring (one stretched `ii_ring` circle outline), bone dots, and a bottom-right info panel (perf CPS + mod-loop ms; identify trace — active triggers, the last commit's source/target, exact before/after timing for distance/rank/weight/foliage/target-light/aim/perception/combat/weather/familiarity/instant factors, raw target luminance/darkness/source and bypass, combat state/source/enemy count/pressure time, rain/storm/fog/visor severities, raw visor-droplet level and threshold, and the winning weather-visibility source, plus a live "gate" line explaining why the aimed candidate is / isn't being identified; aim mesh-hit see/ray/LOS + front material; the FOV-radius target list) |
@@ -838,7 +846,6 @@ in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 | **Wearable Devices** (page `wdcompat`; only bites when the WD compat add-on is installed, §7.4; the page is hidden otherwise) | | | | |
 | `wd_ignore` | check | false | — | master toggle: bypass the WD compat entirely (identify as if WD isn't installed); disables the rest of this page |
 | `wd_require_kit` | check | true | — | block identification entirely unless the full scanner kit is worn/assembled |
-| `wd_hostile_sound` | check | false | — | play the faction's hostile warning sound when a scan resolves an enemy-disposed target (§7.4) |
 | `wd_proc_t1/t2/t3` | track | 1.5 / 1.0 / 0.5 | 0.1, 5, 0.1, 1 | process-module tier base scan time (s) |
 | `wd_penalty_t1/t2/t3` | track | 1.0 / 0.75 / 0.5 | 0, 2, 0.05, 2 | process-tier share of every enabled penalty's slowdown above 1× |
 | `wd_scan_t1/t2/t3` | track | 10 / 20 / 30 | 5, 100, 5 | scanner tier identify range (m) |
@@ -1105,7 +1112,17 @@ scanner/module icons are generated placeholders; the IDENTIFICATION page's scree
 (coordinates in the 1100×600 design space) and glyph sizing are best-guess and will likely
 need in-game tuning. None affects the tier **logic**.
 
-**Hostile faction warning sound** (`wd_hostile_sound`, default off). The component ships
+**Identification audio.** The Audio page's `audio_volume` slider applies 0–200% gain to every
+cue after `sound_object:play()` creates its feedback (`sound_object.volume` is a writable engine
+binding); it defaults to 100%. The base mod ships two 2D mono 44.1 kHz Vorbis cues under
+`gamedata/sounds/ii/`: `scan_start_vibration.ogg` plays only when a committed scan has a nonzero
+wait, and `identify_done_beep.ogg` plays on its first completed reveal. Each is off by default and
+has an independent manual-only toggle. `identify_target` snapshots `auto_mode` into the tracked
+entry so the later completion edge knows whether the Identify key or an automatic trigger started
+that scan. Manual-only therefore excludes both continuous auto-identify and automatic aiming
+triggers without changing scan admission or timing.
+
+**Hostile faction warning sound** (`wd_hostile_sound`, default off; now on the Audio page). The component ships
 `gamedata/sounds/ii/<faction>_hostile.ogg`; when a scan's result first appears
 (`first_reveal`: the `osd_done` edge, deliberately *not* the Crooks re-aim capture) for a target
 that is **enemy-disposed** toward the actor, `play_hostile_sound` plays that faction's clip once
@@ -1113,11 +1130,12 @@ as a 2D sound. Details that matter:
 
 - **Gated on `tier_active()`** — the audio ships with this component, so outside the WD scanner
   path there is nothing to play.
+- `wd_hostile_manual_only` uses the same snapshotted `auto_mode` to suppress automatic results.
 - **Hostility is read live** (`obj:relation(db.actor) == game_object.enemy`), *not* from the
   snapshotted `sign`, which is nil whenever `show_relation` is off — the warning is a safety cue,
   not a display detail, and must not go silent because the tag chose not to draw relation.
 - **Files are named by display faction** (`loner`, `duty`, `merc`, `clearsky`, `sin`), not by
-  community id, so `HOSTILE_SND.file` maps `stalker→loner`, `dolg→duty`, `killer→merc`,
+  community id, so `AUDIO_SND.file` maps `stalker→loner`, `dolg→duty`, `killer→merc`,
   `csky→clearsky`, `greh→sin`. Communities with no file — `ecolog`, `zombied`, `trader`,
   `monster`, `arena` — stay silent.
 - **Must be Ogg Vorbis.** The engine's loader strips any extension and appends `.ogg`

@@ -10,7 +10,7 @@
 ; sub-pages (general / card / bodycam / crooks / patch). Pages: general, uistyle/general,
 ; uistyle/card, uistyle/simple, uistyle/bodycam, uistyle/crooks, uistyle/patch, targeting,
 ; hipfire, binoc, ads,
-; pip, scantime, debug, colors.
+; pip, scantime, audio, debug, colors.
 ; Keep in sync with the page an option lives on in ii_mcm.script (+ MCM_PAGES in
 ; ii_identify.script), or the preset writes a dead path and silently does nothing.
 
@@ -134,13 +134,20 @@ ii/scantime/perception_scan_mult   = 0.04
 ii/scantime/perception_xp          = 20
 ii/scantime/perception_loot_xp     = 20
 
+ii/audio/audio_volume                 = 100
+ii/audio/scan_start_sound             = false
+ii/audio/scan_start_manual_only       = false
+ii/audio/identify_done_sound          = false
+ii/audio/identify_done_manual_only    = false
+ii/audio/wd_hostile_sound             = false
+ii/audio/wd_hostile_manual_only       = false
+
 ii/debug/debug_log              = false
 ii/debug/debug_draw             = false
 ii/debug/debug_sim_stock        = false
 
 ii/wdcompat/wd_ignore              = false
 ii/wdcompat/wd_require_kit         = true
-ii/wdcompat/wd_hostile_sound         = false
 ii/wdcompat/wd_proc_t1             = 1.5
 ii/wdcompat/wd_proc_t2             = 1.0
 ii/wdcompat/wd_proc_t3             = 0.5

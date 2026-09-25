@@ -134,6 +134,11 @@ working too, binoculars or not — unless you separately turn on "Require
 binoculars", which restricts the key (and the auto-trigger) to only work
 while actively looking through raised binoculars.
 
+The **Audio** MCM page has a 0–200% master volume and can play a short vibration cue when scanning starts, a subtle neutral beep
+when identification completes, and the Wearable Devices hostile-faction warning. Each cue has its
+own **manual identification only** switch to silence it for auto-identify and automatic aiming
+triggers. The start and completion sounds are bundled with the base mod.
+
 ### Perception skill integration
 
 If you have the **Skill System** mod (`haru_skills`) installed and check the
