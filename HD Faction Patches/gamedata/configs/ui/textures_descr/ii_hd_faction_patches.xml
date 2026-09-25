@@ -10,7 +10,7 @@
 	     stalkers reuse the inactive Loner tile because the source has no separate
 	     Zombified patch. -->
 
-	<file name="ui\ii_hd_faction_patches">
+	<file name="ui\ui_mm_faction_patches">
 		<texture id="ii_patch_stalker" x="0" y="0" width="128" height="128" />
 		<texture id="ii_patch_bandit" x="128" y="0" width="128" height="128" />
 		<texture id="ii_patch_csky" x="256" y="0" width="128" height="128" />
