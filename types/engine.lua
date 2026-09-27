@@ -439,6 +439,16 @@ function ini_sys:r_float(section, field) end
 ---@return boolean
 function ini_sys:section_exist(section) end
 
+---@class CConsole
+local CConsole = {}
+
+---@param command string
+---@return string?
+function CConsole:get_string(command) end
+
+---@return CConsole
+function get_console() end
+
 ---------------------------------------------------------------------------
 -- MCM (Mod Configuration Menu) -- optional, only present if MCM is
 -- installed; code must guard with `ui_mcm and ui_mcm.get` before use.

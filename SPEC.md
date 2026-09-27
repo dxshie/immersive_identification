@@ -467,7 +467,7 @@ MCM section; `identify_target` applies the returned `scan_mult`. The effective r
 clamped by the **active mode's hard cutoff** (`apply_mode_cap`: `hipfire_max_dist` /
 `ads_max_dist` / `binoc_max_dist`; 0 = no cap) so runaway magnification can't over-extend it. Its
 own MCM section: `ads_mode`, `ads_hold_time`, `ads_boost`, `ads_scan_mult`, `ads_range_mult`
-(x1 base, **default 1.0**), `ads_zoom_scaling`, `ads_hide_main`, `ads_max_dist`,
+(x1 base, **default 1.0**), `ads_zoom_scaling`, `ads_hide_main`, `ads_block_thermal`, `ads_max_dist`,
 `instant_exclude_ads`.
 
 **ADS auto-identify is dwell-on-target** (`update_ads_dwell`, 2394), distinct from
@@ -478,6 +478,13 @@ throttled, while a target stays there). Holding still on empty air does nothing;
 *can* track a moving target. `fov_assist` on → `sweep_identify_in_fov` (all targets
 in the cone); off → `try_identify(true)` (just the one under the aim). The presence
 raycast is throttled to 100 ms; the dwell timer uses `time_global` so it stays exact.
+
+**Thermal-scope block** (`ads_block_thermal`, off by default): while ADS, the live S3DS
+`s3ds_param_3` image type is read from the console parameter. Image types 2 (thermal) and 3
+(coloured thermal) reject every manual/automatic path at the `identify_target` choke point and
+cancel an in-progress scan before it reveals, as well as disarming the ADS dwell. Because the live
+parameter is used, a switchable optic in its normal-image mode is not blocked. Existing revealed
+tags are left alone.
 
 **Zoom-scaled range**: with `ads_zoom_scaling` on, the ADS range multiplier is
 scaled by the current scope magnification — `range_mult = ads_range_mult × mag` —
@@ -611,6 +618,8 @@ reuses `tag_icon` for the patch and the `tag_box_*` edges for its relation ring.
   actor distance. There is no far-distance scale floor or minimum pixel dimension;
   positions and sizes retain fractional pixels. The projection scale is capped at
   `MARKER.max_scale = 4` for graphics near the camera, before applying `card_scale`.
+  `dot_scale`, `glow_scale`, and `spinner_scale` then multiply only their respective rendered
+  diameters; none changes the projected centre, world anchor, distance scale, or offset calculation.
   User X/Y offsets use the uncapped projection scale (X also uses `UI_KX`), keeping
   the offset attached in the camera-facing plane. There is no additional downward
   distance correction. Simple's graphical group is centred independently of its
@@ -734,6 +743,9 @@ in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 | `show_weapon` | check | true | — | show weapon+caliber line |
 | `color_by_relation` | check | true | — | tint by relation vs flat neutral (colour only; `show_relation` is the content gate) |
 | `mini_dist_scale` | check | true | — | Minimal dot: scale with distance |
+| `dot_scale` | track | 1.0 | 0, 3, 0.05, 2 | built-in dot/node size after style and distance scaling; 0 hides it; does not move the anchor |
+| `glow_scale` | track | 1.0 | 0, 3, 0.05, 2 | independent dot-halo size after style and distance scaling; 0 hides it; does not move the anchor |
+| `spinner_scale` | track | 1.0 | 0, 3, 0.05, 2 | main-view and PiP scan-spinner size after style and distance scaling; 0 hides it; does not move the anchor |
 | `ui_offset_x` | track | 0 | -200, 200, 5 | horizontal nudge for on-screen UI (px) |
 | `ui_offset_y` | track | 0 | -200, 200, 5 | vertical nudge for on-screen UI (px) |
 | `anchor_basis` | list | Head | Head/Torso/Feet | where the tag/marker anchors on the target (`ui_anchor_pos`); Bodycam box keeps its own `box_area` |
@@ -797,6 +809,7 @@ in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 | `ads_range_mult` | track | **1.0** | 1, 5, 0.1, 1 | range mult while ADS (x1 base) |
 | `ads_zoom_scaling` | check | true | — | scale ADS range by scope magnification |
 | `ads_hide_main` | check | false | — | hide all main-view drawing while aiming down sight |
+| `ads_block_thermal` | check | false | — | block every identification path while ADS with an active S3DS thermal image; switchable normal-image modes remain usable |
 | `instant_exclude_ads` | check | false | — | keep the scan wait for ADS under Instant identify |
 | `ads_max_dist` | track | 0 | 0, 1000, 5 | hard cap on effective range (m; 0 = none) |
 | **PiP Scope** | | | | |
@@ -846,6 +859,7 @@ in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 | **Wearable Devices** (page `wdcompat`; only bites when the WD compat add-on is installed, §7.4; the page is hidden otherwise) | | | | |
 | `wd_ignore` | check | false | — | master toggle: bypass the WD compat entirely (identify as if WD isn't installed); disables the rest of this page |
 | `wd_require_kit` | check | true | — | block identification entirely unless the full scanner kit is worn/assembled |
+| `wd_notify_scale` | track | 1.0 | 0.5, 2, 0.05, 2 | Promin BIOMONITOR/NAVIGATION identification-card scale; applies live to the full layout |
 | `wd_proc_t1/t2/t3` | track | 1.5 / 1.0 / 0.5 | 0.1, 5, 0.1, 1 | process-module tier base scan time (s) |
 | `wd_penalty_t1/t2/t3` | track | 1.0 / 0.75 / 0.5 | 0, 2, 0.05, 2 | process-tier share of every enabled penalty's slowdown above 1× |
 | `wd_scan_t1/t2/t3` | track | 10 / 20 / 30 | 5, 100, 5 | scanner tier identify range (m) |
@@ -1103,8 +1117,10 @@ re-sync on a WD update.
 BIOMONITOR or NAVIGATION page (not the ident page, where it's already shown), a card pops up
 bottom-right and stacks upward (`d_ii_promin_notify.script`): faction emblem, name +
 distance, and the rank as a level ("Rank 1".."Rank 8", `ii_identify.RANK_LEVEL`). Cards
-expire after a few seconds. The `d_promin_ui` override eager-builds the biomonitor/navigation
-pages before the overlay so it draws on top; the card art is `ii_wd_notif_card.dds`.
+expire after a few seconds. `wd_notify_scale` (0.5–2.0, default 1.0) resizes the card, emblem,
+glyphs, and stack spacing together and applies live. The `d_promin_ui` override eager-builds the
+biomonitor/navigation pages before the overlay so it draws on top; the card art is
+`ii_wd_notif_card.dds`.
 
 **Untestable / placeholder** (flagged in the component `README`): the scanner is invisible
 (no worn model — re-enable + tune the attach in `sync_attachment` for real art); the

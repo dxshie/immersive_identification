@@ -492,8 +492,21 @@ function install(IiTags, context)
 	-- flat-scaled styles clamp the node so a large card_scale doesn't bloat the dot.
 	local function draw_node_glow(s, hx, hy, scale, alpha, r, g, b, world_scaled)
 		local node_scale = world_scaled and scale or math.min(scale, MARKER.card_node_max)
+		local base_size = 7 * node_scale
 		_rgb[1], _rgb[2], _rgb[3] = r, g, b
-		dot(s.node, s.glow, hx, hy, 7 * node_scale, _rgb, alpha, not world_scaled)
+		-- Both parts retain the same projected centre and distance-derived scale. These final
+		-- appearance multipliers cannot feed back into world anchoring or offset projection.
+		local dot_scale, glow_scale = C.dot_scale or 1, C.glow_scale or 1
+		if dot_scale > 0 then
+			dot_part(s.node, hx, hy, base_size * dot_scale, _rgb, alpha, not world_scaled)
+		else
+			show(s.node, false)
+		end
+		if glow_scale > 0 then
+			dot_part(s.glow, hx, hy, base_size * 2.8 * glow_scale, _rgb, math.floor(alpha * 0.55), not world_scaled)
+		else
+			show(s.glow, false)
+		end
 	end
 
 	-- Positions/tints/shows one text line plus its 1px-offset shadow copy.
@@ -763,13 +776,18 @@ function install(IiTags, context)
 			-- rotation doesn't commute with a non-uniform scale -- a squeezed
 			-- rectangle rotated first comes out elliptical at every angle rather
 			-- than circular, so this stays square instead.
-			local spin_d = SPIN_D * scale
-			local spin_angle = (tg % SPIN_PERIOD_MS) / SPIN_PERIOD_MS * (2 * math.pi)
-			s.spinner:SetWndSize(S(spin_d, spin_d))
-			s.spinner:SetWndPos(P(hx - spin_d / 2, hy - spin_d / 2))
-			s.spinner:SetTextureColor(GetARGB(230, 255, 255, 255))
-			s.spinner:SetHeading(spin_angle)
-			show(s.spinner, true)
+			local spinner_scale = C.spinner_scale or 1
+			if spinner_scale > 0 then
+				local spin_d = SPIN_D * scale * spinner_scale
+				local spin_angle = (tg % SPIN_PERIOD_MS) / SPIN_PERIOD_MS * (2 * math.pi)
+				s.spinner:SetWndSize(S(spin_d, spin_d))
+				s.spinner:SetWndPos(P(hx - spin_d / 2, hy - spin_d / 2))
+				s.spinner:SetTextureColor(GetARGB(230, 255, 255, 255))
+				s.spinner:SetHeading(spin_angle)
+				show(s.spinner, true)
+			else
+				show(s.spinner, false)
+			end
 	
 			show(s.glow, false)
 			show(s.node, false)
@@ -829,7 +847,12 @@ function install(IiTags, context)
 		if C.ui_style == 7 then
 			show(s.glow, false)
 			-- No halo, no snapping: Minimal 2 always distance-scales.
-			dot(s.node, nil, hx, hy, 7 * scale, relation_color(a, fcol), alpha, false)
+			local dot_scale = C.dot_scale or 1
+			if dot_scale > 0 then
+				dot_part(s.node, hx, hy, 7 * scale * dot_scale, relation_color(a, fcol), alpha, false)
+			else
+				show(s.node, false)
+			end
 			return
 		end
 	
@@ -849,25 +872,30 @@ function install(IiTags, context)
 			end
 			local has_icon = icon_id and icon_id ~= ""
 	
-			local glow_w = 7 * scale * 2.8 * C._ui_kx
+			local dot_scale, glow_scale = C.dot_scale or 1, C.glow_scale or 1
+			local dot_w = dot_scale > 0 and 7 * scale * dot_scale * C._ui_kx or 0
+			local glow_w = glow_scale > 0 and 7 * scale * 2.8 * glow_scale * C._ui_kx or 0
+			local marker_w = math.max(dot_w, glow_w)
+			local has_marker = marker_w > 0
 			local icon_h = 16 * (C.simple_icon_scale or 1) * scale
 			local icon_w = icon_h * C._ui_kx
 			local gap = 5 * scale * C._ui_kx
+			local marker_gap = has_marker and has_icon and gap or 0
 			local row_y = hy - 14 * scale
 	
 			-- Native text has a fixed font size; exclude its width from the anchor
 			-- calculation so a long name cannot push the marker off the entity.
-			local total = glow_w
+			local total = marker_w + marker_gap
 			if has_icon then
-				total = total + gap + icon_w
+				total = total + icon_w
 			end
 			local cursor = hx - total / 2
 	
-			draw_node_glow(s, cursor + glow_w / 2, row_y, scale, alpha, r, g, b, true)
-			cursor = cursor + glow_w
-	
+			draw_node_glow(s, cursor + marker_w / 2, row_y, scale, alpha, r, g, b, true)
+			cursor = cursor + marker_w
+
 			if has_icon then
-				cursor = cursor + gap
+				cursor = cursor + marker_gap
 				-- Centred in the icon_w slot the row already reserved, so a letterboxed
 				-- patch does not shift the name beside it.
 				place_fit(s.icon, cursor + icon_w / 2, row_y, icon_h, icon_h, s.icon_aspect, COL_WHITE, alpha)
@@ -875,9 +903,11 @@ function install(IiTags, context)
 			else
 				show(s.icon, false)
 			end
-	
+
 			if has_name then
-				cursor = cursor + gap
+				if has_marker or has_icon then
+					cursor = cursor + gap
+				end
 				draw_shadowed_text(
 					s.name,
 					s.name_sh,

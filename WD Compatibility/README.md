@@ -67,6 +67,8 @@ Nothing shows on the IDENTIFICATION page itself (the full readout is already the
 Rendered by `d_ii_promin_notify.script`; the layout constants (card size, anchor, per-field
 positions) are at the top of that file for in-game tuning. The `d_promin_ui.script` override
 eager-builds the biomonitor/navigation pages so the overlay draws on top of them.
+The **Identification notification scale** slider on II's Wearable Devices MCM page resizes the
+whole popup layout live from 0.5× to 2×.
 
 ## Promin IDENTIFICATION tab
 

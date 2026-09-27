@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add independent dot and glow scale sliders for the built-in dot-based UI styles. Both compose
+  with distance scaling while preserving the projected world anchor; Simple layout reserves the
+  larger visible diameter so extreme dot/glow combinations do not overlap the faction emblem.
+- Add a loading-spinner scale slider for the main world marker and PiP in-scope spinner, preserving
+  their existing distance scaling and projected centres. Dot, glow, and spinner scales accept 0
+  to hide that element cleanly without submitting zero-sized widgets or shader markers.
+- Add an ADS option that blocks every manual and automatic identification path and cancels active
+  scans while an S3DS thermal image is active. Switchable optics remain usable in normal mode.
+- Add a live 0.5–2.0 scale slider for Wearable Devices identification notifications, resizing
+  the Promin popup card, faction emblem, glyphs, and stack spacing together.
 - Add an **Audio** MCM page with a 0–200% master volume. It contains new optional bundled cues for scan start (a short low
   vibration) and identification completion (a subtle neutral beep), and moves the Wearable Devices
   hostile-faction warning from its compatibility page. Every cue has an independent manual-only

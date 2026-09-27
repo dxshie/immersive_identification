@@ -222,6 +222,8 @@
 	<string id="ui_mcm_ii_ads_zoom_scaling_desc"><text>Multiply the ADS range by the scope's magnification (x2, x4, ...), so higher-power optics reach further. Works with PiP scopes and, on engines without PiP, from the aim FOV. Iron sights stay near the x1 base.</text></string>
 	<string id="ui_mcm_ii_ads_hide_main"><text>Hide main-view UI while aiming</text></string>
 	<string id="ui_mcm_ii_ads_hide_main_desc"><text>While aiming down sight, suppress all main-view identification tags for a clean sight picture. In-scope markers (if any) still draw.</text></string>
+	<string id="ui_mcm_ii_ads_block_thermal"><text>Block identification through thermal scopes</text></string>
+	<string id="ui_mcm_ii_ads_block_thermal_desc"><text>Prevent manual and automatic identification while aiming down sight with an active S3DS thermal image. Active scans are cancelled; existing revealed tags remain. Switchable optics can still identify in their normal-image mode. Off by default.</text></string>
 	<string id="ui_mcm_ii_ads_max_dist"><text>Max identification distance (m)</text></string>
 	<string id="ui_mcm_ii_ads_max_dist_desc"><text>Hard cutoff on the effective identify range while aiming down sight. Caps the base identification distance after magnification/boost scaling. 0 = no cap.</text></string>
 
@@ -246,6 +248,12 @@
 	<string id="ui_mcm_ii_mini_scale_cutoff_desc"><text>Card style only: below this scale the card no longer fits, so just the relation dot is shown instead.</text></string>
 	<string id="ui_mcm_ii_mini_dist_scale"><text>Minimal: scale dot with distance</text></string>
 	<string id="ui_mcm_ii_mini_dist_scale_desc"><text>In the Minimal (dot) style, size the dot by distance so a far target's dot isn't oversized (near = bigger, far = smaller). Off = a flat size like the other styles.</text></string>
+	<string id="ui_mcm_ii_dot_scale"><text>Dot scale</text></string>
+	<string id="ui_mcm_ii_dot_scale_desc"><text>Size multiplier for built-in dot markers in Card, Minimal, Simple, Minimal 2, and Card's mini fallback. Applied after distance scaling without moving the marker's world anchor. Set 0.00 to hide the dot. Default 1.00.</text></string>
+	<string id="ui_mcm_ii_glow_scale"><text>Glow scale</text></string>
+	<string id="ui_mcm_ii_glow_scale_desc"><text>Independent size multiplier for the soft glow behind dots in Card, Minimal, Simple, and Card's mini fallback. Applied after distance scaling without moving the dot or its world anchor. Set 0.00 to hide the glow. Default 1.00.</text></string>
+	<string id="ui_mcm_ii_spinner_scale"><text>Loading spinner scale</text></string>
+	<string id="ui_mcm_ii_spinner_scale_desc"><text>Size multiplier for the rotating identification spinner shown while a target is being scanned, including the in-scope PiP spinner. Applied after distance scaling without moving its world anchor. Set 0.00 to hide the spinner. Default 1.00.</text></string>
 	<string id="ui_mcm_ii_ui_offset_x"><text>UI offset X (px)</text></string>
 	<string id="ui_mcm_ii_ui_offset_x_desc"><text>Horizontal nudge for the on-screen UI elements (card / dot / box), in virtual pixels. Negative = left.</text></string>
 	<string id="ui_mcm_ii_ui_offset_y"><text>UI offset Y (px)</text></string>
@@ -407,6 +415,8 @@
 	<string id="ui_mcm_ii_wd_ignore_desc"><text>Master toggle: when ON, the whole Wearable Devices integration is bypassed and identification works exactly as if this compatibility component were never installed (no scanner kit, no tiers, normal on-entity identification). All the other settings on this page have no effect while this is on.</text></string>
 	<string id="ui_mcm_ii_wd_require_kit"><text>Require scanner kit to identify</text></string>
 	<string id="ui_mcm_ii_wd_require_kit_desc"><text>When the wearable-devices compatibility is installed: block ALL identification unless the full kit is worn/assembled (scanner worn + Promin antenna module + a process module). Off = identification still works normally when the kit isn't complete, and the tiers only enhance it while the kit is worn. Only affects you if st-wearable-devices and the compatibility component are installed.</text></string>
+	<string id="ui_mcm_ii_wd_notify_scale"><text>Identification notification scale</text></string>
+	<string id="ui_mcm_ii_wd_notify_scale_desc"><text>Size of the identification cards that pop up on the Promin BIOMONITOR and NAVIGATION pages. Scales the card, faction emblem, text, and stack spacing together. Applies live. Default 1.00.</text></string>
 	<string id="ui_mcm_ii_wd_proc_title"><text>- Process module: scan time per tier (s) -</text></string>
 	<string id="ui_mcm_ii_wd_proc_t1"><text>Tier 1 scan time (s)</text></string>
 	<string id="ui_mcm_ii_wd_proc_t1_desc"><text>Base scan time with a Tier 1 process module. Default 1.5s.</text></string>

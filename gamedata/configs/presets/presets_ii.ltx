@@ -10,7 +10,7 @@
 ; sub-pages (general / card / bodycam / crooks / patch). Pages: general, uistyle/general,
 ; uistyle/card, uistyle/simple, uistyle/bodycam, uistyle/crooks, uistyle/patch, targeting,
 ; hipfire, binoc, ads,
-; pip, scantime, audio, debug, colors.
+; pip, scantime, audio, debug, wdcompat, colors.
 ; Keep in sync with the page an option lives on in ii_mcm.script (+ MCM_PAGES in
 ; ii_identify.script), or the preset writes a dead path and silently does nothing.
 
@@ -36,6 +36,9 @@ ii/uistyle/general/custom_patches          = false
 ii/uistyle/general/show_weapon            = true
 ii/uistyle/general/color_by_relation      = true
 ii/uistyle/general/mini_dist_scale        = true
+ii/uistyle/general/dot_scale              = 1.0
+ii/uistyle/general/glow_scale             = 1.0
+ii/uistyle/general/spinner_scale          = 1.0
 ii/uistyle/general/ui_offset_x            = 0
 ii/uistyle/general/ui_offset_y            = 0
 ii/uistyle/general/anchor_basis           = 1
@@ -99,6 +102,7 @@ ii/ads/ads_scan_mult          = 0.6
 ii/ads/ads_range_mult         = 1.0
 ii/ads/ads_zoom_scaling       = true
 ii/ads/ads_hide_main          = false
+ii/ads/ads_block_thermal      = false
 ii/ads/instant_exclude_ads    = false
 ii/ads/ads_max_dist           = 0
 
@@ -148,6 +152,7 @@ ii/debug/debug_sim_stock        = false
 
 ii/wdcompat/wd_ignore              = false
 ii/wdcompat/wd_require_kit         = true
+ii/wdcompat/wd_notify_scale        = 1.0
 ii/wdcompat/wd_proc_t1             = 1.5
 ii/wdcompat/wd_proc_t2             = 1.0
 ii/wdcompat/wd_proc_t3             = 0.5

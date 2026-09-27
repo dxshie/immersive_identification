@@ -25,6 +25,7 @@
 ---@field get_last_identified_id fun(): number? id of the last-identified target (cheap, no alloc), or nil
 ---@field get_scan_progress fun(): number? progress 0..1 of the active scan (for the Promin OSD spinner), or nil
 ---@field get_wd_tier_cfg fun(): table resolved WD-compat tier config (for the compat driver)
+---@field get_wd_notify_scale fun(): number live Promin notification scale (cheap scalar accessor)
 ---@field tier_provider (fun(): table?)? external tier-system provider (set by the WD compat addon)
 ---@field DEFAULT_KEY_NAME string DIK_keys field name, e.g. "DIK_X"
 ii_identify = {}

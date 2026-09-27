@@ -316,6 +316,13 @@ function get_wd_tier_cfg()
 		scanner_nonight = C.wd_scanner_nonight,
 	}
 end
+
+-- Cheap scalar accessor for the Promin notification overlay. Its Update runs every frame, so
+-- returning this separately avoids allocating get_wd_tier_cfg()'s nested tables just to detect
+-- a live MCM scale change.
+function get_wd_notify_scale()
+	return C.wd_notify_scale or 1
+end
 local function tier_active()
 	return _tier ~= nil and _tier.active == true
 end
@@ -1719,6 +1726,26 @@ local function is_ads_active()
 end
 is_ads_active = _frame:memoize(is_ads_active)
 
+-- S3DS exposes the live scope image processor through its float4 console parameter. The first
+-- component is 0 for a normal image, 1 for NV, 2 for thermal, and 3 for coloured thermal. Reading
+-- the live value matters for switchable optics: their normal-image mode must not be mistaken for
+-- thermal just because the weapon section also contains a thermal preset.
+local function thermal_scope_active()
+	if not is_ads_active() then
+		return false
+	end
+	local console = get_console and safe_call(get_console)
+	local raw = console and console.get_string and safe_call(console.get_string, console, "s3ds_param_3")
+	local value = raw and (raw:match("%(%s*([%+%-]?%d*%.?%d+)") or raw:match("^%s*([%+%-]?%d*%.?%d+)"))
+	local image_type = tonumber(value)
+	return image_type ~= nil and image_type >= 1.5 and image_type < 3.5
+end
+thermal_scope_active = _frame:memoize(thermal_scope_active)
+
+local function thermal_identification_blocked()
+	return C.ads_block_thermal and thermal_scope_active()
+end
+
 -- Current effective aiming magnification (1.0 = 1x), or nil when not meaningfully
 -- zoomed. Hybrid, so it works with OR without a PiP engine, and tracks variable/
 -- dynamic (x2/x4/...) zoom live in both cases:
@@ -2310,6 +2337,9 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 	if pda_focused() then
 		return
 	end
+	if thermal_identification_blocked() then
+		return
+	end
 	-- Exclude an entity that is actively hostile + engaging the actor (in combat / pulled aggro).
 	-- Choke-point gate so NO path (key / auto / dwell / sweep) can identify one; the selection
 	-- filters below also skip them so the FOV assist moves on to another target.
@@ -2605,6 +2635,9 @@ local function try_identify(auto_mode)
 	if not C.enabled or not db.actor then
 		return
 	end
+	if thermal_identification_blocked() then
+		return
+	end
 	debug_dump_aim()
 	debug_dump_candidates()
 	local binoc, _, boosted, eff_max_dist, scan_mult = boost_params()
@@ -2666,6 +2699,9 @@ end
 
 local function update_auto_identify(tg)
 	if not C.auto_identify then
+		return
+	end
+	if thermal_identification_blocked() then
 		return
 	end
 	-- Reading the PDA (see pda_focused): nothing is identified while looking at its screen.
@@ -2821,7 +2857,7 @@ end
 -- holding the aim still on empty air does nothing; a target must actually be present, but
 -- you CAN track a moving one. Resets the instant no valid target is under the aim.
 local function update_ads_dwell(tg)
-	if not (C.ads_mode and is_ads_active()) or not db.actor then
+	if not (C.ads_mode and is_ads_active()) or not db.actor or thermal_identification_blocked() then
 		_dwell.ads.armed = false
 		return
 	end
@@ -4031,6 +4067,7 @@ local function render(tg)
 	local api_def = ii_config.custom_style(C.ui_style)
 	local _, _, _, live_max = boost_params()
 	live_max = live_max or C.max_dist or 50
+	local thermal_blocked = thermal_identification_blocked()
 
 	for id, e in pairs(tracked) do
 		-- Per-instance range/speed, captured at identify time in try_identify()
@@ -4048,6 +4085,9 @@ local function render(tg)
 		local remove = not obj
 		if obj then
 			remove = not safe_call(obj.alive, obj) -- a tag is dropped the instant its target dies
+		end
+		if not remove and thermal_blocked and not e.osd_done then
+			remove = true
 		end
 
 		local elapsed = tg - e.t0
@@ -4181,22 +4221,26 @@ local function render(tg)
 				-- (0.9, matching the HUD spinner's fixed GetARGB(230,...)),
 				-- not phase_alpha, which is still 0 for the whole scan.
 				if pip_active and not osd_only then
-					local col, fcol = e.col, e.fcol
-					local alpha = scanning and 0.9 or phase_alpha
-					svp_ui_markers_add(
-						pos.x,
-						pos.y + PIP_MARKER.lift,
-						pos.z,
-						fcol[1] / 255,
-						fcol[2] / 255,
-						fcol[3] / 255,
-						alpha,
-						pip_marker_radius(dist),
-						col[1] / 255,
-						col[2] / 255,
-						col[3] / 255,
-						scanning
-					)
+					local spinner_scale = C.spinner_scale or 1
+					if not scanning or spinner_scale > 0 then
+						local col, fcol = e.col, e.fcol
+						local alpha = scanning and 0.9 or phase_alpha
+						local marker_radius = pip_marker_radius(dist) * (scanning and spinner_scale or 1)
+						svp_ui_markers_add(
+							pos.x,
+							pos.y + PIP_MARKER.lift,
+							pos.z,
+							fcol[1] / 255,
+							fcol[2] / 255,
+							fcol[3] / 255,
+							alpha,
+							marker_radius,
+							col[1] / 255,
+							col[2] / 255,
+							col[3] / 255,
+							scanning
+						)
+					end
 				end
 
 				if draw_main then

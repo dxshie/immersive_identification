@@ -100,6 +100,7 @@ uses for its clock, extended to the full alphabet.
 Every tier value is tunable on the Wearable Devices page of the Immersive Identification MCM:
 
 - **Require Scanner kit to identify** (master gate)
+- **Identification notification scale** — resize Promin BIOMONITOR/NAVIGATION popups live
 - **Process scan times** — Tier 1 / 2 / 3
 - **Process penalty strengths** — Tier 1 / 2 / 3 (defaults 100% / 75% / 50%)
 - **Scanner ranges** — Tier 1 / 2 / 3

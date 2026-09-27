@@ -9,12 +9,11 @@
 
 local binder = wd_screen.new_binder(d_promin_config.SCREEN_SHADER)
 local scratch = vector2()
+local min, max = math.min, math.max
 
 local NOTIF_MAX = 4 -- most cards stacked at once
 local TTL_MS = 6000 -- how long a card stays before fading out
--- Card size + icon/glyph sizes are scaled ~25% up from the art's native 304x64 for
--- readability (bump these together to rescale). Content anchors below are FRACTIONS of the
--- card, so they follow the card size automatically.
+-- Scale 1 keeps the established enlarged layout; wd_notify_scale multiplies the whole card.
 local CARD = { w = 363, h = 73 } -- card size on screen (design px); art is 304x64
 local RIGHT_X, BOTTOM_Y, GAP = 986, 566, 9 -- cards' right edge, bottom card's bottom, stack gap
 
@@ -34,66 +33,74 @@ local function notif_page(id)
 	return id == "map_small" or id == "main" or id == "health"
 end
 
+local function notification_scale()
+	local scale = ii_identify and ii_identify.get_wd_notify_scale and ii_identify.get_wd_notify_scale() or 1
+	return max(0.5, min(2, scale or 1))
+end
+
 function build(ctx)
 	local px = d_promin_health_ui.get_px()
-	local mgr = { slots = {}, last_id = nil, inited = false }
+	local mgr = { slots = {}, last_id = nil, inited = false, scale = notification_scale() }
+
+	local function layout_slot(s)
+		local scale = mgr.scale
+		local card_w, card_h, gap = CARD.w * scale, CARD.h * scale, GAP * scale
+		local cx = RIGHT_X - card_w
+		local cy = BOTTOM_Y - card_h - s.index * (card_h + gap)
+
+		s.bg:SetWndPos(scratch:set(px.x(cx), px.y(cy)))
+		s.bg:SetWndSize(scratch:set(px.w(card_w), px.h(card_h)))
+
+		local icon_size = ICON.size * scale
+		s.icon:SetWndPos(
+			scratch:set(px.x(cx + ICON.cx * card_w - icon_size / 2), px.y(cy + ICON.cy * card_h - icon_size / 2))
+		)
+		s.icon:SetWndSize(scratch:set(px.w(icon_size), px.h(icon_size)))
+
+		ii_wd_text.layout_field(
+			s.name,
+			px,
+			cx + NAME.x * card_w,
+			cy + NAME.y * card_h,
+			NAME.gw * scale,
+			NAME.gh * scale,
+			NAME.adv * scale
+		)
+		ii_wd_text.layout_field(
+			s.dist,
+			px,
+			cx + DIST.x * card_w,
+			cy + DIST.y * card_h,
+			DIST.gw * scale,
+			DIST.gh * scale,
+			DIST.adv * scale
+		)
+		local rank_advance = RANK.adv * scale
+		ii_wd_text.layout_field(
+			s.rank,
+			px,
+			cx + RANK.cx * card_w - 3 * rank_advance,
+			cy + RANK.cy * card_h - RANK.gh * scale / 2,
+			RANK.gw * scale,
+			RANK.gh * scale,
+			rank_advance
+		)
+	end
 
 	for i = 0, NOTIF_MAX - 1 do
-		local cx = RIGHT_X - CARD.w
-		local cy = BOTTOM_Y - CARD.h - i * (CARD.h + GAP)
-		local s = { active = false, expiry = 0, icon_tex = nil }
+		local s = { active = false, expiry = 0, icon_tex = nil, index = i }
 
 		s.bg = ctx.init_ii("ii_wd_glyph")
-		s.bg:SetWndPos(scratch:set(px.x(cx), px.y(cy)))
-		s.bg:SetWndSize(scratch:set(px.w(CARD.w), px.h(CARD.h)))
 		binder.set(s.bg, "ii_wd_notif_card")
 		s.bg:Show(false)
 
 		s.icon = ctx.init_ii("ii_wd_glyph")
-		s.icon:SetWndPos(
-			scratch:set(px.x(cx + ICON.cx * CARD.w - ICON.size / 2), px.y(cy + ICON.cy * CARD.h - ICON.size / 2))
-		)
-		s.icon:SetWndSize(scratch:set(px.w(ICON.size), px.h(ICON.size)))
 		s.icon:Show(false)
 
-		s.name = ii_wd_text.new_field(
-			px,
-			ctx.init_ii,
-			"ii_wd_glyph",
-			NAME.max,
-			cx + NAME.x * CARD.w,
-			cy + NAME.y * CARD.h,
-			NAME.gw,
-			NAME.gh,
-			NAME.adv,
-			COL_NAME
-		)
-		s.dist = ii_wd_text.new_field(
-			px,
-			ctx.init_ii,
-			"ii_wd_glyph",
-			DIST.max,
-			cx + DIST.x * CARD.w,
-			cy + DIST.y * CARD.h,
-			DIST.gw,
-			DIST.gh,
-			DIST.adv,
-			COL_DIST
-		)
-		-- "Rank N" is 6 chars; start x so it centres on the rank-slot centre.
-		local rank_start = cx + RANK.cx * CARD.w - 3 * RANK.adv
-		s.rank = ii_wd_text.new_field(
-			px,
-			ctx.init_ii,
-			"ii_wd_glyph",
-			8,
-			rank_start,
-			cy + RANK.cy * CARD.h - RANK.gh / 2,
-			RANK.gw,
-			RANK.gh,
-			RANK.adv,
-			COL_RANK
-		)
+		s.name = ii_wd_text.new_field(px, ctx.init_ii, "ii_wd_glyph", NAME.max, 0, 0, 1, 1, 1, COL_NAME)
+		s.dist = ii_wd_text.new_field(px, ctx.init_ii, "ii_wd_glyph", DIST.max, 0, 0, 1, 1, 1, COL_DIST)
+		s.rank = ii_wd_text.new_field(px, ctx.init_ii, "ii_wd_glyph", 8, 0, 0, 1, 1, 1, COL_RANK)
+		layout_slot(s)
 
 		mgr.slots[i + 1] = s
 	end
@@ -141,6 +148,13 @@ function build(ctx)
 	end
 
 	function mgr.update(active_page_id, powered)
+		local scale = notification_scale()
+		if scale ~= mgr.scale then
+			mgr.scale = scale
+			for i = 1, NOTIF_MAX do
+				layout_slot(mgr.slots[i])
+			end
+		end
 		local show_here = powered and notif_page(active_page_id)
 		-- Detect a NEW identification (id changed) without allocating each frame.
 		local cur = ii_identify and ii_identify.get_last_identified_id and ii_identify.get_last_identified_id() or nil
