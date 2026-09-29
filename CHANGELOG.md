@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 4.2.2
+
+- scanning / loading spinner size adjustable
+- dot indicators & glow size adjustable
+
+## 4.2.1
 
 - Add independent dot and glow scale sliders for the built-in dot-based UI styles. Both compose
   with distance scaling while preserving the projected world anchor; Simple layout reserves the
