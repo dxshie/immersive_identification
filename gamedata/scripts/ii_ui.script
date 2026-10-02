@@ -301,8 +301,13 @@ function install(IiTags, context)
 			name = self.xml:InitTextWnd("tag_name:text", self),
 			rank_sh = self.xml:InitTextWnd("tag_rank_sh:text", self),
 			rank = self.xml:InitTextWnd("tag_rank:text", self),
+			-- Crooks draws no per-entity UI, so the scan spinner needs its own widget in the
+			-- readout block rather than the per-slot one.
+			spinner = self.xml:InitStatic("tag_spinner", self),
 			last = nil,
 		}
+		self.crooks.spinner:EnableHeading(true)
+		show(self.crooks.spinner, false)
 		show(self.crooks.icon, false)
 		show(self.crooks.name, false)
 		show(self.crooks.name_sh, false)
@@ -456,6 +461,30 @@ function install(IiTags, context)
 	
 	local SPIN_D = 20 -- spinner diameter, px, at scale 1
 	local SPIN_PERIOD_MS = 900 -- one full rotation
+
+	-- The rotating scan spinner, centred on (cx, cy) with diameter `d` before the user's
+	-- spinner_scale (0 hides it); returns whether it drew. Always plain white -- relation isn't
+	-- known/shown as a colour cue until the target actually reveals.
+	-- NOT width-squeezed by C._ui_kx like the static node/glow/line: those are pre-distorted so
+	-- the engine's anisotropic virtual-to-screen stretch turns them back into circles, but that
+	-- trick only holds for a shape at a fixed orientation. SetHeading rotates the widget in
+	-- virtual space *before* that stretch is applied, and rotation doesn't commute with a
+	-- non-uniform scale -- a squeezed rectangle rotated first comes out elliptical at every
+	-- angle rather than circular, so this stays square instead.
+	local function draw_spinner(w, cx, cy, d, tg, alpha)
+		local spinner_scale = C.spinner_scale or 1
+		if spinner_scale <= 0 then
+			show(w, false)
+			return false
+		end
+		d = d * spinner_scale
+		w:SetWndSize(S(d, d))
+		w:SetWndPos(P(cx - d / 2, cy - d / 2))
+		w:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+		w:SetHeading((tg % SPIN_PERIOD_MS) / SPIN_PERIOD_MS * (2 * math.pi))
+		show(w, true)
+		return true
+	end
 	
 	-- One round marker: a `size`-diameter dot, optionally behind a soft halo 2.8x its
 	-- size at 55% of its alpha. Widths are aspect-corrected so it stays circular.
@@ -763,31 +792,11 @@ function install(IiTags, context)
 		end
 	
 		if scanning then
-			-- scanning only: a rotating spinner on the body, nothing revealed yet.
-			-- Always plain white -- relation isn't known/shown as a colour cue
-			-- until the tag actually reveals. Branches on the `scanning` flag
-			-- itself, not `alpha <= 1`: a revealed tag's alpha also drops during its
-			-- fade-out, which could hit alpha<=1 too and wrongly flip back to the spinner.
-			-- NOT width-squeezed by C._ui_kx like the static node/glow/line: those
-			-- are pre-distorted so the engine's anisotropic virtual-to-screen
-			-- stretch turns them back into circles, but that trick only holds
-			-- for a shape at a fixed orientation. SetHeading() below rotates
-			-- this widget in virtual space *before* that stretch is applied, and
-			-- rotation doesn't commute with a non-uniform scale -- a squeezed
-			-- rectangle rotated first comes out elliptical at every angle rather
-			-- than circular, so this stays square instead.
-			local spinner_scale = C.spinner_scale or 1
-			if spinner_scale > 0 then
-				local spin_d = SPIN_D * scale * spinner_scale
-				local spin_angle = (tg % SPIN_PERIOD_MS) / SPIN_PERIOD_MS * (2 * math.pi)
-				s.spinner:SetWndSize(S(spin_d, spin_d))
-				s.spinner:SetWndPos(P(hx - spin_d / 2, hy - spin_d / 2))
-				s.spinner:SetTextureColor(GetARGB(230, 255, 255, 255))
-				s.spinner:SetHeading(spin_angle)
-				show(s.spinner, true)
-			else
-				show(s.spinner, false)
-			end
+			-- scanning only: a rotating spinner on the body, nothing revealed yet. Branches on
+			-- the `scanning` flag itself, not `alpha <= 1`: a revealed tag's alpha also drops
+			-- during its fade-out, which could hit alpha<=1 too and wrongly flip back to the
+			-- spinner.
+			draw_spinner(s.spinner, hx, hy, SPIN_D * scale, tg, 230)
 	
 			show(s.glow, false)
 			show(s.node, false)
@@ -1296,5 +1305,6 @@ function install(IiTags, context)
 		draw_shadowed_text = draw_shadowed_text,
 		place_fit = place_fit,
 		set_patch = set_patch,
+		draw_spinner = draw_spinner,
 	}
 end

@@ -592,7 +592,8 @@ reuses `tag_icon` for the patch and the `tag_box_*` edges for its relation ring.
   Card, Simple, Patch and Crooks.
 - **UI styles** (`ui_style`): 1 Card, 2 Minimal, 3 Bodycam, 4 Simple 2, 5 Simple, 6 Crooks, 7 Minimal 2 (bare relation dot), 8 Patch (faction patch + relation ring).
 - **`draw_slot`** branches: for **Crooks** (`ui_style==6`) it hides the per-entity slot and bails
-  (Crooks is a single static readout — see below); otherwise scanning spinner only → minimal
+  (Crooks is a single static readout — see below, which carries its own scan spinner); otherwise
+  scanning spinner only → minimal
   (node+glow+glyph, `ui_style==2`) → **Minimal 2** (bare relation dot, `ui_style==7`) →
   **Simple** (dot+glow, faction logo, name strip, `ui_style==5`) → **bodycam** (head-outline
   box, `ui_style==3`) → **Simple 2** (circle+triangle+rank bar, `ui_style==4`) → **Patch**
@@ -610,6 +611,15 @@ reuses `tag_icon` for the patch and the `tag_box_*` edges for its relation ring.
   line alone. Shows only while
   its target is still in `tracked` (the reveal-window linger, or — under `hide_off_aim` — only
   while aimed), following your gaze via the per-frame direct-hit id.
+  While a scan is in progress **on the aimed target** the block instead shows the rotating scan
+  spinner (`tag_spinner`, its own widget in the Crooks block) in the emblem slot at the same
+  anchor — same corner preset, same `crooks_x`/`crooks_y`, sized from `crooks_icon_scale` ×
+  `spinner_scale` — and the previous target's readout is hidden for the duration, so the block
+  never shows a stale name beside a spinner. The flag that drives it (`_last_id.crooks_scan`,
+  set in `render`'s per-target loop) is scoped to the **aimed** target, unlike `scan_frac`: an
+  auto-identify scan resolving off to the side must not blank the readout of whoever you are
+  looking at. The scan spinner itself lives in one shared primitive (`draw_spinner`, exported on
+  `_ui`) used by both this block and `draw_slot`'s scanning branch.
 - **Distance scaling / offsets:** Minimal (when `mini_dist_scale` is on), Minimal 2, Patch,
   Simple, and Simple 2 derive their graphical scale from a camera-up metre projected
   beside the anchor (`mini_dist_scale_factor`). Each reference layout unit represents
@@ -745,7 +755,7 @@ in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 | `mini_dist_scale` | check | true | — | Minimal dot: scale with distance |
 | `dot_scale` | track | 1.0 | 0, 3, 0.05, 2 | built-in dot/node size after style and distance scaling; 0 hides it; does not move the anchor |
 | `glow_scale` | track | 1.0 | 0, 3, 0.05, 2 | independent dot-halo size after style and distance scaling; 0 hides it; does not move the anchor |
-| `spinner_scale` | track | 1.0 | 0, 3, 0.05, 2 | main-view and PiP scan-spinner size after style and distance scaling; 0 hides it; does not move the anchor |
+| `spinner_scale` | track | 1.0 | 0, 3, 0.05, 2 | main-view, Crooks-readout and PiP scan-spinner size after style and distance scaling; 0 hides it; does not move the anchor |
 | `ui_offset_x` | track | 0 | -200, 200, 5 | horizontal nudge for on-screen UI (px) |
 | `ui_offset_y` | track | 0 | -200, 200, 5 | vertical nudge for on-screen UI (px) |
 | `anchor_basis` | list | Head | Head/Torso/Feet | where the tag/marker anchors on the target (`ui_anchor_pos`); Bodycam box keeps its own `box_area` |
@@ -887,7 +897,7 @@ charcoal 24/22/19), `tag_accent` (3×26, relation bar), `tag_icon` (20×20, swap
 to `<community>_icon` -- or `ii_patch_<community>` under `custom_patches` -- at runtime),
 `tag_line`/`tag_line_sh` (64x2, leader line),
 `tag_glow` (40×40, ii_dot), `tag_node` (10×10, ii_node, baked black ring),
-`tag_spinner` (20×20, ii_spinner), `tag_box_top`/`tag_box_bottom`/`tag_box_left`/
+`tag_spinner` (20×20, ii_spinner; a second instance lives in the Crooks block), `tag_box_top`/`tag_box_bottom`/`tag_box_left`/
 `tag_box_right` (thin ii_white strips forming the Bodycam head-outline box and the
 Patch style's relation ring, sized
 per frame), `tag_s2_circle` (12×12, ii_dot — Simple 2 faction circle),

@@ -3097,7 +3097,7 @@ local _ui = ii_ui.install(IiTags, {
 })
 local show, set_text = _ui.show, _ui.set_text
 local place_fit, set_patch = _ui.place_fit, _ui.set_patch
-local draw_shadowed_text = _ui.draw_shadowed_text
+local draw_shadowed_text, draw_spinner = _ui.draw_shadowed_text, _ui.draw_spinner
 
 -- Target-assist debug visualiser (MCM "Debug draw"). Draws, in the 1024x768 virtual
 -- UI space that world2ui + fov_radius already live in:
@@ -3861,15 +3861,56 @@ local function area_box_for(obj, area)
 	return head_box_for(obj)
 end
 
+-- The Crooks readout's content widgets (everything but the scan spinner, which replaces them).
+-- Clearing `last` forces a re-measure the next time it draws.
+local function hide_crooks_readout(ck)
+	ck.last = nil
+	show(ck.icon, false)
+	show(ck.name, false)
+	show(ck.name_sh, false)
+	show(ck.rank, false)
+	show(ck.rank_sh, false)
+end
+
+-- Left edge of a `total`-px-wide Crooks block and the y of its first text line, from the
+-- corner preset + user offsets. Shared by the readout and the scan spinner so both land on
+-- the same spot. The rank line sits below the anchor, so a block that has one is lifted by
+-- its height to stay inside the bottom margin.
+local function crooks_anchor(total, has_rank)
+	local pos = C.crooks_pos or 1
+	local start_x
+	if pos == 2 then -- bottom middle
+		start_x = UI_CX - total / 2
+	elseif pos == 3 then -- bottom right
+		start_x = 1024 - CROOKS.margin_x - total
+	else -- bottom left
+		start_x = CROOKS.margin_x
+	end
+	local y = 768 - CROOKS.margin_y - (C.crooks_y or 0) - (has_rank and CROOKS.rank_dy or 0)
+	return start_x + (C.crooks_x or 0), y
+end
+
 -- Crooks style (ui_style 6): the single static "FACTION | NAME" readout of the LAST
 -- identified stalker, anchored to a screen corner (crooks_pos) and nudged by crooks_x/
 -- crooks_y. Called every frame from render(); self-gates on the style + a valid _last_id.
 -- Pure screen-space (no world anchor). Widths are re-measured only when the content changes.
-function IiTags:draw_crooks()
+function IiTags:draw_crooks(tg)
 	local ck = self.crooks
 	if not ck then
 		return
 	end
+	-- A scan running on the target you're aiming at takes over the block: this readout is the
+	-- style's whole UI (there is no per-entity tag to carry a spinner), and leaving the PREVIOUS
+	-- target's name up next to a spinner would read as that name being re-scanned. The spinner
+	-- fills the emblem slot, at the emblem's configured size.
+	if _last_id.crooks_scan then
+		hide_crooks_readout(ck)
+		local d = CROOKS.icon * (C.crooks_icon_scale or 1)
+		local x, y = crooks_anchor(d, false)
+		draw_spinner(ck.spinner, x + d / 2, y + 9, d, tg, 230) -- 9 = half the name line's height
+		return
+	end
+	show(ck.spinner, false)
 	local name, icon, rank = _last_id.name, _last_id.icon, _last_id.rank
 	-- Show the readout only while its target is still in the list. That single check covers both
 	-- modes: normally the entry lives out its reveal window (scan+fade+hold+fade-out) = the
@@ -3910,20 +3951,7 @@ function IiTags:draw_crooks()
 	local icon_box = CROOKS.icon * (C.crooks_icon_scale or 1)
 	local icon_w = icon_box * C._ui_kx
 	local icon_span = ck.has_icon and (icon_w + (C.crooks_icon_gap or CROOKS.gap)) or 0
-	local total = icon_span + ck.nw
-	local pos = C.crooks_pos or 1
-	local start_x
-	if pos == 2 then -- bottom middle
-		start_x = UI_CX - total / 2
-	elseif pos == 3 then -- bottom right
-		start_x = 1024 - CROOKS.margin_x - total
-	else -- bottom left
-		start_x = CROOKS.margin_x
-	end
-	start_x = start_x + (C.crooks_x or 0)
-	-- Anchor y is the NAME line's top; the rank line (if any) sits below, so lift the whole
-	-- block up by the rank line's height to keep it inside the bottom margin.
-	local y = 768 - CROOKS.margin_y - (C.crooks_y or 0) - (has_rank and CROOKS.rank_dy or 0)
+	local start_x, y = crooks_anchor(icon_span + ck.nw, has_rank)
 	local text_x = math.floor(start_x + icon_span)
 	if ck.has_icon then
 		-- Centred on the WHOLE readout, not just the name line: with a rank line present the
@@ -3957,12 +3985,8 @@ function IiTags:hide_crooks()
 	if not ck then
 		return
 	end
-	ck.last = nil
-	show(ck.icon, false)
-	show(ck.name, false)
-	show(ck.name_sh, false)
-	show(ck.rank, false)
-	show(ck.rank_sh, false)
+	hide_crooks_readout(ck)
+	show(ck.spinner, false)
 end
 
 local function render(tg)
@@ -4044,6 +4068,10 @@ local function render(tg)
 	end
 
 	_last_id.scan_frac = nil -- recomputed below: progress of any in-progress scan this frame
+	-- Whether the Crooks readout should show its spinner instead of a result. Scoped to the
+	-- AIMED target, unlike scan_frac above: an auto-identify scan resolving on someone off to
+	-- the side must not blank the readout of whoever you are actually looking at.
+	_last_id.crooks_scan = nil
 
 	-- Per-frame "what am I looking at" state, needed by hide_off_aim (membership gate) and the
 	-- Crooks readout (which target's info to show). aim_model_id = the target whose MODEL the
@@ -4157,6 +4185,9 @@ local function render(tg)
 			local phase_alpha, scanning, progress = _tracks:phase(e, tg, scan_ms, fade_ms, hold_ms)
 			if progress and (not _last_id.scan_frac or progress > _last_id.scan_frac) then
 				_last_id.scan_frac = progress
+			end
+			if crooks_style and scanning and under_aim then
+				_last_id.crooks_scan = true
 			end
 
 			-- Publish this revealed target as the "last identified" for external readouts (the
@@ -4363,7 +4394,7 @@ local function render(tg)
 
 	-- Crooks style: the single static "last identified" readout (self-gates / hides itself
 	-- when the style is off or there's nothing identified yet).
-	TAGS:draw_crooks()
+	TAGS:draw_crooks(tg)
 end
 
 -- Tear down every UI element the mod has drawn: hide all tag slots and drop the
