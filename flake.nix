@@ -33,6 +33,8 @@
               echo "  nix run .#format              # StyLua-format every .script (Lua) source"
               echo "  nix run .#check-format        # verify .script formatting (CI-friendly)"
               echo "  nix run .#check-i18n          # verify eng/rus string-table parity + encoding"
+              echo "  nix run .#check-ogg           # verify every ogg carries an X-Ray ogg-comment"
+              echo "  nix run .#fix-ogg             # peak-normalize every ogg to -7 dBFS + retag"
               echo "  nix run .#package             # build immersive-identification-fomod-v<VERSION>.zip"
               echo "  luac -p gamedata/scripts/*.script   # Lua 5.1 syntax check"
               echo "  lua-language-server --version # point your editor's LSP client at this repo"
@@ -121,6 +123,30 @@
               done < <(find gamedata examples "FactionID Neutralized" "GAMMA Patches" "GRIP Patches" "HD Faction Patches" "Perception Skill Integration" "WD Compatibility" -path "*/text/eng/*.xml" -print0)
               if [ "$status" -eq 0 ]; then echo "All string tables in eng/rus parity."; fi
               exit "$status"
+            '');
+          };
+
+          # xrSound reads its per-sound settings (min/max distance, base volume)
+          # from a binary blob in the FIRST vorbis comment; an ogg straight out of
+          # an encoder has an "encoder=..." string there instead, which the engine
+          # logs as "! Invalid ogg-comment version" (under -dbg) before falling
+          # back to defaults. Any re-encode drops the blob, so fix-ogg retags.
+          check-ogg = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "check-ogg" ''
+              set -euo pipefail
+              find gamedata "WD Compatibility" -name "*.ogg" -print0 \
+                | xargs -0 -r "${pkgs.python3}/bin/python3" tools/xray_ogg_tag.py --check
+            '');
+          };
+
+          fix-ogg = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "fix-ogg" ''
+              set -euo pipefail
+              export PATH="${pkgs.ffmpeg}/bin:${pkgs.python3}/bin:$PATH"
+              find gamedata "WD Compatibility" -name "*.ogg" -print0 \
+                | xargs -0 -r "${pkgs.bash}/bin/bash" tools/normalize_ogg.sh
             '');
           };
 

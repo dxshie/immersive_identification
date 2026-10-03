@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.3.0
+
+- Ignore mutants/monsters entirely: every target admission point now accepts stalkers only. A
+  mutant could never be identified anyway (the engine has no community for a non-InventoryOwner),
+  and admitting one made the engine print `CharacterCommunity available only for InventoryOwner`
+  plus a full Lua stack dump to the console on every sweep that saw it.
+- Give every bundled sound the X-Ray ogg-comment block the engine expects, fixing
+  `! Invalid ogg-comment version` on the identification cues and the Wearable Devices hostile
+  warnings.
+- Peak-normalize all bundled sounds to -7 dBFS; the scan-start and identify-done cues were ~17 dB
+  quieter than the hostile warnings, which were running into the ceiling.
+
 ## 4.2.2
 
 - scanning / loading spinner size adjustable

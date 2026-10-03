@@ -377,6 +377,17 @@ local function safe_call(fn, ...)
 	return nil
 end
 
+-- Target admission: stalkers only, never mutants. A CBaseMonster is not a
+-- CInventoryOwner/CAI_Stalker, so character_community/character_name/rank_name/
+-- best_weapon/character_icon on one make the engine log
+-- "<call> available only for InventoryOwner" plus a full Lua stack dump
+-- (script_log -- it returns nil rather than raising, so pcall cannot swallow it:
+-- src/xrGame/script_game_object_inventory_owner.cpp:1039), and a mutant has no
+-- community to show on a tag anyway.
+local function is_npc(obj)
+	return safe_call(IsStalker, obj) and true or false
+end
+
 -- The custom bodycam engine module (bodycam.*), or nil on a stock exe. Central accessor so
 -- the debug_sim_stock toggle can make the whole mod behave as if the custom bindings weren't
 -- compiled in (for testing stock-engine fallbacks without copying the custom exe).
@@ -410,8 +421,8 @@ local function faction_color(comm)
 end
 
 -- The name shown on the tag: the NPC's own name where they have one (most
--- humanoid stalkers), falling back to the faction label for generic mobs/
--- monsters that carry no personal name.
+-- humanoid stalkers), falling back to the faction label for the generic ones
+-- that carry no personal name.
 local function display_name(obj, comm)
 	local name = safe_call(obj.character_name, obj)
 	if name and name ~= "" then
@@ -427,10 +438,8 @@ end
 -- Rank shown under the name: obj:rank_name() (src/xrGame/script_game_object3.cpp:597,
 -- SAFE_WRAP-bound at script_game_object_script2.cpp:147) returns a raw id
 -- ("novice", "experienced", "veteran", "master", "expert") for CAI_Stalker
--- objects, empty string (logged, not thrown, since it's SAFE_WRAP) for
--- anything else -- monsters/mutants included, which is why this returns nil
--- for them rather than a fallback: no rank line makes more sense than a
--- fabricated one. Localised via "st_rank_" + id, the same convention this
+-- objects and an empty string for anything else, which is why this returns nil
+-- rather than a fallback: no rank line makes more sense than a fabricated one. Localised via "st_rank_" + id, the same convention this
 -- engine's own Discord Rich Presence integration uses (Actor.cpp:1442-1449),
 -- so it matches the game's own terminology instead of inventing new labels.
 -- Rank -> colour for the Simple 2 style's rank bar. A rarity-style gradient from grey
@@ -1314,7 +1323,7 @@ local function find_nearest_in_fov(max_dist)
 	local best_busy_obj, best_busy_d = nil, radius
 
 	pcall(level.iterate_nearest, apos, max_dist, function(obj)
-		if obj and obj:id() ~= actor_id and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) then
+		if obj and obj:id() ~= actor_id and is_npc(obj) then
 			local alive = safe_call(obj.alive, obj)
 			if alive then
 				local comm = safe_call(obj.character_community, obj)
@@ -1390,7 +1399,7 @@ local function debug_dump_candidates()
 		if n >= 8 then
 			return true
 		end
-		if obj and obj:id() ~= aid and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) then
+		if obj and obj:id() ~= aid and is_npc(obj) then
 			local alive = safe_call(obj.alive, obj)
 			local comm = safe_call(obj.character_community, obj)
 			local sx, sy = project_world(anchor_pos(obj))
@@ -1444,7 +1453,7 @@ local function get_target_obj(max_dist, allow_fov)
 		if not obj or (db.actor and obj:id() == db.actor:id()) then
 			return nil
 		end
-		if not (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) or not safe_call(obj.alive, obj) then
+		if not is_npc(obj) or not safe_call(obj.alive, obj) then
 			return nil
 		end
 		local pos, apos = _frame:position(obj), _frame:position(db.actor)
@@ -1888,7 +1897,7 @@ local function accept_npc(obj)
 	if db.actor and obj:id() == db.actor:id() then
 		return nil
 	end
-	if not (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) then
+	if not is_npc(obj) then
 		return nil
 	end
 	return obj
@@ -2476,8 +2485,7 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 	local show_rel = C.show_relation and ((ft and ft.relationship == true) or not ft)
 	local show_dist = ft and (ft.distance == true) or false
 
-	-- Portrait for the Promin OSD readout (a ui_npc_u_* texture region). character_icon() is
-	-- only valid for InventoryOwners, so it errors on monsters -- guarded; nil = no portrait.
+	-- Portrait for the Promin OSD readout (a ui_npc_u_* texture region); nil = no portrait.
 	local portrait = safe_call(obj.character_icon, obj)
 	portrait = (portrait and portrait ~= "") and portrait or nil
 
@@ -2752,7 +2760,7 @@ local function update_auto_identify(tg)
 		if obj and not _tracks:has_room(obj:id()) then
 			return false
 		end
-		if obj and obj:id() ~= actor_id and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) then
+		if obj and obj:id() ~= actor_id and is_npc(obj) then
 			if safe_call(obj.alive, obj) then
 				local comm = safe_call(obj.character_community, obj)
 				if comm and comm ~= "" then
@@ -2823,7 +2831,7 @@ local function sweep_identify_in_fov(tg)
 		if obj and not _tracks:has_room(obj:id()) then
 			return false
 		end
-		if obj and obj:id() ~= actor_id and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj)) then
+		if obj and obj:id() ~= actor_id and is_npc(obj) then
 			if safe_call(obj.alive, obj) then
 				local comm = safe_call(obj.character_community, obj)
 				if comm and comm ~= "" then
@@ -3185,12 +3193,7 @@ function IiTags:draw_debug()
 			if used >= DBG_DOTS then
 				return true
 			end
-			if
-				obj
-				and obj:id() ~= actor_id
-				and (safe_call(IsStalker, obj) or safe_call(IsMonster, obj))
-				and safe_call(obj.alive, obj)
-			then
+			if obj and obj:id() ~= actor_id and is_npc(obj) and safe_call(obj.alive, obj) then
 				local sd = screen_dist_to_body(obj, cx, cy)
 				if sd and sd <= radius then
 					local base = obj:position()

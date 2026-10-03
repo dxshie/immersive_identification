@@ -247,7 +247,7 @@ aiming back re-runs the whole scan.
 1. Weapon-aligned trace: `get_target_obj(ETraceTarget.Weapon)` — the barrel-accurate
    pick (global enum; reflects free aim for firearms), tried **first** so it wins over the
    swayed render-camera trace below. A **fresh** (not-yet-tracked) hit here wins immediately.
-2. Direct **model raycast**: `aim_model_target(max_dist)` — the stalker/monster whose MODEL
+2. Direct **model raycast**: `aim_model_target(max_dist)` — the stalker whose MODEL
    the crosshair is directly on (mesh raycast along the true aim ray; works for knife/binoculars
    too via the fire ray — §10). "Identify what I'm aiming AT", so it takes **priority over a
    merely-nearby FOV-cone pick** and is returned even if already tracked (a re-aim refreshes it).
@@ -272,7 +272,7 @@ the player's screen. So `has_los` is now:
    (fences/foliage/glass and wide invisible **clip meshes**, via the material's
    `fVisTransparencyFactor`) and only an **opaque** surface blocks. Samples multiple real bones —
    **head + shoulders** first (peek detection), then spine/pelvis/calves; the real head bone (not
-   a lifted anchor that can clip a ceiling); any clear ray = visible. Monsters (non-`bip01`) fall
+   a lifted anchor that can clip a ceiling); any clear ray = visible. A non-`bip01` rig falls
    back to the lifted anchor point.
 
 **See-through / foliage blocking** (opt-in, `los_block_seethrough` / `los_block_foliage`): the
@@ -288,11 +288,23 @@ Fails open (returns visible) on an engine error or absent `ray_pick`. `tag_visib
 `hide_unseen` drop) uses the same pure-geometry check for the same reason.
 
 `find_nearest_in_fov` iterates `level.iterate_nearest`; a candidate must be
-non-actor, `IsStalker` or `IsMonster`, alive, have a non-empty
+non-actor, `is_npc` (i.e. `IsStalker` — see "Mutants are never targets" below), alive, have a non-empty
 `character_community`, (if `require_los`) pass LOS, and (if `exclude_hostile`) not be hostile-and-
 engaging. It selects the candidate **nearest to the aim point** within the assist tolerance, not
 nearest in world space. Already-tracked targets are held as a runner-up and only returned if
 nothing else qualifies.
+
+**Mutants are never targets.** Every admission point (`find_nearest_in_fov`,
+`get_target_obj`'s `accept`, `aim_model_target`'s `accept_npc`, both auto-identify sweeps and the
+debug overlays) goes through **`is_npc(obj)` = `IsStalker(obj)`**, so a `CBaseMonster` is dropped
+before anything reads it. The reason is the engine: a monster is neither a `CInventoryOwner` nor a
+`CAI_Stalker`, and `character_community` / `character_name` / `character_icon` / `rank_name` /
+`best_weapon` answer such an object by writing `"<call> available only for InventoryOwner"` **plus
+a full Lua stack dump** to the log and returning nil — via `script_log`
+(`src/xrGame/script_game_object_inventory_owner.cpp:1039`, `script_storage.cpp`'s
+`print_stack`), *not* a raised error, so `pcall`/`safe_call` cannot swallow it. A mutant therefore
+has no community to put on a tag, and admitting one only produced log spam. The `monster`
+entries that remain in `FACTION_NAMES` / `FACTION_COLOR` / the icon atlas mapping are inert.
 
 **Assist radius** (`assist_radius()`, the single source for every `fov_radius` comparison —
 selection, the `aimed`/`under_aim` dwell tests, and the debug ring): `fov_radius` is a screen-px
@@ -353,7 +365,7 @@ cone):
 - `screen_dist_to_body(obj, cx, cy)` returns the smallest screen-pixel distance from the
   aim point to any sampled `BODY_BONES` point projected via `project_world` (head/torso/
   pelvis/limbs — so aiming anywhere on the entity counts); a vertical span at the origin
-  backs up non-`bip01` rigs (monsters).
+  backs up non-`bip01` rigs.
 - A candidate matches when `screen_dist_to_body(obj) ≤ fov_radius` (fov_radius in
   1024×768 virtual px).
 
@@ -548,7 +560,7 @@ reuses `tag_icon` for the patch and the `tag_box_*` edges for its relation ring.
   continue.
 - **World-to-screen:** `anchor_pos(obj)` picks the first of `ANCHOR_BONES`
   (`bip01_head`, `bip01_spine2/1`, `bip01_spine`) within 3m and lifts by
-  `ANCHOR_LIFT = 0.12`; monsters fall back to `position().y + 1.3`. `project_world`
+  `ANCHOR_LIFT = 0.12`; a rig without those bones falls back to `position().y + 1.3`. `project_world`
   calls `game/level.world2ui`, rejecting `x < -9000` (off-screen/behind). The render tag anchor
   goes through **`ui_anchor_pos(obj)`**, which honours the `anchor_basis` list — Head (default;
   = `anchor_pos`), Torso (`bip01_spine2/1`), or Feet (`position()`) — for the card + all dot
@@ -906,7 +918,7 @@ ii_white — Simple 2 rank bar), and the debug widgets `dbg_ring` (ii_ring, size
 2*`fov_radius` per frame), the `dbg_dot` pool (ii_dot) and
 `dbg_text`/`dbg_status` (letterica16). Text widgets (each with a `_sh` shadow twin):
 `tag_head` (letterica16, faction), `tag_name` (letterica18, personal name),
-`tag_rank` (letterica16, hidden for monsters), `tag_weap` (letterica16),
+`tag_rank` (letterica16, hidden when the engine reports no rank), `tag_weap` (letterica16),
 `tag_sign` (letterica18, centered relation glyph for Minimal style).
 
 ### 5.2 Textures (`ii_textures.xml` → `textures/ui/*.dds`)
@@ -1105,7 +1117,7 @@ puts it in the tab cycle). It mirrors the NAVIGATION page — reuses `d_promin_h
 (bg `ii_wd_tab_bg_ident`) + `build_bio` to keep the frame + left biomonitor, and draws the
 last-identified target in the **right panel** (the map's region, design rect
 `572,85,425,450`): a **portrait** (`obj:character_icon()`) + name/faction/rank/position/
-distance/weapon (locked fields `---`; monsters have no portrait) + a **scanning spinner**
+distance/weapon (locked fields `---`) + a **scanning spinner**
 (`ii_wd_spinner.dds`, frame-cycled) shown over the portrait while a scan is in progress
 (driven by `ii_identify.get_scan_progress()`). The **IDENTIFICATION tab is a real baked tab**:
 the strip (IDENTIFICATION / BIOMONITOR / NAVIGATION, active one highlighted) is baked into
