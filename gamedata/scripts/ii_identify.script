@@ -4570,6 +4570,21 @@ function on_game_start()
 	install_key_hook()
 	RegisterScriptCallback("actor_on_update", actor_on_update)
 	RegisterScriptCallback("actor_on_before_death", actor_on_before_death)
+	-- Take the tag dialog off the HUD when the actor goes away. Loading a save from the pause
+	-- or death menu keeps the engine's HUD and its render list (only a disconnect, i.e. Quit
+	-- Game, deletes it), but the scripts restart and TAGS with them, so the old dialog stayed
+	-- listed and was drawn after Lua freed it: a crash on reload, in
+	-- CDialogHolder::DoRenderDialogs. Anonymous, like the zoom handlers below, to add no
+	-- top-level local.
+	RegisterScriptCallback("actor_on_net_destroy", function()
+		if TAGS then
+			local hud = get_hud and get_hud()
+			if hud then
+				hud:RemoveDialogToRender(TAGS)
+			end
+			TAGS = nil
+		end
+	end)
 	RegisterScriptCallback("on_option_change", on_option_change)
 	RegisterScriptCallback("save_state", save_state)
 	RegisterScriptCallback("load_state", load_state)
