@@ -1,6 +1,6 @@
 # Changelog
 
-## 4.3.1
+## 4.3.2
 
 - **Fix: the rank line now works on the base Anomaly exe.** It read the engine's
   `obj:rank_name()` export, which is not in the Anomaly 1.5.1 base engine (it landed in
@@ -16,6 +16,10 @@
   misconfiguration means it isn't), every `show_*` toggle and gate result, and which lines the
   active UI style can even draw. Makes "my rank/weapon line is missing (or showing)" reports
   answerable from one log file.
+
+## 4.3.1
+
+- Fix crash on loading a save from the pause or death menu
 
 ## 4.3.0
 
