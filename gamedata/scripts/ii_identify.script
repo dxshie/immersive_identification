@@ -435,13 +435,78 @@ local function display_name(obj, comm)
 	return faction_label(comm)
 end
 
--- Rank shown under the name: obj:rank_name() (src/xrGame/script_game_object3.cpp:597,
--- SAFE_WRAP-bound at script_game_object_script2.cpp:147) returns a raw id
--- ("novice", "experienced", "veteran", "master", "expert") for CAI_Stalker
--- objects and an empty string for anything else, which is why this returns nil
--- rather than a fallback: no rank line makes more sense than a fabricated one. Localised via "st_rank_" + id, the same convention this
--- engine's own Discord Rich Presence integration uses (Actor.cpp:1442-1449),
--- so it matches the game's own terminology instead of inventing new labels.
+-- Rank shown under the name. Both sources below answer with the same raw id ("novice",
+-- "experienced", "veteran", "master", ...) and an empty string / nil when the object has no
+-- rank, which is why rank_label returns nil rather than a fallback: no rank line makes more
+-- sense than a fabricated one. Localised via "st_rank_" + id, the same convention this engine's
+-- own Discord Rich Presence integration uses (Actor.cpp:1442-1449) and the same one Crook's
+-- Faction Identification UI uses, so it matches the game's own terminology instead of inventing
+-- new labels.
+
+-- Two sources answer "what rank is this stalker", and only one of them is universal:
+--
+--   1. ranks.get_obj_rank_name(obj) -- Anomaly's own Lua rank ladder (ranks.script, base game;
+--      the engine itself reaches for ranks.get_player_rank_name in Actor.cpp:1442). It maps the
+--      base-engine-bound NUMERIC obj:character_rank() to a rank id, so it works on a stock exe
+--      and honours any mod that retunes the ladder. This is the source Crook's Faction
+--      Identification UI uses, which is why its rank line works everywhere.
+--   2. obj:rank_name() -- the direct engine export. NOT in the Anomaly 1.5.1 base engine: it
+--      landed in xray-monolith on 2026-06-03 (commit 3e1d4be8). On an older exe the method is
+--      simply absent, and since the rest of the card is base-engine calls (character_community /
+--      character_name / best_weapon) the result was a card with everything BUT a rank.
+--
+-- So prefer (1) and keep (2) as the fallback. Both return the same lowercase ids, which
+-- "st_rank_" + id localises -- see rank_label.
+RANK_SRC = { binding = nil, warned = false } -- binding: nil = exe not probed yet. Global: no local cost.
+
+-- Does this exe export obj:rank_name()? Probed once and memoised -- the exe can't change under
+-- us. pcall'd because an absent luabind member may raise rather than answer nil.
+function rank_binding(obj)
+	if RANK_SRC.binding == nil then
+		local ok, fn = pcall(function()
+			return obj.rank_name
+		end)
+		RANK_SRC.binding = (ok and fn ~= nil) and true or false
+	end
+	return RANK_SRC.binding
+end
+
+-- The target's rank id, plus which source answered (for the diagnostics), or nil when neither
+-- can. The single reader of both sources, so every rank readout agrees.
+local function rank_id(obj)
+	local rk = rawget(_G, "ranks")
+	local lua_src = (rk ~= nil and rk.get_obj_rank_name ~= nil) and true or false
+	if lua_src then
+		local rid = safe_call(rk.get_obj_rank_name, obj)
+		if rid and rid ~= "" then
+			return rid, "ranks.script"
+		end
+	end
+	local eng_src = rank_binding(obj)
+	if eng_src then
+		local rid = safe_call(obj.rank_name, obj)
+		if rid and rid ~= "" then
+			return rid, "engine"
+		end
+	end
+	-- A source exists, it just has no rank for THIS object -- report the source so the
+	-- diagnostics don't blame the install for what is a property of the target.
+	if lua_src or eng_src then
+		return nil, lua_src and "ranks.script" or "engine"
+	end
+	-- Neither source exists: no rank can ever be shown, which is worth saying out loud once
+	-- rather than leaving a permanently rankless card to look like a display gate.
+	if not RANK_SRC.warned then
+		RANK_SRC.warned = true
+		if printf then
+			printf(
+				"!![ii] no rank source on this install: ranks.get_obj_rank_name is missing AND "
+					.. "obj:rank_name() is not bound by this exe -- rank lines are unavailable."
+			)
+		end
+	end
+	return nil, nil
+end
 -- Rank -> colour for the Simple 2 style's rank bar. A rarity-style gradient from grey
 -- (novice) through green/blue/purple/orange/red up to gold (legend). Keyed by the
 -- engine rank id (obj:rank_name); anything unknown / rankless falls back to grey.
@@ -456,7 +521,7 @@ local RANK_COLOR = {
 	legend = { 240, 205, 90 }, -- gold
 }
 local function rank_color(obj)
-	local rid = safe_call(obj.rank_name, obj)
+	local rid = rank_id(obj)
 	return (rid and RANK_COLOR[rid]) or { 150, 150, 150 }
 end
 
@@ -522,8 +587,8 @@ for _, cd in ipairs(COLOR_DEFS) do
 end
 
 local function rank_label(obj)
-	local rid = safe_call(obj.rank_name, obj)
-	if not rid or rid == "" then
+	local rid = rank_id(obj)
+	if not rid then
 		return nil
 	end
 	local txt = safe_call(game.translate_string, "st_rank_" .. rid)
@@ -2005,13 +2070,15 @@ local RANK_WEIGHT = {
 -- Monsters/mutants and any rank id outside RANK_WEIGHT (an unknown/modded
 -- rank ladder) fail open to no penalty -- rank_name() returns "" for
 -- non-stalkers (SAFE_WRAP, not an error), and there's nothing to classify a
--- rank we don't recognise against.
+-- rank we don't recognise against. On an exe without the rank_name binding
+-- (see rank_binding) there is no rank to penalise either, so this silently
+-- becomes a no-op for every target -- which is why that case is logged once.
 local function rank_scan_mult(obj)
 	if not C.rank_penalty then
 		return 1
 	end
-	local rid = safe_call(obj.rank_name, obj)
-	if not rid or rid == "" then
+	local rid = rank_id(obj)
+	if not rid then
 		return 1
 	end
 	local w = RANK_WEIGHT[rid]
@@ -2485,6 +2552,104 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 	local show_rel = C.show_relation and ((ft and ft.relationship == true) or not ft)
 	local show_dist = ft and (ft.distance == true) or false
 
+	-- debug_log: one block per committed identify recording the WHOLE display-gate chain for this
+	-- target -- what the engine reported, which gate nilled a field, and whether the active style
+	-- even has a line to draw it on. A report like "no rank, but a weapon below tier 3" is any of
+	-- four unrelated causes that look identical in game; this makes a user's log answer it without
+	-- us guessing. Identify-time, not per frame, so it stays a handful of lines per press.
+	if C.debug_log then
+		local function yn(v)
+			return v and "on" or "OFF"
+		end
+		local rid, rsrc = rank_id(obj)
+		-- "no rank source on this install" and "a source answered, but this object has no rank"
+		-- are different problems with the same card, so name which one it is.
+		local rtxt = rid and ('"' .. rid .. '"')
+			or (rsrc and "NONE (source has no rank for this object)" or "UNAVAILABLE (no rank source on this install)")
+		dbg("---- display gates ----")
+		dbg(
+			string.format(
+				'target: "%s" comm=%s id=%s  rank_id=%s lvl=%s src=%s',
+				tostring(safe_call(obj.character_name, obj) or safe_call(obj.name, obj) or "?"),
+				tostring(comm),
+				tostring(id),
+				rtxt,
+				tostring((rid and RANK_LEVEL[rid]) or "-"),
+				tostring(rsrc or "none")
+			)
+		)
+		-- Each "not driving" reason is a DIFFERENT misconfiguration with the same symptom (no tier
+		-- gating at all -> every enabled line shows at any tier), so name which one it is.
+		if not tier_provider then
+			dbg("tier: not driving - no provider registered (WD compat component absent)")
+		elseif C.wd_ignore then
+			dbg("tier: not driving - wd_ignore is ON (MCM toggles apply)")
+		elseif not _tier then
+			dbg(
+				"tier: not driving - provider returned nil (WD API unreachable, or kit incomplete with wd_require_kit off)"
+			)
+		elseif not ft then
+			dbg("tier: ACTIVE but the provider supplied no feat table - MCM toggles apply")
+		else
+			dbg(
+				string.format(
+					"tier: ACTIVE  feat faction=%s dist=%s rel=%s rank=%s weap=%s  (unlock tiers %s/%s/%s/%s/%s)",
+					yn(ft.faction),
+					yn(ft.distance),
+					yn(ft.relationship),
+					yn(ft.rank),
+					yn(ft.weapon),
+					tostring(C.wd_feat_faction),
+					tostring(C.wd_feat_distance),
+					tostring(C.wd_feat_relationship),
+					tostring(C.wd_feat_rank),
+					tostring(C.wd_feat_weapon)
+				)
+			)
+		end
+		dbg(
+			string.format(
+				"mcm: show_faction=%s show_name=%s show_rank=%s show_weapon=%s show_relation=%s",
+				yn(C.show_faction),
+				yn(C.show_name),
+				yn(C.show_rank),
+				yn(C.show_weapon),
+				yn(C.show_relation)
+			)
+		)
+		dbg(
+			string.format(
+				"gated: faction=%s name=%s rank=%s weap=%s rel=%s dist=%s",
+				yn(show_faction),
+				yn(show_name),
+				yn(show_rank),
+				yn(show_weapon),
+				yn(show_rel),
+				yn(show_dist)
+			)
+		)
+		local sl = ii_config.STYLE_LINES[C.ui_style]
+		if sl then
+			local drawn = {}
+			for _, k in ipairs({ "faction", "name", "rank", "weapon" }) do
+				if sl[k] then
+					drawn[#drawn + 1] = (sl[k] == "bar") and (k .. "(bar only)") or k
+				end
+			end
+			local sname = UI_STYLE_LIST[C.ui_style] and UI_STYLE_LIST[C.ui_style].label or "?"
+			dbg(
+				string.format(
+					"style: %s (%s) draws: %s",
+					tostring(C.ui_style),
+					sname,
+					#drawn > 0 and table.concat(drawn, ",") or "nothing (marker only)"
+				)
+			)
+		else
+			dbg(string.format("style: %s (add-on) - what it draws is the add-on's choice", tostring(C.ui_style)))
+		end
+	end
+
 	-- Portrait for the Promin OSD readout (a ui_npc_u_* texture region); nil = no portrait.
 	local portrait = safe_call(obj.character_icon, obj)
 	portrait = (portrait and portrait ~= "") and portrait or nil
@@ -2504,7 +2669,7 @@ local function identify_target(obj, comm, boosted, eff_max_dist, scan_mult, auto
 		icon_custom = custom_patch_id(comm), -- used instead when custom_patches is on (live, see render)
 		rank = show_rank and rank_label(obj) or nil,
 		rank_col = rank_color(obj),
-		rank_level = show_rank and RANK_LEVEL[safe_call(obj.rank_name, obj) or ""] or nil, -- for the notification card
+		rank_level = show_rank and RANK_LEVEL[rank_id(obj) or ""] or nil, -- for the notification card
 
 		weap = show_weapon and held_weapon_label(obj) or nil,
 		portrait = portrait, -- for the Promin OSD readout (captured at reveal, see render())
@@ -3529,7 +3694,9 @@ function IiTags:draw_debug()
 				lines[#lines + 1] = { "x1/no impact: " .. table.concat(neutral, ","), 145, 145, 145 }
 			end
 			if scan.tier then
-				lines[#lines + 1] = { "WD skips dist/rank/weight/fol/aim/perc/fam/instant", 145, 145, 145 }
+				-- dist/rank/weight/fol/night are NOT skipped under WD -- they are attenuated by
+				-- penalty_scale (shown on the scan-base line above). Only these four are dropped.
+				lines[#lines + 1] = { "WD skips aim/perception/familiarity/instant", 145, 145, 145 }
 			end
 			lines[#lines + 1] = { string.format("scan final: %dms", scan.final_ms), 210, 210, 120 }
 		end
@@ -3577,6 +3744,51 @@ function IiTags:draw_debug()
 			end
 		end
 		lines[#lines + 1] = { "gate: " .. why, wr, wg, wb }
+
+		-- Rank of that same candidate, plus whether it will actually reach the screen. Four
+		-- different causes produce an identical "no rank line" on the card: no rank source on the
+		-- install at all, a source that has no rank for this object, a display gate nilling it
+		-- (show_rank, or the WD tier), or the active style having no rank line. Live, so it reads
+		-- the target you are aiming at right now rather than whatever the last reveal captured.
+		if cand then
+			local rid, rsrc = rank_id(cand)
+			if rid then
+				lines[#lines + 1] = {
+					string.format(
+						'rank: %s "%s" lvl%s [%s]',
+						rid,
+						rank_label(cand) or "?",
+						tostring(RANK_LEVEL[rid] or "-"),
+						tostring(rsrc)
+					),
+					200,
+					200,
+					235,
+				}
+			elseif not rsrc then
+				-- No ranks.script AND no engine binding: no rank can EVER be shown here.
+				lines[#lines + 1] = { "rank: NO SOURCE (no ranks.script, no engine binding)", 235, 70, 70 }
+			else
+				lines[#lines + 1] = { string.format("rank: NONE for this object [%s]", rsrc), 235, 160, 60 }
+			end
+			-- Mirrors identify_target's gate exactly: ft nil => the MCM toggle decides.
+			local ft = (_tier and _tier.active) and _tier.feat or nil
+			local sl = ii_config.STYLE_LINES[C.ui_style]
+			local rtxt, rr, rg, rb = nil, 235, 160, 60
+			if not (ft and (ft.rank == true) or (not ft and C.show_rank)) then
+				rtxt = ft and string.format("  show: NO - WD tier unlocks rank at %s", tostring(C.wd_feat_rank))
+					or "  show: NO - show_rank off"
+			elseif not sl then
+				rtxt, rr, rg, rb = "  show: add-on style decides", 220, 205, 110
+			elseif sl.rank == true then
+				rtxt, rr, rg, rb = "  show: yes", 90, 235, 110
+			elseif sl.rank == "bar" then
+				rtxt, rr, rg, rb = "  show: colour bar only, no rank text", 220, 205, 110
+			else
+				rtxt = string.format("  show: NO - style %d has no rank line", C.ui_style)
+			end
+			lines[#lines + 1] = { rtxt, rr, rg, rb }
+		end
 
 		if aim_obj then
 			local an = safe_call(aim_obj.character_name, aim_obj) or safe_call(aim_obj.name, aim_obj) or "?"

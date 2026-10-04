@@ -675,7 +675,8 @@ reuses `tag_icon` for the patch and the `tag_box_*` edges for its relation ring.
 ### 3.8 Notable functions
 
 `read_config` (322) • `active_dik` (330) • `modifiers_ok` (348) •
-`faction_label/color` (380/395) • `display_name` (402) • `rank_color/label`
+`faction_label/color` (380/395) • `display_name` (402) • `rank_binding/rank_id` (464/476, the
+engine-binding probe + the single rank reader, `ranks.script` first — see §3.9) • `rank_color/label`
 (436/502) • `held_weapon_label` (553) • `relation_color/sign` (600/618) •
 `anchor_pos` (632) • `project_world` (666) • `screen_box` (734) • `has_los` (1113) •
 `find_nearest_in_fov` (1193) • `get_target_obj` (1326) • `is_binoc_active` (1460) •
@@ -694,6 +695,52 @@ reuses `tag_icon` for the patch and the `tag_box_*` edges for its relation ring.
 
 In `ii_ui.script`: `IiTags:InitControls` (22) • `draw_head_box` (264) •
 `IiTags:draw_slot` (512).
+
+### 3.9 Diagnosing a "line is missing / line shouldn't be there" report
+
+A field can be absent from a card for five unrelated reasons that look identical in game, so
+`debug_log` writes a `---- display gates ----` block to `immersive_identification.log` on every
+**committed** identify (not per frame), walking them in decision order:
+
+1. `target:` — the raw rank id, its `RANK_LEVEL`, the resolved label, and `src=` (which rank
+   source answered — see below). `NONE (source has no rank for this object)` means the object has
+   no rank; `UNAVAILABLE (no rank source on this install)` means neither source exists.
+2. `tier:` — whether the WD tier layer is actually driving, and if not, **which** of the four
+   configurations means it isn't: no provider registered (component absent), `wd_ignore` on,
+   the provider returned `nil` (WD API unreachable, **or** an incomplete kit with
+   `wd_require_kit` off), or active-but-no-`feat`-table. All four fall back to the plain MCM
+   toggles, i.e. **no tier gating at all** — which is what "weapon shown below tier 3" usually
+   is. When it *is* driving, the line prints each `feat` gate plus the configured unlock tiers
+   (nothing enforces `wd_feat_rank ≤ wd_feat_weapon`, so inverted sliders show here).
+3. `mcm:` / `gated:` — the `show_*` toggles, then the gate results actually folded into the
+   snapshot.
+4. `style:` — the active style and which lines it renders (`ii_config.STYLE_LINES`). A field can
+   survive every gate and still never be drawn: bodycam has no rank line, Simple 2 renders rank
+   as the colour bar only.
+
+The Debug-draw panel carries the same rank chain live for the aimed candidate (`rank:` +
+`show:`), for when a screenshot is easier to get than a log file.
+
+**Where the rank comes from.** `rank_id(obj)` is the single reader, returning the raw id plus
+which of two sources answered, so `rank_color` / `rank_label` / `rank_scan_mult` / the
+`rank_level` snapshot and both diagnostics always agree:
+
+1. **`ranks.get_obj_rank_name(obj)`** (preferred) — Anomaly's own Lua rank ladder in
+   `ranks.script`, base game: the engine itself reaches for `ranks.get_player_rank_name`
+   (`Actor.cpp:1442`). It maps the base-engine-bound **numeric** `obj:character_rank()` to a rank
+   id, so it works on **any** exe and honours a mod that retunes the ladder. This is the source
+   Crook's Faction Identification UI uses.
+2. **`obj:rank_name()`** (fallback) — the direct engine export, which is **not in the Anomaly
+   1.5.1 base engine**; it landed in xray-monolith in commit `3e1d4be8` (2026-06-03). Probed once
+   by `rank_binding()` and memoised in `RANK_SRC.binding` (pcall'd — an absent luabind member may
+   raise rather than answer nil).
+
+Both return the same lowercase ids. Only if **neither** source exists is a rank impossible, and
+that case logs `!![ii] no rank source on this install` once rather than leaving a permanently
+rankless card looking like a display gate. Historical note: relying on (2) alone meant that on a
+pre-2026-06-03 exe the rank line never appeared and `rank_penalty` was silently a no-op, while
+name / faction / relation / weapon — all base-engine calls — kept working. That asymmetry is the
+signature of a missing rank *source*, not of a display gate.
 
 ---
 
@@ -875,8 +922,8 @@ in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 | `wd_hostile_sound` | check | false | — | with the WD scanner active, play the detected hostile faction's warning clip (§7.4) |
 | `wd_hostile_manual_only` | check | false | — | suppress hostile warnings for auto-identify and automatic aiming triggers |
 | **Debug** | | | | |
-| `debug_log` | check | false | — | write aim/trace diagnostics to a dedicated log file |
-| `debug_draw` | check | false | — | on-screen target-assist visualiser: the FOV ring (one stretched `ii_ring` circle outline), bone dots, and a bottom-right info panel (perf CPS + mod-loop ms; identify trace — active triggers, the last commit's source/target, exact before/after timing for distance/rank/weight/foliage/target-light/aim/perception/combat/weather/familiarity/instant factors, raw target luminance/darkness/source and bypass, combat state/source/enemy count/pressure time, rain/storm/fog/visor severities, raw visor-droplet level and threshold, and the winning weather-visibility source, plus a live "gate" line explaining why the aimed candidate is / isn't being identified; aim mesh-hit see/ray/LOS + front material; the FOV-radius target list) |
+| `debug_log` | check | false | — | write aim/trace diagnostics to a dedicated log file, plus a `---- display gates ----` block per committed identify (see below) |
+| `debug_draw` | check | false | — | on-screen target-assist visualiser: the FOV ring (one stretched `ii_ring` circle outline), bone dots, and a bottom-right info panel (perf CPS + mod-loop ms; identify trace — active triggers, the last commit's source/target, exact before/after timing for distance/rank/weight/foliage/target-light/aim/perception/combat/weather/familiarity/instant factors, raw target luminance/darkness/source and bypass, combat state/source/enemy count/pressure time, rain/storm/fog/visor severities, raw visor-droplet level and threshold, and the winning weather-visibility source, plus a live "gate" line explaining why the aimed candidate is / isn't being identified, and a live `rank:` readout for that candidate — raw `rank_name` id, resolved label, `RANK_LEVEL`, and whether that rank will actually be drawn (gate off / WD tier locked / the active style has no rank line, per `ii_config.STYLE_LINES`); aim mesh-hit see/ray/LOS + front material; the FOV-radius target list) |
 | `debug_sim_stock` | check | false | — | pretend the custom engine bindings are absent (test stock fallbacks) |
 | **Wearable Devices** (page `wdcompat`; only bites when the WD compat add-on is installed, §7.4; the page is hidden otherwise) | | | | |
 | `wd_ignore` | check | false | — | master toggle: bypass the WD compat entirely (identify as if WD isn't installed); disables the rest of this page |
@@ -1050,7 +1097,11 @@ mag_boost, feat = {...} }` (tier params drive identification). When active, `sca
 replaces the normal base time; distance, rank, weight, foliage, target-light, combat, and
 weather/visor penalties still use their base-MCM enable/max settings. Each resulting multiplier
 is attenuated as `1 + (mult − 1) × penalty_scale`, defaulting to 100% / 75% / 50% for process
-tiers 1 / 2 / 3. Range, ADS/magnification, the scanner's no-visibility tier, and the
+tiers 1 / 2 / 3. Four factors are **dropped** rather than attenuated — the binoculars/ADS aim
+boost, the **perception skill**, familiarity, and instant-identify (`if not tier then` in
+`identify_target`): the device's speed is the process tier's job, not the actor's. Perception XP
+is still awarded for a device identify, so the skill trains without affecting the scan.
+Range, ADS/magnification, the scanner's no-visibility tier, and the
 faction/distance/relationship/rank/weapon display gates remain tier-driven. The rest of the MCM
 (UI style, colours, key bind, boosts, …) is untouched.
 

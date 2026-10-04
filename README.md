@@ -13,6 +13,10 @@ Built for the engine exposed by this repo (`xray-monolith`) and modelled on
 the card/leader-line technique used by
 Immersive Quest Markers
 
+The rank line reads Anomaly's own rank ladder (`ranks.get_obj_rank_name`), so it
+works on any exe, and falls back to the engine's `obj:rank_name()` export where
+that's available.
+
 ## Install
 
 ### Mod Organizer 2 (FOMOD)

@@ -226,6 +226,23 @@ UI_STYLE_LIST = {
 	{ label = "patch" },
 }
 
+-- Which card lines each built-in style actually DRAWS, mirroring ii_ui.draw_slot's per-style
+-- branches. Diagnostics only (the Debug-draw panel + the debug_log gate dump): a snapshot can
+-- carry a rank/weapon the active style has no line for -- bodycam draws name/faction/weapon and
+-- no rank at all, Simple 2 renders rank as the colour bar alone -- which on screen is
+-- indistinguishable from a display gate having nilled the field. Index order IS the stored
+-- ui_style value; keep in step with draw_slot when a style changes what it renders.
+STYLE_LINES = {
+	{ faction = true, name = true, rank = true, weapon = true }, -- 1 card
+	{ faction = true }, -- 2 minimal: faction dot + relation sign
+	{ faction = true, name = true, weapon = true }, -- 3 bodycam: head box, no rank line
+	{ faction = true, rank = "bar" }, -- 4 simple 2: rank is the colour bar, no text
+	{ faction = true, name = true }, -- 5 simple
+	{ faction = true, name = true, rank = true }, -- 6 crooks readout
+	{}, -- 7 minimal 2: relation dot only
+	{ faction = true }, -- 8 patch
+}
+
 -- Built-in styles occupy indices 1..BUILTIN_STYLE_COUNT; anything past that is a
 -- third-party style registered through ii_api (see that file for the ordering rules).
 -- Kept here rather than in ii_api so the registry stays a pure list and this file remains

@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.3.1
+
+- **Fix: the rank line now works on the base Anomaly exe.** It read the engine's
+  `obj:rank_name()` export, which is not in the Anomaly 1.5.1 base engine (it landed in
+  xray-monolith on 2026-06-03) — so on an older exe the rank line never appeared and the rank
+  scan penalty silently did nothing, while the rest of the card worked. Rank now comes from
+  Anomaly's own `ranks.get_obj_rank_name` (the base-game Lua ladder, the same source Crook's
+  Faction Identification UI uses), falling back to the engine export. If neither exists the mod
+  says so once in the log instead of degrading in silence.
+- Debug draw: the info panel now shows the aimed target's rank — the raw engine id, the label
+  that would be drawn, its level, and whether it will actually appear (or which gate stops it).
+- `debug_log` now writes a `---- display gates ----` block per identify: what the engine
+  reported for the target, whether the Wearable Devices tier layer is really driving (and which
+  misconfiguration means it isn't), every `show_*` toggle and gate result, and which lines the
+  active UI style can even draw. Makes "my rank/weapon line is missing (or showing)" reports
+  answerable from one log file.
+
 ## 4.3.0
 
 - Ignore mutants/monsters entirely: every target admission point now accepts stalkers only. A
