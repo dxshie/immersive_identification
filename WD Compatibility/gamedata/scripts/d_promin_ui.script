@@ -9,6 +9,7 @@
 --   2. a second xml (ui_ii_wd_ident.xml) parsed in __init, exposed as ctx.init_ii so our
 --      page builder can instantiate its own node templates without touching ui_wd.xml.
 -- If WD updates its own d_promin_ui.script, re-sync this copy. Keep the rest identical.
+-- WD-SYNCED: 0.8.14
 -- ============================================================================
 
 local IDLE_UPDATE_MS = 250
