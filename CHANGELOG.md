@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.3.3
+
+- Fix Compatibility with WD 0.8.14
+
 ## 4.3.2
 
 - **Fix: the rank line now works on the base Anomaly exe.** It read the engine's
