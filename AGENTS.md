@@ -35,6 +35,10 @@ add-ons. Start there before changing anything.
   texture registration (`ui/textures_descr/`).
 - `MODDERS.md` + `examples/` — the PUBLIC add-on API guide and two example add-on mods.
   Keep them in sync with `ii_api.script` and SPEC.md §8 when the API changes.
+- `LLM_GUIDE.md` — player-facing guide written for AI chat assistants (features, every MCM
+  option by in-game caption, presets, troubleshooting). Shipped in the FOMOD zip and installed
+  to the mod root. **Update it whenever an MCM option, default, preset, or user-visible
+  behaviour changes** (same trigger as the SPEC.md §4 inventory).
 - `fomod/` — installer; base mod plus optional **FactionID Neutralized** and
   **Perception Skill Integration** components.
 - `types/` — EmmyLua engine stubs for the LSP.

@@ -6,6 +6,9 @@
 	     compatibility patches / integrations. -->
 	<requiredInstallFiles>
 		<folder source="gamedata" destination="gamedata" />
+		<!-- Player guide meant to be handed to an AI chat assistant; lands in the
+		     mod's root folder, outside gamedata, so the engine never reads it. -->
+		<file source="LLM_GUIDE.md" destination="LLM_GUIDE.md" />
 	</requiredInstallFiles>
 
 	<installSteps order="Explicit">

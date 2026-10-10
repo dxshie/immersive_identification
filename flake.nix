@@ -161,7 +161,7 @@
               fi
               out="./package/immersive-identification-fomod-v''${version}.zip"
               rm -f "$out"
-              "${pkgs.p7zip}/bin/7z" a -tzip -x'!.gitkeep' "$out" fomod gamedata README.md "FactionID Neutralized" "GAMMA Patches" "GRIP Patches" "HD Faction Patches" "Perception Skill Integration" "WD Compatibility"
+              "${pkgs.p7zip}/bin/7z" a -tzip -x'!.gitkeep' "$out" fomod gamedata README.md LLM_GUIDE.md "FactionID Neutralized" "GAMMA Patches" "GRIP Patches" "HD Faction Patches" "Perception Skill Integration" "WD Compatibility"
               echo "built $out"
             '');
           };
