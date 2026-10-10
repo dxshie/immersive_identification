@@ -26,6 +26,18 @@ DEFAULTS = {
 	patch_size = 13, -- Patch style: faction-patch edge length in virtual px at scale 1 (distance-scaled from there)
 	patch_thickness = 2, -- Patch style: relation-outline edge thickness in virtual px at scale 1; 0 = no outline
 	patch_padding = 0, -- Patch style: gap in virtual px (at scale 1) between the patch and its outline
+	patch_ring_opacity = 1.0, -- Patch style: relation-outline opacity 0..1 (multiplies the fade alpha)
+	-- Per-element opacity 0..1, shared by every built-in style; each multiplies the fade alpha of
+	-- that element class wherever a style draws it (0 = invisible, the layout is unchanged).
+	opacity_name = 1.0,
+	opacity_faction = 1.0,
+	opacity_rank = 1.0, -- the rank TEXT line; Simple 2's rank bar is a shape (opacity_markers)
+	opacity_weapon = 1.0,
+	opacity_background = 1.0, -- Card plate + its drop shadow
+	opacity_markers = 1.0, -- dots, halos, relation sign, Simple 2 shapes, Card accent bar, PiP marker
+	opacity_patch = 1.0, -- faction emblem / patch (Card, Simple, Patch, Crooks)
+	opacity_line = 1.0, -- Card leader line
+	opacity_spinner = 1.0, -- scan spinner (main view, Crooks, PiP)
 	auto_identify = false, -- continuously identify every visible target in range without a
 	-- keypress (LOS-gated). Off by default; pairs well with the
 	-- bodycam head-box style but works with any style
@@ -317,6 +329,7 @@ MCM_PAGES = {
 	"uistyle/bodycam",
 	"uistyle/crooks",
 	"uistyle/patch",
+	"uistyle/opacity",
 	"targeting",
 	"hipfire",
 	"binoc",

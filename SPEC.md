@@ -786,7 +786,7 @@ opt_list` helpers set `hint = "ii_" .. id` mechanically.
 Listed in MCM display order (`ii_mcm.script`); ranges are `(min, max, step, prec)`.
 
 Pages: `general`, `uistyle` (a **container** with sub-pages `uistyle/general`, `uistyle/card`,
-`uistyle/simple`, `uistyle/bodycam`, `uistyle/crooks`, `uistyle/patch`), `targeting`, `hipfire`,
+`uistyle/simple`, `uistyle/bodycam`, `uistyle/crooks`, `uistyle/patch`, `uistyle/opacity`), `targeting`, `hipfire`,
 `binoc`, `ads`, `pip`, `scantime`, `audio`, `debug`, `wdcompat`, `colors`. These path prefixes must stay
 in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 
@@ -841,6 +841,17 @@ in sync with `MCM_PAGES` in `ii_identify.script` and with `presets_ii.ltx`.
 | `patch_size` | track | 13 | 8, 64, 1, 0 | Patch style: faction-patch size (px at the reference distance) |
 | `patch_thickness` | track | 2 | 0, 5, 0.5, 1 | Patch style: relation-ring edge thickness (px at the reference distance); **0 = no ring**, bare patch |
 | `patch_padding` | track | 0 | 0, 12, 0.5, 1 | Patch style: gap between the patch and its ring (px at the reference distance) |
+| `patch_ring_opacity` | track | 1.0 | 0, 1, 0.05, 2 | Patch style: relation-ring opacity |
+| **UI Style → Opacity** (`uistyle/opacity`) | | | | Each multiplies the fade alpha of one element class in every built-in style (and is on `ctx.config` for add-ons); 0 = invisible, layout unchanged. Text sliders also scale that line's shadow. |
+| `opacity_name` | track | 1.0 | 0, 1, 0.05, 2 | name text (Card, Simple, Bodycam, Crooks) |
+| `opacity_faction` | track | 1.0 | 0, 1, 0.05, 2 | faction text line (Card, Bodycam) |
+| `opacity_rank` | track | 1.0 | 0, 1, 0.05, 2 | rank text line (Card, Crooks); Simple 2's rank bar is a shape |
+| `opacity_weapon` | track | 1.0 | 0, 1, 0.05, 2 | weapon + calibre line (Card, Bodycam) |
+| `opacity_background` | track | 1.0 | 0, 1, 0.05, 2 | Card plate + drop shadow |
+| `opacity_markers` | track | 1.0 | 0, 1, 0.05, 2 | dots + halos, Minimal relation sign, Simple 2 circle/triangle/rank bar, Card accent bar, PiP in-scope marker |
+| `opacity_patch` | track | 1.0 | 0, 1, 0.05, 2 | faction emblem/patch (Card, Simple, Patch, Crooks) |
+| `opacity_line` | track | 1.0 | 0, 1, 0.05, 2 | Card leader line |
+| `opacity_spinner` | track | 1.0 | 0, 1, 0.05, 2 | scan spinner (main view, Crooks, PiP) |
 | **Targeting** | | | | |
 | `fov_assist` | check | true | — | master FOV target-assist; off = direct-hit aim only |
 | `freeaim_assist` | check | false | — | bodycam/free-aim: aim from the weapon barrel/first-eye ray |
@@ -1293,7 +1304,8 @@ optional 2.8×/55% halo, `snap` for markers that do not distance-scale — Card,
 draw with it) · `draw_shadowed_text(main, sh, x, y, alpha, r, g, b, shadow_a)`. `col` is a
 `{r,g,b}`, matching `a.fcol` / `a.col` / `a.rank_col` / `sign_colors` directly.
 
-**Everything else** — `relation_color(a, fallback)` (relation colour, or the fallback when
+**Everything else** — `opacity(alpha, key)` (`alpha` × one `opacity_*` setting, floored) ·
+`relation_color(a, fallback)` (relation colour, or the fallback when
 `sign` is nil) · `show(w, bool)` and `set_text(w, str)` (change-guarded: they skip the native
 call when nothing changed) · `config` (the **live** settings table; `_ui_kx` plus every MCM
 option) · `xml` (this mod's parsed `ii_tags.xml`, to reuse `tag_icon`, `tag_node`, `tag_box_*`,

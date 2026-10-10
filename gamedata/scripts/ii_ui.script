@@ -1,6 +1,7 @@
 function install(IiTags, context)
 	local C, P, S = context.config, context.position, context.size
-	local MAX_TAGS, DBG_DOTS, DBG_TEXTS, DBG_INFO = context.max_tags, context.debug_dots, context.debug_texts, context.debug_info
+	local MAX_TAGS, DBG_DOTS, DBG_TEXTS, DBG_INFO =
+		context.max_tags, context.debug_dots, context.debug_texts, context.debug_info
 	local CROOKS, MARKER = context.crooks, context.marker
 	local COL_NEUTRAL, SIGN_COLOR = context.neutral, context.sign_colors
 	local CARD_OFF_X, CARD_OFF_Y = 60, 34
@@ -17,6 +18,10 @@ function install(IiTags, context)
 	-- Fixed tints the styles reuse, kept as constants so no draw path builds a colour table.
 	local COL_WHITE, COL_BLACK, COL_PLATE = { 255, 255, 255 }, { 0, 0, 0 }, { 24, 22, 19 }
 	local visibility, text = {}, {}
+	-- Scales a phase alpha by one of the per-element opacity settings (opacity_* keys, 0..1).
+	local function opacity(alpha, key)
+		return math.floor(alpha * (C[key] or 1))
+	end
 	local function show(widget, value)
 		if visibility[widget] ~= value then
 			widget:Show(value)
@@ -146,6 +151,7 @@ function install(IiTags, context)
 		texture_aspect = texture_aspect,
 		set_patch = set_patch,
 		relation_color = relation_color,
+		opacity = opacity,
 		neutral = COL_NEUTRAL,
 		sign_colors = SIGN_COLOR,
 	}
@@ -180,7 +186,7 @@ function install(IiTags, context)
 	function IiTags:InitControls()
 		self:SetWndRect(Frect():set(0, 0, 1024, 768))
 		self:SetAutoDelete(true)
-	
+
 		self.xml = CScriptXmlInit()
 		self.xml:ParseFile("ii_tags.xml")
 
@@ -188,7 +194,7 @@ function install(IiTags, context)
 		-- ctx.xml, or parse their own XML and parent the widgets to ctx.parent.
 		API_CTX.xml = self.xml
 		API_CTX.parent = self
-	
+
 		self.slots = {}
 		for i = 1, MAX_TAGS do
 			-- Creation order = draw order (later draws on top): shadow, leader
@@ -260,7 +266,7 @@ function install(IiTags, context)
 			-- default position (0,0 -- top-left) permanently visible.
 			self:hide_slot(i)
 		end
-	
+
 		-- Debug-draw pool (MCM "Debug draw"): the FOV-radius ring (one stretched circle
 		-- outline, created FIRST so everything else sits on top of it), round dots for
 		-- in-ring entity bones, one text line for the radius, and a dedicated aim dot
@@ -290,7 +296,7 @@ function install(IiTags, context)
 		end
 		self.dbg.aim = self.xml:InitStatic("dbg_dot", self)
 		show(self.dbg.aim, false)
-	
+
 		-- Crooks style (ui_style 6): one static "[faction logo]  NAME" readout of the LAST
 		-- identified stalker -- the faction EMBLEM (reusing the tag_icon static) + the name (bright,
 		-- with a 1px shadow, reusing the tag_name text template). Created LAST so it draws on top of
@@ -314,7 +320,7 @@ function install(IiTags, context)
 		show(self.crooks.rank, false)
 		show(self.crooks.rank_sh, false)
 	end
-	
+
 	-- The plate/accent/icon/text widgets, shared by hide_slot and draw_slot's
 	-- scanning/mini/minimal branches -- glow/node/spinner are deliberately
 	-- excluded since each caller shows or hides those three differently. sign/
@@ -339,13 +345,13 @@ function install(IiTags, context)
 		"sign_sh",
 		"sign",
 	}
-	
+
 	local function hide_card_widgets(s)
 		for _, k in ipairs(CARD_WIDGET_KEYS) do
 			show(s[k], false)
 		end
 	end
-	
+
 	-- Outline edges: hidden every frame by default (see draw_slot), only shown by the
 	-- branches that draw a box, so switching styles leaves no stale edges behind. Kept
 	-- out of CARD_WIDGET_KEYS deliberately -- the card path shows its widgets one-by-one
@@ -355,7 +361,7 @@ function install(IiTags, context)
 			show(w, false)
 		end
 	end
-	
+
 	-- Simple 2 style shapes (circle, triangle, rank bar). Hidden every frame at the top of
 	-- draw_slot; only the simple2 branch re-shows them.
 	local function hide_s2_widgets(s)
@@ -363,7 +369,7 @@ function install(IiTags, context)
 		show(s.s2_tri, false)
 		show(s.s2_bar, false)
 	end
-	
+
 	function IiTags:hide_slot(i)
 		local s = self.slots[i]
 		if not s or s.hidden then
@@ -385,7 +391,7 @@ function install(IiTags, context)
 			end
 		end
 	end
-	
+
 	-- Hide every debug-draw widget (the FOV ring, the bone dot pool, the radius text,
 	-- and the aim dot). Called when debug_draw is off / on teardown.
 	function IiTags:hide_debug()
@@ -421,12 +427,12 @@ function install(IiTags, context)
 			show(d.ring, false)
 		end
 	end
-	
+
 	-- Bodycam style: gap (px) from the box's right edge to the name/weapon text, and
 	-- the vertical step between the name and weapon lines.
 	local BODYCAM_TEXT_PAD = 8
 	local BODYCAM_LINE_H = 19
-	
+
 	-- Draws an unfilled rectangle outline from four thin strips, centred on (cx,cy) with
 	-- the given half-width/half-height, in the fixed 1024x768 virtual space. `edges` is a
 	-- table of four widgets keyed top/bottom/left/right.
@@ -458,7 +464,7 @@ function install(IiTags, context)
 		place(edges.left, x0, y0 + t, tw, vh, col, alpha)
 		place(edges.right, x0 + w - tw, y0 + t, tw, vh, col, alpha)
 	end
-	
+
 	local SPIN_D = 20 -- spinner diameter, px, at scale 1
 	local SPIN_PERIOD_MS = 900 -- one full rotation
 
@@ -480,12 +486,12 @@ function install(IiTags, context)
 		d = d * spinner_scale
 		w:SetWndSize(S(d, d))
 		w:SetWndPos(P(cx - d / 2, cy - d / 2))
-		w:SetTextureColor(GetARGB(alpha, 255, 255, 255))
+		w:SetTextureColor(GetARGB(opacity(alpha, "opacity_spinner"), 255, 255, 255))
 		w:SetHeading((tg % SPIN_PERIOD_MS) / SPIN_PERIOD_MS * (2 * math.pi))
 		show(w, true)
 		return true
 	end
-	
+
 	-- One round marker: a `size`-diameter dot, optionally behind a soft halo 2.8x its
 	-- size at 55% of its alpha. Widths are aspect-corrected so it stays circular.
 	--
@@ -521,6 +527,7 @@ function install(IiTags, context)
 	-- flat-scaled styles clamp the node so a large card_scale doesn't bloat the dot.
 	local function draw_node_glow(s, hx, hy, scale, alpha, r, g, b, world_scaled)
 		local node_scale = world_scaled and scale or math.min(scale, MARKER.card_node_max)
+		alpha = opacity(alpha, "opacity_markers")
 		local base_size = 7 * node_scale
 		_rgb[1], _rgb[2], _rgb[3] = r, g, b
 		-- Both parts retain the same projected centre and distance-derived scale. These final
@@ -553,7 +560,7 @@ function install(IiTags, context)
 	API_CTX.outline = outline
 	API_CTX.dot = dot
 	API_CTX.draw_shadowed_text = draw_shadowed_text
-	
+
 	-- Draw one bodycam text line as flat CUIStatic shadowed text. (The depth-aware engine
 	-- glyph-emitter path was reverted; this is the sole path now.) main_w/sh_w are the widget +
 	-- its shadow copy. wx/wy/wz (the world anchor) are unused now but kept in the signature so the
@@ -563,17 +570,18 @@ function install(IiTags, context)
 		set_text(sh_w, str)
 		draw_shadowed_text(main_w, sh_w, x, y, alpha, r, g, b, shadow_a)
 	end
-	
+
 	-- Minimal-style relation sign (-/+/o), centred on the same anchor point as
 	-- the node dot. Text size is fixed, like head/name/rank in the card style --
 	-- this engine only has 3 discrete font sizes (no continuous scaling), so
 	-- only its position tracks hx,hy, not its size.
 	local SIGN_W, SIGN_H = 20, 18
-	
+
 	local function draw_sign(s, hx, hy, alpha, sign_char)
 		local col = SIGN_COLOR[sign_char] or COL_NEUTRAL
 		set_text(s.sign, sign_char)
 		set_text(s.sign_sh, sign_char)
+		alpha = opacity(alpha, "opacity_markers")
 		local shadow_a = math.floor(180 * alpha / 255)
 		draw_shadowed_text(
 			s.sign,
@@ -587,7 +595,7 @@ function install(IiTags, context)
 			shadow_a
 		)
 	end
-	
+
 	-- Render records and widget slots are reused for the lifetime of a tracked target.
 	local function measure_card(s, a)
 		local m = s.measurement
@@ -626,7 +634,7 @@ function install(IiTags, context)
 		local iw = ibox * C._ui_kx -- the width it really takes on the plate
 		local lead = 5 * scale
 		local ispan = iw + 4 * scale
-	
+
 		-- Text width: re-measured only when the strings OR which lines are shown
 		-- change (AdjustWidthToText/GetWidth per change, not per frame). `or 0` guards the
 		-- degenerate first-draw case where every line is empty (e.g. a Card for a target with no
@@ -674,9 +682,9 @@ function install(IiTags, context)
 			s.text_w, s.last_head, s.last_name, s.last_rank, s.last_weap = text_w, header, name, rank, weap
 			s.last_hhead, s.last_hname, s.last_hweap = has_head, has_name, has_weap
 		end
-	
+
 		local cw = math.floor(accent_w + lead + ispan + text_w + pad + 0.5)
-	
+
 		-- Vertical layout: PAD_TOP, each present line separated by GAP, then
 		-- PAD_BOTTOM. Fixed line heights matching each widget's font (letterica16 for
 		-- header/rank/weap, letterica18 for name). Computed generically since any line
@@ -710,7 +718,7 @@ function install(IiTags, context)
 			nlines = nlines + 1
 		end
 		ch = ch + PAD_BOTTOM
-	
+
 		m.header_key, m.name_key, m.rank_key, m.weap_key = header, name, rank, weap
 		m.head, m.name, m.rank, m.weap = has_head, has_name, has_rank, has_weap
 		m.width, m.height = cw, ch
@@ -719,7 +727,7 @@ function install(IiTags, context)
 		m.scale, m.kx, m.ready = a.scale, C._ui_kx, true
 		return m
 	end
-	
+
 	local function place_card(a, measured)
 		local hx, hy, scale = a.hx, a.hy, a.scale or 1
 		local cw, ch = measured.width, measured.height
@@ -740,10 +748,10 @@ function install(IiTags, context)
 		if cy < 4 then
 			cy = 4
 		end
-	
+
 		return cx, cy, right
 	end
-	
+
 	function IiTags:draw_slot(i, a, tg)
 		local hx, hy = a.hx, a.hy
 		local header, name, rank, weap = a.header, a.name, a.rank, a.weap
@@ -773,7 +781,7 @@ function install(IiTags, context)
 			end
 		end
 		s.hidden = false
-	
+
 		-- Crooks style draws NO per-entity UI -- just the one static screen readout (draw_crooks,
 		-- from render()). Hide everything on this slot and bail before the scanning/style branches.
 		if C.ui_style == CROOKS.style then
@@ -782,7 +790,7 @@ function install(IiTags, context)
 			show(s.spinner, false)
 			return
 		end
-	
+
 		local r, g, b = col[1], col[2], col[3]
 		scale = scale or 1
 		stack_offset = stack_offset or 0
@@ -790,21 +798,21 @@ function install(IiTags, context)
 		if alpha > 255 then
 			alpha = 255
 		end
-	
+
 		if scanning then
 			-- scanning only: a rotating spinner on the body, nothing revealed yet. Branches on
 			-- the `scanning` flag itself, not `alpha <= 1`: a revealed tag's alpha also drops
 			-- during its fade-out, which could hit alpha<=1 too and wrongly flip back to the
 			-- spinner.
 			draw_spinner(s.spinner, hx, hy, SPIN_D * scale, tg, 230)
-	
+
 			show(s.glow, false)
 			show(s.node, false)
 			return
 		end
-	
+
 		show(s.spinner, false)
-	
+
 		-- Add-on styles (ii_api): any ui_style past the built-in range dispatches here. Placed
 		-- AFTER the scanning branch above, so a custom style inherits the standard scan spinner
 		-- and only ever draws revealed targets -- one less thing every add-on has to reimplement.
@@ -821,7 +829,7 @@ function install(IiTags, context)
 			api_draw(api_def, state, i, a)
 			return
 		end
-	
+
 		-- Minimal style: always just the faction-coloured dot + a relation sign,
 		-- regardless of scale -- a distinct, user-selected visual language, not
 		-- just Card style's own too-small-to-fit fallback below.
@@ -834,7 +842,17 @@ function install(IiTags, context)
 			if show_dot then
 				draw_node_glow(s, hx, hy, scale, alpha, fcol[1], fcol[2], fcol[3], C.mini_dist_scale)
 			elseif not show_relsign then
-				draw_node_glow(s, hx, hy, scale, alpha, COL_NEUTRAL[1], COL_NEUTRAL[2], COL_NEUTRAL[3], C.mini_dist_scale)
+				draw_node_glow(
+					s,
+					hx,
+					hy,
+					scale,
+					alpha,
+					COL_NEUTRAL[1],
+					COL_NEUTRAL[2],
+					COL_NEUTRAL[3],
+					C.mini_dist_scale
+				)
 			else
 				show(s.node, false)
 				show(s.glow, false)
@@ -847,7 +865,7 @@ function install(IiTags, context)
 			end
 			return
 		end
-	
+
 		-- Minimal 2 (style 7): a single bare DOT (no glow, no sign, no text) coloured by RELATION --
 		-- red enemy / green friend / tan neutral, always relation-based (SIGN_COLOR is accurate
 		-- regardless of color_by_relation). The most stripped-down "friend or foe" indicator.
@@ -858,13 +876,21 @@ function install(IiTags, context)
 			-- No halo, no snapping: Minimal 2 always distance-scales.
 			local dot_scale = C.dot_scale or 1
 			if dot_scale > 0 then
-				dot_part(s.node, hx, hy, 7 * scale * dot_scale, relation_color(a, fcol), alpha, false)
+				dot_part(
+					s.node,
+					hx,
+					hy,
+					7 * scale * dot_scale,
+					relation_color(a, fcol),
+					opacity(alpha, "opacity_markers"),
+					false
+				)
 			else
 				show(s.node, false)
 			end
 			return
 		end
-	
+
 		-- Simple style: a compact horizontal strip above the head -- the Card style's
 		-- relation-coloured dot + glow, then the faction logo, then the name.
 		if C.ui_style == 5 then
@@ -880,7 +906,7 @@ function install(IiTags, context)
 				s.simple_last_name = name
 			end
 			local has_icon = icon_id and icon_id ~= ""
-	
+
 			local dot_scale, glow_scale = C.dot_scale or 1, C.glow_scale or 1
 			local dot_w = dot_scale > 0 and 7 * scale * dot_scale * C._ui_kx or 0
 			local glow_w = glow_scale > 0 and 7 * scale * 2.8 * glow_scale * C._ui_kx or 0
@@ -891,7 +917,7 @@ function install(IiTags, context)
 			local gap = 5 * scale * C._ui_kx
 			local marker_gap = has_marker and has_icon and gap or 0
 			local row_y = hy - 14 * scale
-	
+
 			-- Native text has a fixed font size; exclude its width from the anchor
 			-- calculation so a long name cannot push the marker off the entity.
 			local total = marker_w + marker_gap
@@ -899,7 +925,7 @@ function install(IiTags, context)
 				total = total + icon_w
 			end
 			local cursor = hx - total / 2
-	
+
 			draw_node_glow(s, cursor + marker_w / 2, row_y, scale, alpha, r, g, b, true)
 			cursor = cursor + marker_w
 
@@ -907,7 +933,16 @@ function install(IiTags, context)
 				cursor = cursor + marker_gap
 				-- Centred in the icon_w slot the row already reserved, so a letterboxed
 				-- patch does not shift the name beside it.
-				place_fit(s.icon, cursor + icon_w / 2, row_y, icon_h, icon_h, s.icon_aspect, COL_WHITE, alpha)
+				place_fit(
+					s.icon,
+					cursor + icon_w / 2,
+					row_y,
+					icon_h,
+					icon_h,
+					s.icon_aspect,
+					COL_WHITE,
+					opacity(alpha, "opacity_patch")
+				)
 				cursor = cursor + icon_w
 			else
 				show(s.icon, false)
@@ -922,11 +957,11 @@ function install(IiTags, context)
 					s.name_sh,
 					cursor,
 					row_y - 9,
-					alpha,
+					opacity(alpha, "opacity_name"),
 					235,
 					230,
 					220,
-					math.floor(180 * alpha / 255)
+					opacity(180 * alpha / 255, "opacity_name")
 				)
 			else
 				show(s.name, false)
@@ -934,7 +969,7 @@ function install(IiTags, context)
 			end
 			return
 		end
-	
+
 		-- Bodycam style: an unfilled, faction-coloured outline box locked to the
 		-- head bone and auto-scaled so it stays a constant real-world size around
 		-- the head -- no plate, dot, or sign, just the frame. box_hw/box_hh are nil
@@ -974,7 +1009,7 @@ function install(IiTags, context)
 					bcol,
 					math.floor(alpha * (C.box_opacity or 1))
 				)
-	
+
 				-- Name / faction / weapon+caliber, stacked just to the right of the box
 				-- and tracking it every frame, each gated by its generic show toggle.
 				-- Reuse the card's text widgets (hidden above by hide_card_widgets,
@@ -989,11 +1024,11 @@ function install(IiTags, context)
 						name,
 						tx,
 						ty,
-						alpha,
+						opacity(alpha, "opacity_name"),
 						236,
 						230,
 						218,
-						shadow_a,
+						opacity(shadow_a, "opacity_name"),
 						box_wx,
 						box_wy,
 						box_wz
@@ -1007,11 +1042,11 @@ function install(IiTags, context)
 						header,
 						tx,
 						ty,
-						alpha,
+						opacity(alpha, "opacity_faction"),
 						fcol[1],
 						fcol[2],
 						fcol[3],
-						shadow_a,
+						opacity(shadow_a, "opacity_faction"),
 						box_wx,
 						box_wy,
 						box_wz
@@ -1025,11 +1060,11 @@ function install(IiTags, context)
 						weap,
 						tx,
 						ty,
-						alpha,
+						opacity(alpha, "opacity_weapon"),
 						172,
 						178,
 						188,
-						shadow_a,
+						opacity(shadow_a, "opacity_weapon"),
 						box_wx,
 						box_wy,
 						box_wz
@@ -1038,7 +1073,7 @@ function install(IiTags, context)
 			end
 			return
 		end
-	
+
 		-- Simple 2 style: over the head -- a faction-coloured circle and a relation-coloured
 		-- (red enemy / green friendly / grey neutral) triangle side by side, with a thin
 		-- rank-coloured bar spanning them above. Distance-scaled (scale) and anchored at the
@@ -1063,21 +1098,22 @@ function install(IiTags, context)
 			local left = hx - roww / 2
 			local rowh = math.max(cd, th)
 			local cy = hy - rowh / 2 - 2 * sc -- sit the shapes just above the head anchor
-	
-			place(s.s2_circle, left, cy - cd / 2, cw, cd, fcol, alpha)
+
+			local shape_a = opacity(alpha, "opacity_markers")
+			place(s.s2_circle, left, cy - cd / 2, cw, cd, fcol, shape_a)
 
 			-- `show_relation` off nils the sign: drop the triangle entirely and let the row
 			-- (and the rank bar spanning it) close up around the circle alone.
 			if has_tri then
-				place(s.s2_tri, left + cw + gpx, cy - th / 2, twx, th, SIGN_COLOR[sign], alpha)
+				place(s.s2_tri, left + cw + gpx, cy - th / 2, twx, th, SIGN_COLOR[sign], shape_a)
 			else
 				show(s.s2_tri, false)
 			end
 
-			place(s.s2_bar, left, cy - rowh / 2 - bgap - bh, roww, bh, rank_col or RANK_FALLBACK, alpha)
+			place(s.s2_bar, left, cy - rowh / 2 - bgap - bh, roww, bh, rank_col or RANK_FALLBACK, shape_a)
 			return
 		end
-	
+
 		-- Patch style (style 8): the faction patch on its own, ringed by a relation-coloured
 		-- outline -- "who they are" plus "friend or foe", no text, no dot. The ring is the
 		-- style's ONLY relation cue, so `show_relation` off removes it outright rather than
@@ -1103,21 +1139,21 @@ function install(IiTags, context)
 			local hw = pw / 2 + margin * kx
 			local cy = hy - hh - 2 * scale -- sit the patch just above the head anchor
 			if ring then
-				outline(s.box, hx, cy, hw, hh, t, SIGN_COLOR[sign], alpha)
+				outline(s.box, hx, cy, hw, hh, t, SIGN_COLOR[sign], opacity(alpha, "patch_ring_opacity"))
 			else
 				hide_box_widgets(s)
 			end
-	
+
 			if C.show_faction and icon_id and icon_id ~= "" then
 				set_patch(s, s.icon, icon_id)
 				-- Logical box is ph square; place_fit applies the aspect correction itself.
-				place_fit(s.icon, hx, cy, ph, ph, s.icon_aspect, COL_WHITE, alpha)
+				place_fit(s.icon, hx, cy, ph, ph, s.icon_aspect, COL_WHITE, opacity(alpha, "opacity_patch"))
 			else
 				show(s.icon, false)
 			end
 			return
 		end
-	
+
 		-- Mini fallback: below the cutoff, the card doesn't fit any more, so just
 		-- show the relation dot -- the same node the leader line would otherwise
 		-- connect to a card, minus the card. `scale` is a single flat MCM value
@@ -1128,18 +1164,18 @@ function install(IiTags, context)
 			draw_node_glow(s, hx, hy, scale, alpha, r, g, b)
 			return
 		end
-	
+
 		set_patch(s, s.icon, icon_id)
-	
+
 		local measured = measure_card(s, a)
 		local has_head, has_name, has_rank, has_weap = measured.head, measured.name, measured.rank, measured.weap
 		local cw, ch = measured.width, measured.height
 		local accent_w, lead, ispan, ibox = measured.accent, measured.lead, measured.ispan, measured.icon
 		local PAD_TOP, GAP = 7, 4
 		local head_h, name_h, rank_h, weap_h = 16, 18, 16, 16
-	
+
 		local cx, cy, right = place_card(a, measured)
-	
+
 		-- soft drop shadow (ii_shadow, feathered -- see its texture comment),
 		-- larger and offset down-right of the plate, so the card reads as lifted
 		-- off the world instead of pasted flat on it. Margin needs real room for
@@ -1154,13 +1190,13 @@ function install(IiTags, context)
 			cw + sh_m * 2,
 			ch + sh_m * 2,
 			COL_BLACK,
-			math.floor(160 * alpha / 255)
+			opacity(160 * alpha / 255, "opacity_background")
 		)
-		place(s.plate, cx, cy, cw, ch, COL_PLATE, math.floor(185 * alpha / 255))
+		place(s.plate, cx, cy, cw, ch, COL_PLATE, opacity(185 * alpha / 255, "opacity_background"))
 
 		local acc_in = 6 * scale
 		_rgb[1], _rgb[2], _rgb[3] = r, g, b
-		place(s.accent, cx, cy + acc_in, accent_w, ch - acc_in * 2, _rgb, alpha)
+		place(s.accent, cx, cy + acc_in, accent_w, ch - acc_in * 2, _rgb, opacity(alpha, "opacity_markers"))
 
 		-- Fitted, so a non-square patch keeps its shape. Clamped to the plate's inner height:
 		-- with every text line switched off the card collapses to padding alone, and an
@@ -1178,7 +1214,7 @@ function install(IiTags, context)
 				icon_box,
 				s.icon_aspect,
 				COL_WHITE,
-				alpha
+				opacity(alpha, "opacity_patch")
 			)
 		else
 			show(s.icon, false)
@@ -1191,28 +1227,48 @@ function install(IiTags, context)
 		local shadow_a = math.floor(180 * alpha / 255)
 		local y = math.floor(cy + PAD_TOP)
 		local placed = 0
-	
+
 		if has_head then
-			draw_shadowed_text(s.head, s.head_sh, txo, y, alpha, r, g, b, shadow_a)
+			draw_shadowed_text(
+				s.head,
+				s.head_sh,
+				txo,
+				y,
+				opacity(alpha, "opacity_faction"),
+				r,
+				g,
+				b,
+				opacity(shadow_a, "opacity_faction")
+			)
 			y = y + head_h
 			placed = placed + 1
 		else
 			show(s.head, false)
 			show(s.head_sh, false)
 		end
-	
+
 		if has_name then
 			if placed > 0 then
 				y = y + GAP
 			end
-			draw_shadowed_text(s.name, s.name_sh, txo, y, alpha, 235, 230, 220, shadow_a)
+			draw_shadowed_text(
+				s.name,
+				s.name_sh,
+				txo,
+				y,
+				opacity(alpha, "opacity_name"),
+				235,
+				230,
+				220,
+				opacity(shadow_a, "opacity_name")
+			)
 			y = y + name_h
 			placed = placed + 1
 		else
 			show(s.name, false)
 			show(s.name_sh, false)
 		end
-	
+
 		if has_rank then
 			if placed > 0 then
 				y = y + GAP
@@ -1223,11 +1279,11 @@ function install(IiTags, context)
 				s.rank_sh,
 				txo,
 				math.floor(y),
-				math.floor(200 * alpha / 255),
+				opacity(200 * alpha / 255, "opacity_rank"),
 				210,
 				205,
 				195,
-				shadow_a
+				opacity(shadow_a, "opacity_rank")
 			)
 			y = y + rank_h
 			placed = placed + 1
@@ -1235,7 +1291,7 @@ function install(IiTags, context)
 			show(s.rank, false)
 			show(s.rank_sh, false)
 		end
-	
+
 		if has_weap then
 			if placed > 0 then
 				y = y + GAP
@@ -1246,11 +1302,11 @@ function install(IiTags, context)
 				s.weap_sh,
 				txo,
 				math.floor(y),
-				math.floor(185 * alpha / 255),
+				opacity(185 * alpha / 255, "opacity_weapon"),
 				165,
 				180,
 				195,
-				shadow_a
+				opacity(shadow_a, "opacity_weapon")
 			)
 			y = y + weap_h
 			placed = placed + 1
@@ -1258,11 +1314,11 @@ function install(IiTags, context)
 			show(s.weap, false)
 			show(s.weap_sh, false)
 		end
-	
+
 		-- node + its glow halo at the anchor point on the body (shared with the
 		-- mini-mode branch above -- see draw_node_glow's comment).
 		draw_node_glow(s, hx, hy, scale, alpha, r, g, b)
-	
+
 		-- leader line: node -> nearest bottom corner of the card, extended
 		-- slightly past the corner so its end tucks under the plate (drawn over
 		-- it), giving a flush join at any aspect ratio. The engine's heading
@@ -1283,22 +1339,22 @@ function install(IiTags, context)
 		local ang = math.atan2(-dy, dxk)
 		local mx, my = (hx + corner_x) * 0.5, (hy + corner_y) * 0.5
 		local thick = 2 * scale
-	
+
 		s.line_sh:SetWndSize(S(len, thick + 2))
 		s.line_sh:SetWndPos(P(mx - len * 0.5, my - (thick + 2) * 0.5))
 		s.line_sh:EnableHeading(true)
 		s.line_sh:SetHeading(ang)
-		s.line_sh:SetTextureColor(GetARGB(math.floor(alpha * 0.5), 0, 0, 0))
+		s.line_sh:SetTextureColor(GetARGB(opacity(alpha * 0.5, "opacity_line"), 0, 0, 0))
 		show(s.line_sh, true)
-	
+
 		s.line:SetWndSize(S(len, thick))
 		s.line:SetWndPos(P(mx - len * 0.5, my - thick * 0.5))
 		s.line:EnableHeading(true)
 		s.line:SetHeading(ang)
-		s.line:SetTextureColor(GetARGB(math.floor(alpha * 0.8), r, g, b))
+		s.line:SetTextureColor(GetARGB(opacity(alpha * 0.8, "opacity_line"), r, g, b))
 		show(s.line, true)
 	end
-	
+
 	return {
 		show = show,
 		set_text = set_text,
@@ -1306,5 +1362,6 @@ function install(IiTags, context)
 		place_fit = place_fit,
 		set_patch = set_patch,
 		draw_spinner = draw_spinner,
+		opacity = opacity,
 	}
 end

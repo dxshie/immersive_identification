@@ -154,7 +154,7 @@ function on_mcm_load()
 				},
 			},
 			-- UI Style is a CONTAINER (no `sh`), so MCM shows its sub-pages (General/Card/Simple/Bodycam/
-			-- Crooks/Patch) in the third column. A container can hold NO options directly (MCM only
+			-- Crooks/Patch/Opacity) in the third column. A container can hold NO options directly (MCM only
 			-- codes options on sh=true nodes), so the general options live in the "general" sub-page.
 			-- Option storage paths become ii/uistyle/<sub>/<key> -- kept in sync in MCM_PAGES +
 			-- presets_ii.ltx.
@@ -211,6 +211,19 @@ function on_mcm_load()
 						opt_track("patch_size", 8, 64, 1, 0),
 						opt_track("patch_thickness", 0, 5, 0.5, 1),
 						opt_track("patch_padding", 0, 12, 0.5, 1),
+						opt_track("patch_ring_opacity", 0, 1, 0.05, 2),
+					}),
+					page("opacity", {
+						opt_title("ui_mcm_ii_opacity_title"),
+						opt_track("opacity_name", 0, 1, 0.05, 2),
+						opt_track("opacity_faction", 0, 1, 0.05, 2),
+						opt_track("opacity_rank", 0, 1, 0.05, 2),
+						opt_track("opacity_weapon", 0, 1, 0.05, 2),
+						opt_track("opacity_background", 0, 1, 0.05, 2),
+						opt_track("opacity_markers", 0, 1, 0.05, 2),
+						opt_track("opacity_patch", 0, 1, 0.05, 2),
+						opt_track("opacity_line", 0, 1, 0.05, 2),
+						opt_track("opacity_spinner", 0, 1, 0.05, 2),
 					}),
 				},
 			},

@@ -8,6 +8,7 @@
 	<string id="ui_mcm_menu_bodycam"><text>Bodycam</text></string>
 	<string id="ui_mcm_menu_crooks"><text>Crooks</text></string>
 	<string id="ui_mcm_menu_patch"><text>Patch</text></string>
+	<string id="ui_mcm_menu_opacity"><text>Opacity</text></string>
 	<string id="ui_mcm_menu_targeting"><text>Targeting</text></string>
 	<string id="ui_mcm_menu_hipfire"><text>Hipfire</text></string>
 	<string id="ui_mcm_menu_binoc"><text>Binoculars</text></string>
@@ -37,6 +38,7 @@
 	<string id="ui_mcm_ii_bodycam_title"><text>Bodycam</text></string>
 	<string id="ui_mcm_ii_crooks_title"><text>Crooks</text></string>
 	<string id="ui_mcm_ii_patch_title"><text>Patch</text></string>
+	<string id="ui_mcm_ii_opacity_title"><text>Opacity</text></string>
 	<string id="ui_mcm_ii_targeting_title"><text>Targeting</text></string>
 	<string id="ui_mcm_ii_hipfire_title"><text>Hipfire</text></string>
 	<string id="ui_mcm_ii_audio_title"><text>Identification audio</text></string>
@@ -104,6 +106,26 @@
 
 	<string id="ui_mcm_ii_patch_padding"><text>Patch outline gap</text></string>
 	<string id="ui_mcm_ii_patch_padding_desc"><text>Patch style: gap between the faction patch and its relationship outline, in pixels at the reference distance. 0 = the outline sits flush against the patch.</text></string>
+	<string id="ui_mcm_ii_patch_ring_opacity"><text>Patch outline opacity</text></string>
+	<string id="ui_mcm_ii_patch_ring_opacity_desc"><text>Patch style: opacity of the relationship outline around the patch (1 = solid, 0 = invisible). The patch itself is set by Faction patch opacity on the Opacity page.</text></string>
+	<string id="ui_mcm_ii_opacity_name"><text>Name opacity</text></string>
+	<string id="ui_mcm_ii_opacity_name_desc"><text>Opacity of the name text in every style that shows it (Card, Simple, Bodycam, Crooks), including its shadow. 0 = hidden, the layout is unchanged.</text></string>
+	<string id="ui_mcm_ii_opacity_faction"><text>Faction text opacity</text></string>
+	<string id="ui_mcm_ii_opacity_faction_desc"><text>Opacity of the faction text line (Card, Bodycam), including its shadow.</text></string>
+	<string id="ui_mcm_ii_opacity_rank"><text>Rank text opacity</text></string>
+	<string id="ui_mcm_ii_opacity_rank_desc"><text>Opacity of the rank text line (Card, Crooks), including its shadow. Simple 2's rank bar is a shape: see Markers and shapes opacity.</text></string>
+	<string id="ui_mcm_ii_opacity_weapon"><text>Weapon text opacity</text></string>
+	<string id="ui_mcm_ii_opacity_weapon_desc"><text>Opacity of the weapon and calibre line (Card, Bodycam), including its shadow.</text></string>
+	<string id="ui_mcm_ii_opacity_background"><text>Background opacity</text></string>
+	<string id="ui_mcm_ii_opacity_background_desc"><text>Opacity of the Card style's dark plate and its drop shadow. 0 = text floating without a background.</text></string>
+	<string id="ui_mcm_ii_opacity_markers"><text>Markers and shapes opacity</text></string>
+	<string id="ui_mcm_ii_opacity_markers_desc"><text>Opacity of the relationship and faction markers: dots and their glow, the Minimal relation sign, the Simple 2 circle, triangle and rank bar, the Card accent bar, and the in-scope PiP marker.</text></string>
+	<string id="ui_mcm_ii_opacity_patch"><text>Faction patch opacity</text></string>
+	<string id="ui_mcm_ii_opacity_patch_desc"><text>Opacity of the faction emblem or patch (Card, Simple, Patch, Crooks).</text></string>
+	<string id="ui_mcm_ii_opacity_line"><text>Leader line opacity</text></string>
+	<string id="ui_mcm_ii_opacity_line_desc"><text>Opacity of the Card style's leader line from the body marker to the card.</text></string>
+	<string id="ui_mcm_ii_opacity_spinner"><text>Scan spinner opacity</text></string>
+	<string id="ui_mcm_ii_opacity_spinner_desc"><text>Opacity of the rotating scan spinner (main view, Crooks readout, PiP scope).</text></string>
 
 	<string id="ui_mcm_ii_auto_identify"><text>Auto-identify visible targets</text></string>
 	<string id="ui_mcm_ii_auto_identify_desc"><text>Continuously identify every target in your view and within range, without pressing the key or aiming at them. Line of sight is always required. Pairs well with the Bodycam style. (If Only show overlay while aimed is on, only aimed targets are kept.)</text></string>

@@ -275,6 +275,7 @@ so anything they handle correctly, your style gets for free.
 |---|---|
 | `ctx.texture_aspect(widget)` | Width/height of the widget's current texture **region**, so it is the art's true shape even for one tile of an atlas. `nil` if the engine will not report one. A luabind call — read it on texture change, never per frame. |
 | `ctx.set_patch(state, widget, icon_id)` | Swaps a patch texture and caches its aspect on `state` (`icon_key` / `icon_aspect`), only when the id actually changed. Pair with `ctx.place_fit(..., state.icon_aspect, ...)`. |
+| `ctx.opacity(alpha, key)` | `alpha` scaled by one of the per-element opacity settings (`"opacity_name"`, `"opacity_markers"`, …, see the config table below), floored to an integer. |
 | `ctx.relation_color(a, fallback)` | The red/green/tan relationship colour, or `fallback` when there is none to show (*Show relation* off). Replaces the `a.sign and ctx.sign_colors[a.sign] or …` dance. |
 | `ctx.show(widget, bool)` | Show or hide. **Use this instead of `widget:Show()`** — it skips the native call when the state has not changed, a real per-frame saving. `ctx.place*` already shows for you. |
 | `ctx.set_text(widget, str)` | Same idea for `SetText`. |
@@ -515,6 +516,7 @@ The keys most likely to matter to a style:
 |---|---|
 | `_ui_kx` | aspect correction (section 8). Not an MCM option; computed per resolution. |
 | `box_thickness`, `box_opacity`, `box_color_source` | The *UI Style → Bodycam* page. **Not folded into `a`.** If you use `want_box`, the player will reasonably expect these to affect your outline — honour them or your style will look like it is ignoring its own settings page. `box_color_source` is `1` faction / `2` relationship. |
+| `opacity_name`, `opacity_faction`, `opacity_rank`, `opacity_weapon`, `opacity_background`, `opacity_markers`, `opacity_patch`, `opacity_line`, `opacity_spinner` | The *UI Style → Opacity* page, 0–1 per element class. **Not folded into `a.a`** (the spinner one is applied for you). Draw each element with `ctx.opacity(a.a, "<key>")` so the player's sliders reach your style too. |
 | `color_by_relation` | See the caveat above. |
 | `card_scale`, `mini_dist_scale`, `mini_scale_cutoff` | Already in `a.scale` / style-specific. Rarely needed raw. |
 | `ui_style` | The selected index. You are only called when it is yours. |

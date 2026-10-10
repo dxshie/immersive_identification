@@ -4181,14 +4181,35 @@ function IiTags:draw_crooks(tg)
 			icon_box,
 			ck.icon_aspect,
 			COL_WHITE_PATCH,
-			255
+			_ui.opacity(255, "opacity_patch")
 		)
 	else
 		show(ck.icon, false)
 	end
-	draw_shadowed_text(ck.name, ck.name_sh, text_x, math.floor(y), 255, 235, 230, 220, 180)
+	local fade = _ui.opacity
+	draw_shadowed_text(
+		ck.name,
+		ck.name_sh,
+		text_x,
+		math.floor(y),
+		fade(255, "opacity_name"),
+		235,
+		230,
+		220,
+		fade(180, "opacity_name")
+	)
 	if has_rank then
-		draw_shadowed_text(ck.rank, ck.rank_sh, text_x, math.floor(y + CROOKS.rank_dy), 255, 190, 180, 150, 170)
+		draw_shadowed_text(
+			ck.rank,
+			ck.rank_sh,
+			text_x,
+			math.floor(y + CROOKS.rank_dy),
+			fade(255, "opacity_rank"),
+			190,
+			180,
+			150,
+			fade(170, "opacity_rank")
+		)
 	else
 		show(ck.rank, false)
 		show(ck.rank_sh, false)
@@ -4470,7 +4491,8 @@ local function render(tg)
 					local spinner_scale = C.spinner_scale or 1
 					if not scanning or spinner_scale > 0 then
 						local col, fcol = e.col, e.fcol
-						local alpha = scanning and 0.9 or phase_alpha
+						local alpha = scanning and 0.9 * (C.opacity_spinner or 1)
+							or phase_alpha * (C.opacity_markers or 1)
 						local marker_radius = pip_marker_radius(dist) * (scanning and spinner_scale or 1)
 						svp_ui_markers_add(
 							pos.x,

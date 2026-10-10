@@ -8,6 +8,7 @@
 	<string id="ui_mcm_menu_bodycam"><text>Нагрудная камера</text></string>
 	<string id="ui_mcm_menu_crooks"><text>Бандиты</text></string>
 	<string id="ui_mcm_menu_patch"><text>Нашивка</text></string>
+	<string id="ui_mcm_menu_opacity"><text>Прозрачность</text></string>
 	<string id="ui_mcm_menu_targeting"><text>Наведение</text></string>
 	<string id="ui_mcm_menu_hipfire"><text>Стрельба от бедра</text></string>
 	<string id="ui_mcm_menu_binoc"><text>Бинокль</text></string>
@@ -37,6 +38,7 @@
 	<string id="ui_mcm_ii_bodycam_title"><text>Нагрудная камера</text></string>
 	<string id="ui_mcm_ii_crooks_title"><text>Бандиты</text></string>
 	<string id="ui_mcm_ii_patch_title"><text>Нашивка</text></string>
+	<string id="ui_mcm_ii_opacity_title"><text>Прозрачность</text></string>
 	<string id="ui_mcm_ii_targeting_title"><text>Наведение</text></string>
 	<string id="ui_mcm_ii_hipfire_title"><text>Стрельба от бедра</text></string>
 	<string id="ui_mcm_ii_audio_title"><text>Звуки идентификации</text></string>
@@ -104,6 +106,26 @@
 
 	<string id="ui_mcm_ii_patch_padding"><text>Отступ контура нашивки</text></string>
 	<string id="ui_mcm_ii_patch_padding_desc"><text>Стиль нашивки: зазор между нашивкой фракции и контуром отношения, в пикселях на опорной дистанции. 0 — контур вплотную к нашивке.</text></string>
+	<string id="ui_mcm_ii_patch_ring_opacity"><text>Непрозрачность рамки нашивки</text></string>
+	<string id="ui_mcm_ii_patch_ring_opacity_desc"><text>Стиль «Нашивка»: непрозрачность рамки отношения вокруг нашивки (1 = сплошная, 0 = невидима). Саму нашивку настраивает «Непрозрачность нашивки группировки» на странице «Прозрачность».</text></string>
+	<string id="ui_mcm_ii_opacity_name"><text>Непрозрачность имени</text></string>
+	<string id="ui_mcm_ii_opacity_name_desc"><text>Непрозрачность текста имени во всех стилях, где он есть (Карточка, Простой, Нагрудная камера, Бандиты), вместе с тенью. 0 = скрыто, раскладка не меняется.</text></string>
+	<string id="ui_mcm_ii_opacity_faction"><text>Непрозрачность группировки</text></string>
+	<string id="ui_mcm_ii_opacity_faction_desc"><text>Непрозрачность строки группировки (Карточка, Нагрудная камера) вместе с тенью.</text></string>
+	<string id="ui_mcm_ii_opacity_rank"><text>Непрозрачность ранга</text></string>
+	<string id="ui_mcm_ii_opacity_rank_desc"><text>Непрозрачность строки ранга (Карточка, Бандиты) вместе с тенью. Полоса ранга в стиле «Простой 2» считается фигурой: см. «Непрозрачность меток и фигур».</text></string>
+	<string id="ui_mcm_ii_opacity_weapon"><text>Непрозрачность оружия</text></string>
+	<string id="ui_mcm_ii_opacity_weapon_desc"><text>Непрозрачность строки оружия и калибра (Карточка, Нагрудная камера) вместе с тенью.</text></string>
+	<string id="ui_mcm_ii_opacity_background"><text>Непрозрачность фона</text></string>
+	<string id="ui_mcm_ii_opacity_background_desc"><text>Непрозрачность тёмной подложки карточки и её тени. 0 = текст без фона.</text></string>
+	<string id="ui_mcm_ii_opacity_markers"><text>Непрозрачность меток и фигур</text></string>
+	<string id="ui_mcm_ii_opacity_markers_desc"><text>Непрозрачность меток отношения и группировки: точки и их свечение, знак отношения стиля «Минимальный», круг, треугольник и полоса ранга стиля «Простой 2», цветная полоса карточки и метка в прицеле (PiP).</text></string>
+	<string id="ui_mcm_ii_opacity_patch"><text>Непрозрачность нашивки группировки</text></string>
+	<string id="ui_mcm_ii_opacity_patch_desc"><text>Непрозрачность эмблемы или нашивки группировки (Карточка, Простой, Нашивка, Бандиты).</text></string>
+	<string id="ui_mcm_ii_opacity_line"><text>Непрозрачность выноски</text></string>
+	<string id="ui_mcm_ii_opacity_line_desc"><text>Непрозрачность линии-выноски от метки на теле к карточке.</text></string>
+	<string id="ui_mcm_ii_opacity_spinner"><text>Непрозрачность индикатора сканирования</text></string>
+	<string id="ui_mcm_ii_opacity_spinner_desc"><text>Непрозрачность вращающегося индикатора сканирования (основной вид, блок «Бандиты», прицел PiP).</text></string>
 
 	<string id="ui_mcm_ii_auto_identify"><text>Автоматически идентифицировать видимые цели</text></string>
 	<string id="ui_mcm_ii_auto_identify_desc"><text>Непрерывно идентифицировать каждую цель в поле зрения и в пределах дальности, без нажатия клавиши и без прицеливания. Линия обзора всегда обязательна. Хорошо сочетается со стилем нагрудной камеры. (Если включено «Показывать интерфейс только при наведении», остаются только цели под прицелом.)</text></string>
