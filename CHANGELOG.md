@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.4.0
+
+- Add opacity sliders for UI elements
+
 ## 4.3.3
 
 - Fix Compatibility with WD 0.8.14
