@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Fix: free-aim assist on the bodycam-mt exe.** That engine removed `bodycam.get_fire_ray()`,
+  so the assist circle and the aim-at-model raycast silently fell back to the barrel trace
+  (wrong for knife and binoculars). The aim ray now comes from `first_person.get_pose("camera_aim")`,
+  with `bodycam.get_fire_ray()` kept as the fallback for older custom exes. Engine side:
+  [`freeaim-identify-binding`](https://github.com/dxshie/xray-monolith-bodycam/tree/freeaim-identify-binding).
+- Debug log prints the free-aim ray, and says when `bodycam.get_state()` is missing instead of
+  reporting the whole bodycam module as absent.
+
 ## 4.4.1
 
 - Stop the "MCM given bad path" lines on every load by @devinhorowitz in https://github.com/dxshie/immersive_identification/pull/5

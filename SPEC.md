@@ -466,7 +466,8 @@ aiming down sight on **any exe**, in priority order:
    heuristics below can't see. Self-heals a stuck flag: if it's set but the actor has
    no active item in hand (holstered/switched), it resets and reports hipfire.
 2. `bodycam.get_state().ads` — only trusted while the bodycam logic is **active**
-   (`st.active`); when disabled the field is stale/false.
+   (`st.active`); when disabled the field is stale/false. Only on pre-bodycam-mt exes:
+   bodycam-mt dropped `get_state()` and has no ADS flag binding, so this step is skipped.
 3. A live PiP scope (`is_svp_active()`) — a scope narrows the *second* viewport, not
    the main FOV, so the heuristic below can't see it.
 4. FOV-zoom heuristic: `device().fov < _fov_baseline × ADS_ZOOM_RATIO (0.85)`.
@@ -1423,13 +1424,17 @@ weapon actually points on a free-aim / bodycam engine
 The aim direction comes from **two sources, in order** — the second is a fallback for the
 first, and the split is what makes free-aim work for *every* held item:
 
-1. **`bodycam.get_fire_ray()`** (custom engine binding) — the actor's **first-eye aim
-   camera** (`CActor::cam_FirstEye()`), which reflects free aim for **any** held item:
+1. **The first-eye aim ray** (`freeaim_ray()`, custom exe only) — the actor's **first-eye
+   aim camera** (`CActor::cam_FirstEye()`), which reflects free aim for **any** held item:
    firearm, **knife**, or **binoculars** (not zoomed). Under bodycam the *render* camera
    (`device().cam_dir`, what `world2ui`/`TT_CAMERA` use) is a *swayed override* of the
-   first-eye camera, so it's the only source that isn't offset by sway. Implemented in
-   `src/xrGame/bodycam_script.cpp` (a pure read of `cam_FirstEye()`'s `vPosition`/
-   `vDirection`); **not in the stock exe**, must be compiled in.
+   first-eye camera, so it's the only source that isn't offset by sway. Two engine seams,
+   newest first:
+   - **`first_person.get_pose("camera_aim", -1, "", pose)`** — the bodycam-mt transform
+     API (`src/xrGame/first_person_transform.cpp`, published once per frame from
+     `cam_FirstEye()`). Returns `false` outside first person or when the pose is stale.
+   - **`bodycam.get_fire_ray()`** — the older binding in `src/xrGame/bodycam_script.cpp`,
+     removed when the bodycam-mt API superseded it; kept as a fallback for older exes.
 2. **`level.get_target_pos/obj(ETraceTarget.Weapon)`** (standard trace) — `g_get_target_pos(TT_WEAPON)`
    builds the point off the equipped item's `barrel_matrix`. For a **firearm** that's the
    real fire direction (accurate, and works on a **stock exe** with no custom binding); for a

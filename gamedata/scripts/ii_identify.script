@@ -399,6 +399,15 @@ local function ext_bodycam()
 	return rawget(_G, "bodycam")
 end
 
+-- The bodycam engine's first-person transform module (first_person.*), or nil on a stock
+-- exe / an older custom exe. Same debug_sim_stock gate as ext_bodycam().
+local function ext_first_person()
+	if C.debug_sim_stock then
+		return nil
+	end
+	return rawget(_G, "first_person")
+end
+
 -- --------------------------------------------------------------------------
 -- Faction label / relation colour
 -- --------------------------------------------------------------------------
@@ -959,16 +968,35 @@ end
 -- Free-aim target-assist centre. On a normal engine the weapon points at the screen centre,
 -- so the FOV assist circle is centred on (512,384). On a bodycam / free-aim engine the aim
 -- points OFF-centre, so the assist follows it. Two sources (see weapon_aim_ui):
---   1. bodycam.get_fire_ray() -- the actor's first-eye aim camera. Reflects free aim for EVERY
---      held item (gun, knife, binoculars). Needs the custom bodycam binding.
+--   1. The actor's first-eye aim camera (freeaim_ray). Reflects free aim for EVERY held item
+--      (gun, knife, binoculars). Needs the custom bodycam exe.
 --   2. get_target_pos(ETraceTarget.Weapon) -- the standard engine weapon trace. Barrel-
 --      accurate for FIREARMS and works on a stock exe, but for a knife/binoculars it's the
 --      cosmetic HUD-model transform, not the aim -- hence source 1 for those.
 local FREEAIM_PROJECT_DIST = 100 -- metres along the aim ray to project for the reticle screen point
 
--- The gameplay aim ray (actor first-eye camera) via the custom bodycam.get_fire_ray() binding.
--- Returns origin + unit dir, or nil on an engine without the binding.
+-- The gameplay aim ray (actor first-eye camera). Returns origin + unit dir, or nil on an
+-- engine without either binding. Two engine seams, newest first:
+--   1. first_person.get_pose("camera_aim") -- the bodycam-mt transform API (cam_FirstEye()).
+--      false when not in first person or the pose is stale, which drops us to source 2 below.
+--   2. bodycam.get_fire_ray() -- the older custom binding it replaced (pre-bodycam-mt exes).
+local _aim_pose = nil
 local function freeaim_ray()
+	local fp = ext_first_person()
+	if fp and fp.get_pose and fp.pose then
+		if not _aim_pose then
+			local ok, p = pcall(fp.pose)
+			_aim_pose = ok and p or false
+		end
+		if _aim_pose then
+			local ok, got = pcall(fp.get_pose, "camera_aim", -1, "", _aim_pose)
+			if ok and got then
+				local o = _aim_pose.position
+				local d = _v.aim_dir:set(_aim_pose.forward):normalize()
+				return o.x, o.y, o.z, d.x, d.y, d.z
+			end
+		end
+	end
 	local bc = ext_bodycam()
 	if not (bc and bc.get_fire_ray) then
 		return nil
@@ -1214,9 +1242,18 @@ local function debug_dump_aim()
 	local cx, cy = aim_center()
 	dbg(string.format("aim_center=(%.0f, %.0f)  screen_center=(%d, %d)", cx, cy, UI_CX, UI_CY))
 
+	local fpx, fpy, fpz, fdx, fdy, fdz = freeaim_ray()
+	if fpx then
+		dbg(string.format("freeaim ray pos=(%.2f,%.2f,%.2f) dir=(%.3f,%.3f,%.3f)", fpx, fpy, fpz, fdx, fdy, fdz))
+	else
+		dbg("freeaim ray unavailable (no first_person/get_fire_ray binding, or not first person)")
+	end
+
 	local bc = ext_bodycam()
-	if not (bc and bc.get_state) then
+	if not bc then
 		dbg("bodycam module not present")
+	elseif not bc.get_state then
+		dbg("bodycam.get_state() not in this exe (removed in bodycam-mt)")
 	else
 		local ok, st = pcall(bc.get_state)
 		if not ok or type(st) ~= "table" then
@@ -1738,7 +1775,7 @@ end
 is_binoc_active = _frame:memoize(is_binoc_active)
 
 -- Is the actor aiming down sight (ADS) with a weapon right now? Prefers the
--- bodycam engine's real aim flag (bodycam.get_state().ads) -- which catches even
+-- bodycam engine's real aim flag (bodycam.get_state().ads, pre-bodycam-mt exes only) -- which catches even
 -- low-zoom iron sights -- and falls back to the same FOV-zoom heuristic
 -- is_binoc_active() uses, with a gentler ratio because ADS narrows the FOV less
 -- than a scope or binoculars. Binoculars are excluded (that's binocular mode's
@@ -1949,7 +1986,7 @@ binoc_magnification = _frame:memoize(binoc_magnification)
 local _aim_ray = nil
 
 -- "Are we aiming at the model" direct pick. Two sources, matching weapon_aim_ui:
---   1. A mesh raycast along the first-eye aim ray (bodycam.get_fire_ray) -- works for EVERY
+--   1. A mesh raycast along the first-eye aim ray (freeaim_ray) -- works for EVERY
 --      held item (gun/knife/binoculars); rqtBoth so walls block; ignores the actor's capsule.
 --   2. The standard engine weapon trace get_target_obj(ETraceTarget.Weapon) -- barrel-accurate
 --      for firearms, works on a stock exe, range-gated by max_dist here.
