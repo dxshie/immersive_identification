@@ -2896,7 +2896,10 @@ end
 -- iterate_nearest + a per-candidate has_los() raycast every frame across a crowd
 -- is wasteful, and the scan reveal is on a timescale where a few-hundred-ms
 -- cadence is invisible.
-local _auto = { throttle_ms = 250, last_tg = 0 }
+-- The sweep is time-sliced: at most los_budget candidates reach has_los per frame (an occluded
+-- target never early-outs, so it pays every LOS bone's march), and `skip` resumes the next frame
+-- past those already checked. A crowd otherwise fired ~1000 rays in one frame (60-75 ms hitch).
+local _auto = { throttle_ms = 250, last_tg = 0, los_budget = 4, skip = 0 }
 
 -- LOS alone also passes targets behind the camera; those would occupy tag slots
 -- without ever being drawable, starving the targets actually in view.
@@ -2945,10 +2948,9 @@ local function update_auto_identify(tg)
 	-- Throttled full sweep of everything in view. Deliberately independent of fov_identify_all:
 	-- that option picks all-vs-nearest inside the aim-assist radius, while auto-identify
 	-- does not involve aiming at all.
-	if tg - _auto.last_tg < _auto.throttle_ms then
+	if _auto.skip == 0 and tg - _auto.last_tg < _auto.throttle_ms then
 		return
 	end
-	_auto.last_tg = tg
 
 	local apos = _frame:position(db.actor)
 	local actor_id = db.actor:id()
@@ -2960,6 +2962,7 @@ local function update_auto_identify(tg)
 	if aim_only then
 		acx, acy = aim_center()
 	end
+	local skip, seen, checked = _auto.skip, 0, 0
 	pcall(level.iterate_nearest, apos, eff_max_dist, function(obj)
 		if obj and not _tracks:has_room(obj:id()) then
 			return false
@@ -2973,14 +2976,29 @@ local function update_auto_identify(tg)
 						local d = screen_dist_to_body(obj, acx, acy)
 						aimed = d ~= nil and d <= assist_radius()
 					end
-					if aimed and in_view(obj) and has_los(obj) then
-						identify_target(obj, comm, boosted, eff_max_dist, scan_mult, true)
+					if aimed and in_view(obj) then
+						seen = seen + 1
+						if seen > skip then
+							if checked >= _auto.los_budget then
+								return true -- budget spent; resume here next frame
+							end
+							checked = checked + 1
+							if has_los(obj) then
+								identify_target(obj, comm, boosted, eff_max_dist, scan_mult, true)
+							end
+						end
 					end
 				end
 			end
 		end
 		return false -- keep scanning the whole set within eff_max_dist
 	end)
+	if checked >= _auto.los_budget and seen > skip + checked then
+		_auto.skip = skip + checked
+	else
+		_auto.skip = 0
+		_auto.last_tg = tg
+	end
 end
 
 -- --------------------------------------------------------------------------
