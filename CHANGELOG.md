@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 5.0.0
 
 - **Fix: free-aim assist on the bodycam-mt exe.** That engine removed `bodycam.get_fire_ray()`,
   so the assist circle and the aim-at-model raycast silently fell back to the barrel trace
