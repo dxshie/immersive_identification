@@ -2,7 +2,9 @@
 --   * the IDENTIFICATION page: d_promin_ui keeps its page builders in a file local with no
 --     registration call, so the page is added to that table through the upvalues of
 --     UIPromin.ensure_page (the only function holding it);
---   * the identification cards: driven from UIPromin's own Update and repaint.
+--   * the identification cards: driven from UIPromin's own Update and repaint;
+--   * the page's number key: WD 0.10 dropped per-module pages (a tier lists all of its pages),
+--     so an installed OSD scanner appends the page to d_promin.get_available_pages.
 -- If WD reshapes d_promin_ui, register() logs once and leaves the Promin alone.
 
 local IDENT_PAGE = "ident"
@@ -96,6 +98,28 @@ local function update_cards(wnd)
 	end
 end
 
+local function contains(list, value)
+	for _, item in ipairs(list) do
+		if item == value then
+			return true
+		end
+	end
+	return false
+end
+
+-- d_promin calls get_available_pages unqualified, which resolves through its module table, so
+-- replacing the field also covers WD's own page validation and number keys.
+local function hook_available_pages()
+	local available = d_promin.get_available_pages
+	d_promin.get_available_pages = function()
+		local pages = available()
+		if ii_wd_modules.osd_scanner_tier() and not contains(pages, IDENT_PAGE) then
+			pages[#pages + 1] = IDENT_PAGE
+		end
+		return pages
+	end
+end
+
 function register()
 	if hooked then
 		return
@@ -111,6 +135,7 @@ function register()
 	for _, theme_builders in pairs(builders) do
 		theme_builders[IDENT_PAGE] = build_ident
 	end
+	hook_available_pages()
 	local update, repaint = cls.Update, cls.repaint
 	cls.Update = function(self)
 		update(self)

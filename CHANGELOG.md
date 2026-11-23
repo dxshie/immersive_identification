@@ -1,5 +1,11 @@
 # Changelog
 
+## 5.0.1
+
+- **WD compatibility synced to Wearable Devices 0.10.1.** WD 0.10 no longer adds a Promin
+  module's pages, so the OSD scanner's IDENTIFICATION page would have disappeared. It is now
+  added to WD's page list directly (number key 4 while the Promin is raised).
+
 ## 5.0.0
 
 - **Fix: free-aim assist on the bodycam-mt exe.** That engine removed `bodycam.get_fire_ray()`,

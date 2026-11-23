@@ -1178,8 +1178,10 @@ script, but `actor_on_first_update` is a callback that must be wired via
 ran. All wiring now happens in `on_game_start`.
 
 **Promin IDENTIFICATION page**: installing an **OSD scanner** module adds the `ident` page
-(`pages = {"ident"}` on the OSD scanner modules → WD's `get_available_pages` appends it after
-WD's own pages, so it is number key 3, or 4 with WD's map module; WD's header draws keys 1-3 only).
+(WD 0.10 lists a tier's pages on the tier and ignores a module's `pages`, so `ii_wd_promin` wraps
+`d_promin.get_available_pages` to append `ident` while an OSD scanner is installed. WD's own calls
+are unqualified and resolve through the module table, so its page validation and number keys see
+it too. It comes after WD's three tier pages, so it is number key 4; WD's header draws keys 1-3 only).
 `d_ii_promin_ident` builds it like WD 0.9's own pages: WD's chrome (`d_promin_chrome_ui.build`:
 frame, title, clock, battery, page keys) over WD's comms background, with a title texture made
 from WD's JetBrains Mono atlas (`ii_wd_title_ident.dds`), and every widget from the chrome's

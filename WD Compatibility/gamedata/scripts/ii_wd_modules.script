@@ -13,12 +13,12 @@
 -- No `pages`: the AR path shows on entities, not on the Promin.
 local ANTENNA = { name = "ii_ant", section = "ii_wd_antenna", bay = "conn" }
 
--- `pages = {"ident"}`: WD's get_available_pages() adds an installed module's pages to the
--- Promin's number keys, so installing an OSD scanner adds the IDENTIFICATION page.
+-- Installing one adds the IDENTIFICATION page: WD 0.10 ignores a module's `pages`, so
+-- ii_wd_promin appends it to WD's page list instead.
 local OSD_SCANNER = {
-	{ name = "ii_osd_t1", section = "ii_wd_osd_scanner_t1", bay = "ii_osd", pages = { "ident" } },
-	{ name = "ii_osd_t2", section = "ii_wd_osd_scanner_t2", bay = "ii_osd", pages = { "ident" } },
-	{ name = "ii_osd_t3", section = "ii_wd_osd_scanner_t3", bay = "ii_osd", pages = { "ident" } },
+	{ name = "ii_osd_t1", section = "ii_wd_osd_scanner_t1", bay = "ii_osd" },
+	{ name = "ii_osd_t2", section = "ii_wd_osd_scanner_t2", bay = "ii_osd" },
+	{ name = "ii_osd_t3", section = "ii_wd_osd_scanner_t3", bay = "ii_osd" },
 }
 
 local PROCESS = {
