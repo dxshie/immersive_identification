@@ -2,7 +2,11 @@
 --   * the IDENTIFICATION page: d_promin_ui keeps its page builders in a file local with no
 --     registration call, so the page is added to that table through the upvalues of
 --     UIPromin.ensure_page (the only function holding it);
---   * the identification cards: driven from UIPromin's own Update and repaint.
+--   * the identification cards: driven from UIPromin's own Update and repaint;
+--   * the page's number key: WD 0.10 dropped per-module pages (a tier lists all of its pages),
+--     so an installed OSD scanner appends the page to d_promin.get_available_pages;
+--   * a 4th header key for it: d_promin_chrome_ui.MAX_KEYS is raised to 4 and each chrome's
+--     clock, battery and signal move one key left while the 4th key is shown.
 -- If WD reshapes d_promin_ui, register() logs once and leaves the Promin alone.
 
 local IDENT_PAGE = "ident"
@@ -96,6 +100,103 @@ local function update_cards(wnd)
 	end
 end
 
+local function contains(list, value)
+	for _, item in ipairs(list) do
+		if item == value then
+			return true
+		end
+	end
+	return false
+end
+
+-- d_promin calls get_available_pages unqualified, which resolves through its module table, so
+-- replacing the field also covers WD's own page validation and number keys.
+local function hook_available_pages()
+	local available = d_promin.get_available_pages
+	d_promin.get_available_pages = function()
+		local pages = available()
+		if ii_wd_modules.osd_scanner_tier() and not contains(pages, IDENT_PAGE) then
+			pages[#pages + 1] = IDENT_PAGE
+		end
+		return pages
+	end
+end
+
+local HEADER = { keys = 4, pos = vector2() }
+
+-- WD right-aligns the page keys against the clock with only ~18 px to spare, so a 4th key would
+-- cover it. WD places the clock, battery and signal once at build and never again, so they are
+-- moved here, back and forth as the 4th key comes and goes (e.g. the OSD scanner is removed).
+local function new_header_shift(chrome)
+	local keys = chrome.layout and chrome.layout.keys
+	if not (keys and chrome.key_ids) then
+		return nil
+	end
+	local widgets, xs = {}, {}
+	local function add(widget)
+		if widget then
+			widgets[#widgets + 1] = widget
+			xs[#xs + 1] = widget:GetWndPos().x
+		end
+	end
+	for _, slot in ipairs(chrome.tm or {}) do
+		add(slot.widget)
+	end
+	add(chrome.bat_icon and chrome.bat_icon.widget)
+	local signal = chrome.signal
+	if signal then
+		for _, bar in ipairs(signal.bars or {}) do
+			add(bar.widget)
+		end
+		add(signal.cross and signal.cross.widget)
+	end
+	local dx = keys.w + keys.gap
+	local shifted = false
+	return function()
+		local want = chrome.key_ids[HEADER.keys] ~= nil
+		if want == shifted then
+			return
+		end
+		shifted = want
+		local offset = want and -dx or 0
+		for index, widget in ipairs(widgets) do
+			widget:SetWndPos(HEADER.pos:set(xs[index] + offset, widget:GetWndPos().y))
+		end
+	end
+end
+
+-- Pages call d_promin_chrome_ui.build qualified and read chrome.update / set_visible after it
+-- returns, so wrapping both here reaches every page's header, WD's and ours.
+local function hook_chrome_build()
+	local chrome_ui = d_promin_chrome_ui
+	if type(chrome_ui.MAX_KEYS) ~= "number" or type(chrome_ui.build) ~= "function" then
+		printf("! Immersive Identification: WD's Promin header changed, no 4th page key")
+		return
+	end
+	chrome_ui.MAX_KEYS = math.max(chrome_ui.MAX_KEYS, HEADER.keys)
+	local build = chrome_ui.build
+	chrome_ui.build = function(cfg)
+		local chrome = build(cfg)
+		local ok, apply = pcall(new_header_shift, chrome)
+		if not ok then
+			report("4th page key off", apply)
+			return chrome
+		end
+		if apply then
+			local update, set_visible = chrome.update, chrome.set_visible
+			chrome.update = function()
+				update()
+				apply()
+			end
+			chrome.set_visible = function(visible)
+				set_visible(visible)
+				apply()
+			end
+		end
+		return chrome
+	end
+end
+
 function register()
 	if hooked then
 		return
@@ -111,6 +212,8 @@ function register()
 	for _, theme_builders in pairs(builders) do
 		theme_builders[IDENT_PAGE] = build_ident
 	end
+	hook_available_pages()
+	hook_chrome_build()
 	local update, repaint = cls.Update, cls.repaint
 	cls.Update = function(self)
 		update(self)
