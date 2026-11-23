@@ -240,7 +240,7 @@ MCM_PAGES = ii_config.MCM_PAGES
 ---@field max_dist number? identify range (metres), from the scanner tier
 ---@field ignore_night boolean? scanner's no-night tier
 ---@field allow_ads boolean? scanner unlocks scope/ADS support
----@field allow_binoc boolean? scanner unlocks binocular identification (extends range by binoc_range_mult)
+---@field allow_binoc boolean? scanner unlocks binocular identification (extends range by the live binoc magnification, else binoc_range_mult)
 ---@field mag_boost boolean? scanner unlocks the magnification range boost
 ---@field osd_only boolean? OSD scanner: identify normally but draw NO on-entity UI (tags/markers) -- the result shows only on the Promin ident page
 ---@field feat table? per-feature display gates { faction, distance, relationship, rank, weapon }
@@ -2768,8 +2768,9 @@ end
 local function boost_params()
 	if tier_active() then
 		-- Tier system: range comes from the scanner tier (t.max_dist). Binoculars count when
-		-- the scanner unlocks them (allow_binoc, tier 1+) and extend the tier range by
-		-- binoc_range_mult; ADS counts only when the scanner unlocks scope/ADS (allow_ads),
+		-- the scanner unlocks them (allow_binoc, tier 1+) and extend the tier range by the
+		-- binoculars' live magnification (flat binoc_range_mult only when none is readable);
+		-- ADS counts only when the scanner unlocks scope/ADS (allow_ads),
 		-- with the magnification range boost at the scanner's mag tier (mag_boost). scan_mult
 		-- is unused (identify_target's tier branch sets scan time from the process tier).
 		local t = _tier ---@cast t ii_tier_override
@@ -2778,7 +2779,7 @@ local function boost_params()
 		local ads = (not binoc) and t.allow_ads and is_ads_active() or false
 		local range_mult = 1.0
 		if binoc then
-			range_mult = C.binoc_range_mult
+			range_mult = binoc_magnification() or C.binoc_range_mult
 		elseif ads and t.mag_boost then
 			local mag = scope_magnification()
 			if mag and mag > 1 then

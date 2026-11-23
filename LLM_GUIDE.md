@@ -491,7 +491,8 @@ This page only appears if the **Wearable Devices Compatibility** installer optio
   3.* The process module tier that reveals each piece of information.
 - **Binocular support / Scope-ADS support / Magnification boost / No visibility penalty tier**
   [wd_scanner_binoc/ads/mag/nonight]. *1 / 2 / 2 / 3.* The scanner tier that unlocks each
-  feature.
+  feature. With WD, raised binoculars multiply the tier range by their actual current
+  magnification (the flat binocular multiplier is only a fallback when none can be read).
 
 ### 4.18 Colors page
 

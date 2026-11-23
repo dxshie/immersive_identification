@@ -1168,7 +1168,8 @@ ident page is gated on the OSD scanner module being installed.
 `mag_boost` (T2) + `ignore_night` (T3); process tier → `scan_base` + `penalty_scale` + the
 display-feature unlocks. **Binoculars** count under the tier system when the scanner unlocks them
 (`allow_binoc`, T1 by default): raised binoculars extend the tier's identify range by
-`binoc_range_mult` (`boost_params` tier branch), for both channels. All WD calls are `rawget`/`pcall`-guarded so the component is inert (returns `nil`)
+the binoculars' live magnification (`binoc_magnification()`, independent of `binoc_zoom_scaling`;
+flat `binoc_range_mult` only when none is readable) (`boost_params` tier branch), for both channels. All WD calls are `rawget`/`pcall`-guarded so the component is inert (returns `nil`)
 when WD or II is absent, and never throws into core's per-frame path.
 
 **Bootstrap gotcha** (fixed): `on_game_start` is auto-called by the engine for every

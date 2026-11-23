@@ -9,6 +9,10 @@
   [`freeaim-identify-binding`](https://github.com/dxshie/xray-monolith-bodycam/tree/freeaim-identify-binding).
 - Debug log prints the free-aim ray, and says when `bodycam.get_state()` is missing instead of
   reporting the whole bodycam module as absent.
+- **Fix: WD binocular range uses the real magnification.** With Wearable Devices, raised
+  binoculars now multiply the scanner tier range by their current magnification instead of the
+  flat "Binoculars max distance multiplier", which is now only a fallback when no magnification
+  can be read.
 
 ## 4.4.1
 

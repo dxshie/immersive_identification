@@ -204,7 +204,7 @@ DEFAULTS = {
 	wd_feat_rank = 2,
 	wd_feat_weapon = 3,
 	wd_scanner_ads = 2, -- scanner tier that unlocks scope/ADS support (1..3)
-	wd_scanner_binoc = 1, -- scanner tier that unlocks binocular identification (1..3; extends range x binoc_range_mult)
+	wd_scanner_binoc = 1, -- scanner tier that unlocks binocular identification (1..3; extends range x live binoc magnification, else binoc_range_mult)
 	wd_scanner_mag = 2, -- scanner tier that unlocks the magnification range boost (1..3)
 	wd_scanner_nonight = 3, -- scanner tier that removes the target-visibility penalty (1..3)
 }
