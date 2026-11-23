@@ -491,7 +491,8 @@ This page only appears if the **Wearable Devices Compatibility** installer optio
   3.* The process module tier that reveals each piece of information.
 - **Binocular support / Scope-ADS support / Magnification boost / No visibility penalty tier**
   [wd_scanner_binoc/ads/mag/nonight]. *1 / 2 / 2 / 3.* The scanner tier that unlocks each
-  feature.
+  feature. With WD, raised binoculars multiply the tier range by their actual current
+  magnification (the flat binocular multiplier is only a fallback when none can be read).
 
 ### 4.18 Colors page
 
@@ -556,8 +557,8 @@ The base mod is always installed. The optional parts are below.
 - **Skill System: Perception**. Adds a **Perception** skill to the *Skill System* (haru_skills)
   mod. It levels up from identifying (and looting identified corpses) and speeds up scanning.
   Only install it if you have Skill System.
-- **Wearable Devices Compatibility (WD 0.8.14)**. Ties identification to scanner gear from
-  *st-wearable-devices*. Only for WD version 0.8.14; other versions may crash. Details below.
+- **Wearable Devices Compatibility (WD 0.9.4)**. Ties identification to scanner gear from
+  *st-wearable-devices*. Made for WD version 0.9.4; other versions may misbehave. Details below.
 
 **Custom faction patches** (choose at most one). Each also needs **Custom faction patches**
 switched on in UI Style → General.
@@ -581,8 +582,9 @@ There are two independent ways to make identification work:
 - **AR (labels on targets):** wear the bracer, the AR Scanner, and a powered Promin with the
   Antenna and a Process module installed.
 - **OSD (Promin screen readout):** install an OSD Scanner module and a Process module in a
-  powered, worn Promin. Results then appear on a new **IDENTIFICATION** page of the Promin, and as
-  pop-up cards on the other Promin pages. In OSD-only mode, no labels are drawn on targets.
+  powered, worn Promin. Results then appear on a new **IDENTIFICATION** page of the Promin (number
+  key 3 while the Promin is raised, or 4 with WD's map module), and as pop-up cards on the other
+  Promin pages. In OSD-only mode, no labels are drawn on targets.
 
 The tiers work like this:
 - The **process tier** sets the base scan time and penalty strength, and unlocks what's shown:

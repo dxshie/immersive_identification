@@ -438,7 +438,7 @@
 	<string id="ui_mcm_ii_wd_require_kit"><text>Require scanner kit to identify</text></string>
 	<string id="ui_mcm_ii_wd_require_kit_desc"><text>When the wearable-devices compatibility is installed: block ALL identification unless the full kit is worn/assembled (scanner worn + Promin antenna module + a process module). Off = identification still works normally when the kit isn't complete, and the tiers only enhance it while the kit is worn. Only affects you if st-wearable-devices and the compatibility component are installed.</text></string>
 	<string id="ui_mcm_ii_wd_notify_scale"><text>Identification notification scale</text></string>
-	<string id="ui_mcm_ii_wd_notify_scale_desc"><text>Size of the identification cards that pop up on the Promin BIOMONITOR and NAVIGATION pages. Scales the card, faction emblem, text, and stack spacing together. Applies live. Default 1.00.</text></string>
+	<string id="ui_mcm_ii_wd_notify_scale_desc"><text>Size of the identification cards that pop up on the Promin COMMUNICATIONS, BIOMONITOR and NAVIGATION pages. Scales the card, faction emblem, text, and stack spacing together. Applies live. Default 1.00.</text></string>
 	<string id="ui_mcm_ii_wd_proc_title"><text>- Process module: scan time per tier (s) -</text></string>
 	<string id="ui_mcm_ii_wd_proc_t1"><text>Tier 1 scan time (s)</text></string>
 	<string id="ui_mcm_ii_wd_proc_t1_desc"><text>Base scan time with a Tier 1 process module. Default 1.5s.</text></string>
@@ -473,7 +473,7 @@
 	<string id="ui_mcm_ii_wd_feat_weapon_desc"><text>Which process-module tier reveals the target's weapon and caliber. Default Tier 3.</text></string>
 	<string id="ui_mcm_ii_wd_scanner_title"><text>- Scanner tier that unlocks each feature -</text></string>
 	<string id="ui_mcm_ii_wd_scanner_binoc"><text>Binocular support tier</text></string>
-	<string id="ui_mcm_ii_wd_scanner_binoc_desc"><text>Which scanner tier enables identifying through raised binoculars (extends the identify range by the binocular range multiplier). Applies to both the AR and OSD channels. Default Tier 1.</text></string>
+	<string id="ui_mcm_ii_wd_scanner_binoc_desc"><text>Which scanner tier enables identifying through raised binoculars (extends the identify range by the binoculars' current magnification, or the binocular range multiplier if none can be read). Applies to both the AR and OSD channels. Default Tier 1.</text></string>
 	<string id="ui_mcm_ii_wd_scanner_ads"><text>Scope / ADS support tier</text></string>
 	<string id="ui_mcm_ii_wd_scanner_ads_desc"><text>Which scanner tier enables identifying while aiming down sights / through a scope. Default Tier 2.</text></string>
 	<string id="ui_mcm_ii_wd_scanner_mag"><text>Magnification boost tier</text></string>

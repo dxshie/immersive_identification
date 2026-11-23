@@ -240,7 +240,7 @@ MCM_PAGES = ii_config.MCM_PAGES
 ---@field max_dist number? identify range (metres), from the scanner tier
 ---@field ignore_night boolean? scanner's no-night tier
 ---@field allow_ads boolean? scanner unlocks scope/ADS support
----@field allow_binoc boolean? scanner unlocks binocular identification (extends range by binoc_range_mult)
+---@field allow_binoc boolean? scanner unlocks binocular identification (extends range by the live binoc magnification, else binoc_range_mult)
 ---@field mag_boost boolean? scanner unlocks the magnification range boost
 ---@field osd_only boolean? OSD scanner: identify normally but draw NO on-entity UI (tags/markers) -- the result shows only on the Promin ident page
 ---@field feat table? per-feature display gates { faction, distance, relationship, rank, weapon }
@@ -267,7 +267,7 @@ function get_last_identified_id()
 end
 
 -- The last target identified this session (or nil if none yet). Returns a fresh table:
--- { name, faction, rank, weap, x, y, z, dist } -- any field may be nil if that data wasn't
+-- { name, faction, comm, rank, weap, x, y, z, dist } -- any field may be nil if that data wasn't
 -- unlocked/available at identify time. `dist` is computed LIVE from the stored position to
 -- the actor (nil if either is unavailable). Global so the WD compat page can read it.
 function get_last_identified()
@@ -283,6 +283,7 @@ function get_last_identified()
 	return {
 		name = _last_id.name,
 		faction = _last_id.faction,
+		comm = _last_id.comm, -- community id, set only while the faction is shown
 		rank = _last_id.rank,
 		weap = _last_id.weap,
 		portrait = _last_id.portrait,
@@ -397,6 +398,15 @@ local function ext_bodycam()
 		return nil
 	end
 	return rawget(_G, "bodycam")
+end
+
+-- The bodycam engine's first-person transform module (first_person.*), or nil on a stock
+-- exe / an older custom exe. Same debug_sim_stock gate as ext_bodycam().
+local function ext_first_person()
+	if C.debug_sim_stock then
+		return nil
+	end
+	return rawget(_G, "first_person")
 end
 
 -- --------------------------------------------------------------------------
@@ -959,16 +969,35 @@ end
 -- Free-aim target-assist centre. On a normal engine the weapon points at the screen centre,
 -- so the FOV assist circle is centred on (512,384). On a bodycam / free-aim engine the aim
 -- points OFF-centre, so the assist follows it. Two sources (see weapon_aim_ui):
---   1. bodycam.get_fire_ray() -- the actor's first-eye aim camera. Reflects free aim for EVERY
---      held item (gun, knife, binoculars). Needs the custom bodycam binding.
+--   1. The actor's first-eye aim camera (freeaim_ray). Reflects free aim for EVERY held item
+--      (gun, knife, binoculars). Needs the custom bodycam exe.
 --   2. get_target_pos(ETraceTarget.Weapon) -- the standard engine weapon trace. Barrel-
 --      accurate for FIREARMS and works on a stock exe, but for a knife/binoculars it's the
 --      cosmetic HUD-model transform, not the aim -- hence source 1 for those.
 local FREEAIM_PROJECT_DIST = 100 -- metres along the aim ray to project for the reticle screen point
 
--- The gameplay aim ray (actor first-eye camera) via the custom bodycam.get_fire_ray() binding.
--- Returns origin + unit dir, or nil on an engine without the binding.
+-- The gameplay aim ray (actor first-eye camera). Returns origin + unit dir, or nil on an
+-- engine without either binding. Two engine seams, newest first:
+--   1. first_person.get_pose("camera_aim") -- the bodycam-mt transform API (cam_FirstEye()).
+--      false when not in first person or the pose is stale, which drops us to source 2 below.
+--   2. bodycam.get_fire_ray() -- the older custom binding it replaced (pre-bodycam-mt exes).
+local _aim_pose = nil
 local function freeaim_ray()
+	local fp = ext_first_person()
+	if fp and fp.get_pose and fp.pose then
+		if not _aim_pose then
+			local ok, p = pcall(fp.pose)
+			_aim_pose = ok and p or false
+		end
+		if _aim_pose then
+			local ok, got = pcall(fp.get_pose, "camera_aim", -1, "", _aim_pose)
+			if ok and got then
+				local o = _aim_pose.position
+				local d = _v.aim_dir:set(_aim_pose.forward):normalize()
+				return o.x, o.y, o.z, d.x, d.y, d.z
+			end
+		end
+	end
 	local bc = ext_bodycam()
 	if not (bc and bc.get_fire_ray) then
 		return nil
@@ -1214,9 +1243,18 @@ local function debug_dump_aim()
 	local cx, cy = aim_center()
 	dbg(string.format("aim_center=(%.0f, %.0f)  screen_center=(%d, %d)", cx, cy, UI_CX, UI_CY))
 
+	local fpx, fpy, fpz, fdx, fdy, fdz = freeaim_ray()
+	if fpx then
+		dbg(string.format("freeaim ray pos=(%.2f,%.2f,%.2f) dir=(%.3f,%.3f,%.3f)", fpx, fpy, fpz, fdx, fdy, fdz))
+	else
+		dbg("freeaim ray unavailable (no first_person/get_fire_ray binding, or not first person)")
+	end
+
 	local bc = ext_bodycam()
-	if not (bc and bc.get_state) then
+	if not bc then
 		dbg("bodycam module not present")
+	elseif not bc.get_state then
+		dbg("bodycam.get_state() not in this exe (removed in bodycam-mt)")
 	else
 		local ok, st = pcall(bc.get_state)
 		if not ok or type(st) ~= "table" then
@@ -1738,7 +1776,7 @@ end
 is_binoc_active = _frame:memoize(is_binoc_active)
 
 -- Is the actor aiming down sight (ADS) with a weapon right now? Prefers the
--- bodycam engine's real aim flag (bodycam.get_state().ads) -- which catches even
+-- bodycam engine's real aim flag (bodycam.get_state().ads, pre-bodycam-mt exes only) -- which catches even
 -- low-zoom iron sights -- and falls back to the same FOV-zoom heuristic
 -- is_binoc_active() uses, with a gentler ratio because ADS narrows the FOV less
 -- than a scope or binoculars. Binoculars are excluded (that's binocular mode's
@@ -1949,7 +1987,7 @@ binoc_magnification = _frame:memoize(binoc_magnification)
 local _aim_ray = nil
 
 -- "Are we aiming at the model" direct pick. Two sources, matching weapon_aim_ui:
---   1. A mesh raycast along the first-eye aim ray (bodycam.get_fire_ray) -- works for EVERY
+--   1. A mesh raycast along the first-eye aim ray (freeaim_ray) -- works for EVERY
 --      held item (gun/knife/binoculars); rqtBoth so walls block; ignores the actor's capsule.
 --   2. The standard engine weapon trace get_target_obj(ETraceTarget.Weapon) -- barrel-accurate
 --      for firearms, works on a stock exe, range-gated by max_dist here.
@@ -2730,8 +2768,9 @@ end
 local function boost_params()
 	if tier_active() then
 		-- Tier system: range comes from the scanner tier (t.max_dist). Binoculars count when
-		-- the scanner unlocks them (allow_binoc, tier 1+) and extend the tier range by
-		-- binoc_range_mult; ADS counts only when the scanner unlocks scope/ADS (allow_ads),
+		-- the scanner unlocks them (allow_binoc, tier 1+) and extend the tier range by the
+		-- binoculars' live magnification (flat binoc_range_mult only when none is readable);
+		-- ADS counts only when the scanner unlocks scope/ADS (allow_ads),
 		-- with the magnification range boost at the scanner's mag tier (mag_boost). scan_mult
 		-- is unused (identify_target's tier branch sets scan time from the process tier).
 		local t = _tier ---@cast t ii_tier_override
@@ -2740,7 +2779,7 @@ local function boost_params()
 		local ads = (not binoc) and t.allow_ads and is_ads_active() or false
 		local range_mult = 1.0
 		if binoc then
-			range_mult = C.binoc_range_mult
+			range_mult = binoc_magnification() or C.binoc_range_mult
 		elseif ads and t.mag_boost then
 			local mag = scope_magnification()
 			if mag and mag > 1 then
@@ -2858,7 +2897,10 @@ end
 -- iterate_nearest + a per-candidate has_los() raycast every frame across a crowd
 -- is wasteful, and the scan reveal is on a timescale where a few-hundred-ms
 -- cadence is invisible.
-local _auto = { throttle_ms = 250, last_tg = 0 }
+-- The sweep is time-sliced: at most los_budget candidates reach has_los per frame (an occluded
+-- target never early-outs, so it pays every LOS bone's march), and `skip` resumes the next frame
+-- past those already checked. A crowd otherwise fired ~1000 rays in one frame (60-75 ms hitch).
+local _auto = { throttle_ms = 250, last_tg = 0, los_budget = 4, skip = 0 }
 
 -- LOS alone also passes targets behind the camera; those would occupy tag slots
 -- without ever being drawable, starving the targets actually in view.
@@ -2907,10 +2949,9 @@ local function update_auto_identify(tg)
 	-- Throttled full sweep of everything in view. Deliberately independent of fov_identify_all:
 	-- that option picks all-vs-nearest inside the aim-assist radius, while auto-identify
 	-- does not involve aiming at all.
-	if tg - _auto.last_tg < _auto.throttle_ms then
+	if _auto.skip == 0 and tg - _auto.last_tg < _auto.throttle_ms then
 		return
 	end
-	_auto.last_tg = tg
 
 	local apos = _frame:position(db.actor)
 	local actor_id = db.actor:id()
@@ -2922,6 +2963,7 @@ local function update_auto_identify(tg)
 	if aim_only then
 		acx, acy = aim_center()
 	end
+	local skip, seen, checked = _auto.skip, 0, 0
 	pcall(level.iterate_nearest, apos, eff_max_dist, function(obj)
 		if obj and not _tracks:has_room(obj:id()) then
 			return false
@@ -2935,14 +2977,29 @@ local function update_auto_identify(tg)
 						local d = screen_dist_to_body(obj, acx, acy)
 						aimed = d ~= nil and d <= assist_radius()
 					end
-					if aimed and in_view(obj) and has_los(obj) then
-						identify_target(obj, comm, boosted, eff_max_dist, scan_mult, true)
+					if aimed and in_view(obj) then
+						seen = seen + 1
+						if seen > skip then
+							if checked >= _auto.los_budget then
+								return true -- budget spent; resume here next frame
+							end
+							checked = checked + 1
+							if has_los(obj) then
+								identify_target(obj, comm, boosted, eff_max_dist, scan_mult, true)
+							end
+						end
 					end
 				end
 			end
 		end
 		return false -- keep scanning the whole set within eff_max_dist
 	end)
+	if checked >= _auto.los_budget and seen > skip + checked then
+		_auto.skip = skip + checked
+	else
+		_auto.skip = 0
+		_auto.last_tg = tg
+	end
 end
 
 -- --------------------------------------------------------------------------
@@ -4444,6 +4501,8 @@ local function render(tg)
 				e.osd_done = true
 				_last_id.id = id
 				_last_id.name, _last_id.faction = e.name, e.header
+				-- Gated like the faction text: the community picks the Promin's emblem.
+				_last_id.comm = e.header and e.comm or nil
 				_last_id.rank, _last_id.weap = e.rank, e.weap
 				_last_id.rank_level = e.rank_level
 				-- Same live pick as the per-entity tag above.
