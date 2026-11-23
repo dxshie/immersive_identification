@@ -583,7 +583,7 @@ There are two independent ways to make identification work:
   Antenna and a Process module installed.
 - **OSD (Promin screen readout):** install an OSD Scanner module and a Process module in a
   powered, worn Promin. Results then appear on a new **IDENTIFICATION** page of the Promin (number
-  key 4 while the Promin is raised; WD's header only shows keys 1-3), and as pop-up cards on the other
+  key 4 while the Promin is raised; a 4th key in the top-right lights up on it), and as pop-up cards on the other
   Promin pages. In OSD-only mode, no labels are drawn on targets.
 
 The tiers work like this:

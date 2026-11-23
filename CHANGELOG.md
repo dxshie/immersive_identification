@@ -5,6 +5,8 @@
 - **WD compatibility synced to Wearable Devices 0.10.1.** WD 0.10 no longer adds a Promin
   module's pages, so the OSD scanner's IDENTIFICATION page would have disappeared. It is now
   added to WD's page list directly (number key 4 while the Promin is raised).
+- The Promin header now shows a **4th page key** that lights up on the IDENTIFICATION page; the
+  clock, battery and signal icons move one key to the left while it is there.
 
 ## 5.0.0
 
